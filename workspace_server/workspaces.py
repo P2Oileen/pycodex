@@ -43,11 +43,10 @@ class WorkspaceStateStore:
                 continue
             title = str(tab.get("title") or "").strip()
             rollout_path = str(tab.get("rollout_path") or "").strip()
-            if title or rollout_path:
-                restored = {"title": title, "rollout_path": rollout_path}
-                if tab.get("fork") is True:
-                    restored["fork"] = True
-                result.append(restored)
+            restored = {"title": title, "rollout_path": rollout_path}
+            if tab.get("fork") is True:
+                restored["fork"] = True
+            result.append(restored)
         return result
 
     def save_tabs(self, tabs: "typing.Iterable[typing.Dict[str, object]]") -> None:
@@ -253,7 +252,6 @@ class WorkspaceSessionManager:
         self._session_order: "typing.List[str]" = []
         self._state_watchers: "typing.Dict[str, asyncio.Task]" = {}
         self._tab_states: "typing.Dict[str, typing.Dict[str, object]]" = {}
-        self._saved_session_ids: "typing.Set[str]" = set()
         self._lock = None
         self._state_store = WorkspaceStateStore(board_path)
         self._persist_callback = persist_callback
@@ -275,11 +273,14 @@ class WorkspaceSessionManager:
             await self.create_session()
             return
         for tab in state_tabs:
-            await self.create_session(
+            await self._create_session(
                 title=str(tab.get("title") or ""),
                 rollout_path=str(tab.get("rollout_path") or ""),
                 fork=tab.get("fork") is True,
             )
+        for session_id in self._session_order:
+            self._subscribe_session_state(session_id)
+        self.persist_workspace_state()
 
     async def close(self) -> None:
         sessions = list(self._sessions.values())
@@ -298,9 +299,19 @@ class WorkspaceSessionManager:
             self._session_order = []
             self._state_watchers.clear()
             self._tab_states.clear()
-            self._saved_session_ids.clear()
 
     async def create_session(
+        self,
+        title: str = "",
+        rollout_path: str = "",
+        fork: bool = False,
+    ) -> str:
+        session_id = await self._create_session(title, rollout_path, fork)
+        self._subscribe_session_state(session_id)
+        self.persist_workspace_state()
+        return session_id
+
+    async def _create_session(
         self,
         title: str = "",
         rollout_path: str = "",
@@ -327,13 +338,14 @@ class WorkspaceSessionManager:
                 "rollout_path": rollout_path,
                 **({"fork": True} if fork else {}),
             }
-            if title or rollout_path:
-                self._saved_session_ids.add(session_id)
-            subscriber = session.subscribe()
-            self._state_watchers[session_id] = asyncio.create_task(
-                self._watch_session_state(session_id, session, subscriber)
-            )
             return session_id
+
+    def _subscribe_session_state(self, session_id: str) -> None:
+        session = self._sessions[session_id]
+        subscriber = session.subscribe()
+        self._state_watchers[session_id] = asyncio.create_task(
+            self._watch_session_state(session_id, session, subscriber)
+        )
 
     async def close_session(self, session_id: str) -> None:
         async with self._get_lock():
@@ -344,7 +356,6 @@ class WorkspaceSessionManager:
                 raise KeyError(session_id)
             watcher = self._state_watchers.pop(session_id, None)
             self._tab_states.pop(session_id, None)
-            self._saved_session_ids.discard(session_id)
             self._session_order = [
                 item for item in self._session_order if item != session_id
             ]
@@ -379,12 +390,7 @@ class WorkspaceSessionManager:
                     state["rollout_path"] = path
                     state.pop("fork", None)
                 self._tab_states[session_id] = state
-                save_requested = event.get("type") == "title_changed" or reason in {
-                    "identity",
-                    "history",
-                }
-                saved = session_id in self._saved_session_ids
-                if (save_requested or saved) and (state != previous or not saved):
+                if state != previous:
                     self.persist_workspace_state()
         finally:
             session.unsubscribe(subscriber)
@@ -396,15 +402,8 @@ class WorkspaceSessionManager:
             if session is None:
                 continue
             state = self._tab_states[session_id]
-            if not state["title"] and not state["rollout_path"]:
-                continue
             tabs.append(state)
         self._state_store.save_tabs(tabs)
-        self._saved_session_ids.update(
-            session_id
-            for session_id, state in self._tab_states.items()
-            if state["title"] or state["rollout_path"]
-        )
         if self._persist_callback is not None:
             self._persist_callback()
 

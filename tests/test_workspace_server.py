@@ -555,11 +555,23 @@ def test_boardless_workspace_preserves_context_and_tools(
     assert load_workspace_definitions(config)[0].board_path is None
 
 
-def test_sessions_persist_explicit_titles_and_restore_history(tmp_path):
+@pytest.mark.parametrize("explicit_title", [False, True])
+@pytest.mark.parametrize("threaded", [False, True])
+def test_sessions_persist_titles_and_restore_history(
+    tmp_path, explicit_title, threaded
+):
     board = tmp_path / "board.html"
     board.write_text("unchanged board", encoding="utf-8")
     store = WorkspaceStateStore(board)
-    with TestClient(create_app(make_session, board)) as browser:
+
+    def session_factory():
+        if threaded:
+            return ThreadedWorkspaceInteractiveSession(
+                make_session, asyncio.get_running_loop()
+            )
+        return make_session()
+
+    with TestClient(create_app(session_factory, board)) as browser:
         first_id = browser.get("/api/sessions").json()["sessions"][0]["id"]
         browser.post(
             "/api/session/message",
@@ -569,23 +581,27 @@ def test_sessions_persist_explicit_titles_and_restore_history(tmp_path):
             browser,
             lambda item: item["turns"] and item["turns"][-1]["response"] == "done",
         )
-        assert store.load_tabs() == []
-        response = browser.post(
-            "/api/session/message",
-            json={"session_id": first_id, "prompt": "/title saved"},
-        )
-        assert response.status_code == 200
+        assert store.load_tabs() == [
+            {"title": "saved prompt", "rollout_path": state["rollout_path"]}
+        ]
+        if explicit_title:
+            response = browser.post(
+                "/api/session/message",
+                json={"session_id": first_id, "prompt": "/title saved"},
+            )
+            assert response.status_code == 200
         second_id = browser.post("/api/sessions").json()["session_id"]
         assert len(browser.get("/api/sessions").json()["sessions"]) == 2
         assert browser.delete("/api/sessions/" + second_id).status_code == 200
         assert browser.delete("/api/sessions/" + first_id).status_code == 400
     assert board.read_text(encoding="utf-8") == "unchanged board"
+    title = "saved" if explicit_title else "saved prompt"
     assert store.load_tabs() == [
-        {"title": "saved", "rollout_path": state["rollout_path"]}
+        {"title": title, "rollout_path": state["rollout_path"]}
     ]
-    with TestClient(create_app(make_session, board)) as browser:
+    with TestClient(create_app(session_factory, board)) as browser:
         restored = browser.get("/api/session").json()["snapshot"]
-        assert restored["title"] == "saved"
+        assert restored["title"] == title
         assert [(turn["prompt"], turn["response"]) for turn in restored["turns"]] == [
             ("saved prompt", "done")
         ]
@@ -683,6 +699,45 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
     ]
 
 
+@pytest.mark.parametrize("threaded", [False, True])
+def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
+    board = tmp_path / "board.html"
+    store = WorkspaceStateStore(board)
+    empty_tab = {"title": "", "rollout_path": ""}
+
+    def session_factory():
+        if threaded:
+            return ThreadedWorkspaceInteractiveSession(
+                make_session, asyncio.get_running_loop()
+            )
+        return make_session()
+
+    with TestClient(create_app(session_factory, board)) as browser:
+        assert store.load_tabs() == [empty_tab]
+        first_id = browser.get("/api/sessions").json()["sessions"][0]["id"]
+        second_id = browser.post("/api/sessions").json()["session_id"]
+        browser.post("/api/sessions")
+        assert store.load_tabs() == [empty_tab] * 3
+        assert browser.delete("/api/sessions/" + second_id).status_code == 200
+        assert store.load_tabs() == [empty_tab] * 2
+        snapshot = browser.get(
+            "/api/session", params={"session_id": first_id}
+        ).json()["snapshot"]
+        assert not Path(snapshot["rollout_path"]).exists()
+
+    with TestClient(create_app(session_factory, board)) as browser:
+        tabs = browser.get("/api/sessions").json()["sessions"]
+        assert len(tabs) == 2
+        assert store.load_tabs() == [empty_tab] * 2
+        for tab in tabs:
+            snapshot = browser.get(
+                "/api/session", params={"session_id": tab["id"]}
+            ).json()["snapshot"]
+            assert snapshot["title"] == ""
+            assert not snapshot["turns"]
+            assert not Path(snapshot["rollout_path"]).exists()
+
+
 def test_titled_empty_workspace_tab_survives_restart(tmp_path):
     board = tmp_path / "board.html"
     store = WorkspaceStateStore(board)
@@ -716,7 +771,9 @@ def test_workspace_explicit_save_keeps_unchanged_state(tmp_path, command):
         state = wait_snapshot(
             browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done"
         )
-        assert store.load_tabs() == []
+        assert store.load_tabs() == [
+            {"title": "saved prompt", "rollout_path": state["rollout_path"]}
+        ]
         response = browser.post("/api/session/message", json={"prompt": command})
         assert response.status_code == 200
     assert store.load_tabs() == [
@@ -807,6 +864,35 @@ async def test_workspace_missing_restore_path_still_fails_and_closes_session(tmp
         await manager.start()
     assert session.runtime.agent.is_shutdown
     assert not manager.list_sessions()
+
+
+@pytest.mark.asyncio
+async def test_workspace_failed_restore_keeps_the_full_saved_tab_list(
+    tmp_path, monkeypatch
+):
+    session = await make_session().start()
+    try:
+        receipt = await session.runtime.submit_input("saved prompt")
+        await receipt.future
+        rollout_path = session.runtime.agent.session_file_path
+    finally:
+        await session.close()
+    monkeypatch.chdir(rollout_path.parent)
+    board = tmp_path / "board.html"
+    store = WorkspaceStateStore(board)
+    tabs = [
+        {"title": "", "rollout_path": ""},
+        {"title": "saved", "rollout_path": rollout_path.name},
+        {"title": "missing", "rollout_path": str(tmp_path / "missing.jsonl")},
+    ]
+    store.save_tabs(tabs)
+    manager = WorkspaceSessionManager(make_session, board)
+    try:
+        with pytest.raises(FileNotFoundError):
+            await manager.start()
+        assert store.load_tabs() == tabs
+    finally:
+        await manager.close()
 
 
 def test_workspace_does_not_save_a_fork_destination_owned_by_another_writer(tmp_path):

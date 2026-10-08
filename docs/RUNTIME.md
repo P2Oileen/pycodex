@@ -182,7 +182,13 @@ own; unlinking a Feishu card only detaches that frontend. Web submits directly
 to the backend, including across its worker-thread boundary: it does not run a
 CLI shell or maintain an extra prompt queue.
 
-Workspace tab persistence follows recording changes as well as explicit titles.
+Workspace state stores every open tab in order, starting when the tab is created.
+An empty tab stores an empty title and rollout path, so restoring it creates a
+fresh empty session without writing a rollout. Manual titles and first messages
+are not prerequisites for keeping a tab across a server restart. Changes to
+automatic or explicit titles and recorded paths update the same saved tab.
+Startup restores the full tab list before saving it; closing a tab removes its
+entry.
 Once a fork's first turn or successful compact creates its rollout, the saved tab
 points to that file, including when the model subsequently fails. Before the
 file exists, the tab stores the recorded ancestor's path with an explicit
