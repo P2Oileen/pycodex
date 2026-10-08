@@ -1041,6 +1041,7 @@
     const contextMeter = document.getElementById("contextMeter");
     const contextMeterValue = document.getElementById("contextMeterValue");
     const newTabButton = document.getElementById("newTab");
+    const workspaceTitle = document.title;
     let pollTimer = null;
     let boardPollTimer = null;
     let sessionPoll = null;
@@ -1682,6 +1683,7 @@
         state.wasRunning = isRunning;
       });
       sessions = incomingSessions;
+      document.title = (sessions.some(session => session.running) ? "● " : "") + workspaceTitle;
       if (!activeSessionId && sessions.length) {
         activeSessionId = sessions[0].id || "";
       }

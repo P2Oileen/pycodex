@@ -128,6 +128,8 @@ class AbortController {
 }
 const log = {textContent: "", scrollTop: 0, scrollHeight: 1000, clientHeight: 100};
 const prompt = {value: ""};
+const document = {title: "Workspace"};
+const workspaceTitle = document.title;
 const relativeUrl = path => path;
 const resizePrompt = () => {};
 const renderTabs = () => {};
@@ -179,11 +181,16 @@ const fetch = async (path, options = {}) => {
 (async () => {
   sessions = tabs.slice();
   activeSessionId = "a";
+  updateSessions([{id: "a", running: false}, {id: "b", running: true}]);
+  assert.equal(document.title, "● Workspace");
+  updateSessions([{id: "a", running: false}, {id: "b", running: true}]);
+  assert.equal(document.title, "● Workspace");
   renderSnapshot(snapshot("a"));
   prompt.value = "draft a";
   log.scrollTop = 123;
   await switchSession("b");
   assert.equal(log.textContent, "answer b");
+  assert.equal(document.title, "Workspace");
   prompt.value = "draft b";
   log.scrollTop = 9;
   delayOldPoll = process.argv[2] !== "none";
@@ -194,6 +201,7 @@ const fetch = async (path, options = {}) => {
   assert.equal(prompt.value, "draft a");
   assert.equal(log.scrollTop, 123);
   assert.equal(sessionState.has("b"), false);
+  assert.equal(document.title, "Workspace");
   if (oldPoll) {
     assert.equal(delayedSignal.aborted, true);
     finishOldPoll();
@@ -205,6 +213,10 @@ const fetch = async (path, options = {}) => {
   assert.equal(log.textContent, "answer a");
   await pollSession();
   assert.equal(log.textContent, "answer a");
+  updateSessions([{id: "a", running: true}]);
+  assert.equal(document.title, "● Workspace");
+  updateSessions([]);
+  assert.equal(document.title, "Workspace");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     result = subprocess.run(

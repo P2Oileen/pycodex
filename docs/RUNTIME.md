@@ -111,6 +111,9 @@ updating other tab state. A save targets the edited session even if another
 tab is selected before its response arrives.
 Selected tabs use a tinted background without a click-focus border; keyboard
 focus on the title uses an underline.
+The browser page title gains a `●` prefix while any session in the workspace
+is running, using the same session summaries as the tab activity dots. It returns
+to the original workspace title when all sessions are idle.
 
 The workspace presents assistant replies as open text and user messages as
 right-aligned bubbles. Commands and thinking use quieter secondary styling;
