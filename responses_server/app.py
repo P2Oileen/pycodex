@@ -41,12 +41,8 @@ def _stream_events(
         for event_name, payload in event_iter:
             yield _format_sse_event(event_name, payload)
     except OutcommingChatError as exc:
-
-        import traceback
-
-        exc_info = traceback.format_exception(type(exc), exc, exc.__traceback__)
         error = {
-            "message": "\n".join(exc_info),
+            "message": str(exc),
         }
         error_type = getattr(exc, "error_type", None)
         if error_type:

@@ -1,4 +1,5 @@
 import asyncio
+import http.client
 import json
 import re
 import threading
@@ -14,7 +15,10 @@ import requests
 import pycodex.utils.get_env as get_env
 from pycodex import (
     NOOP_MODEL_STREAM_EVENT_HANDLER,
+    Agent,
     AssistantMessage,
+    BaseTool,
+    ContextConfig,
     ContextMessage,
     ModelEvent,
     ModelResponse,
@@ -24,13 +28,18 @@ from pycodex import (
     ResponsesModelClient,
     ResponsesProviderConfig,
     ToolCall,
+    ToolRegistry,
     ToolResult,
     ToolSpec,
     UserMessage,
 )
 from pycodex.compat import ThreadingHTTPServer
 from pycodex.events import AssistantDeltaEvent, TokenCountEvent, ToolCalledEvent
-from pycodex.model import RESPONSES_LITE_HEADER
+from pycodex.model import (
+    RESPONSES_LITE_HEADER,
+    ResponsesApiError,
+    ResponsesRetryableError,
+)
 from pycodex.utils.session_persist import (
     SessionRolloutRecorder,
     load_resumed_session_path,
@@ -1508,6 +1517,301 @@ async def test_responses_model_client_retries_retryable_stream_failures() -> "No
     assert events[0].kind == "stream_error"
     assert events[0].message == "Reconnecting... 1/1"
     assert events[1] == TokenCountEvent(None)
+
+
+@pytest.mark.asyncio
+async def test_responses_model_client_does_not_retry_function_argument_parse_errors(
+    monkeypatch,
+) -> "None":
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            model="demo",
+            provider_name="demo",
+            base_url="https://example.invalid/v1",
+            api_key_env=None,
+            stream_max_retries=1,
+        )
+    )
+    requests_seen = []
+    events = []
+
+    def send_response(session, request, **kwargs):
+        requests_seen.append(request.body)
+        payload = {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "call_id": "invalid",
+                "name": "echo",
+                "arguments": '{"text":',
+            },
+        }
+        response = requests.Response()
+        response.status_code = 200
+        response._content = (
+            "data: "
+            + json.dumps(payload)
+            + "\n\n"
+            + 'data: {"type":"response.completed"}\n\n'
+        ).encode("utf-8")
+        response._content_consumed = True
+        return response
+
+    monkeypatch.setattr(requests.Session, "send", send_response)
+    with pytest.raises(json.JSONDecodeError):
+        await client.complete(
+            Prompt(input=[UserMessage(text="call echo")], tools=[]),
+            events.append,
+        )
+    assert len(requests_seen) == 1
+    assert not [event for event in events if event.kind == "stream_error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments, recover, max_retries, expected_error",
+    [
+        ('{"session_id":1073 "yield_time_ms":80000}', True, 1, None),
+        (
+            '{"session_id":1073 "yield_time_ms":80000}',
+            False,
+            1,
+            ResponsesRetryableError,
+        ),
+        (
+            '{"session_id":1073 "yield_time_ms":80000}',
+            False,
+            0,
+            ResponsesRetryableError,
+        ),
+        ("[]", False, 1, ResponsesApiError),
+    ],
+)
+async def test_responses_model_client_retries_compat_function_argument_errors(
+    tmp_path, monkeypatch, arguments, recover, max_retries, expected_error
+):
+    from responses_server import CompatServerConfig, ManagedResponseServer
+    from tests.responses_server.fake_chat_completions_server import (
+        CaptureStore as ChatCaptureStore,
+        build_test_server,
+        build_text_chunks,
+    )
+
+    executed = []
+    requests_seen = []
+    events = []
+
+    class RecordingTool(BaseTool):
+        name = "echo"
+        description = "Record tool execution."
+        input_schema = {"type": "object"}
+
+        async def run(self, context, args):
+            executed.append(args["text"])
+            return args["text"]
+
+    def echo_call(text):
+        return {
+            "index": 0,
+            "type": "function",
+            "id": text,
+            "function": {
+                "name": "echo",
+                "arguments": json.dumps({"text": text}),
+            },
+        }
+
+    def tool_chunks(calls):
+        return [
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"tool_calls": calls},
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        ]
+
+    streams = [
+        tool_chunks([echo_call("previous")]),
+        tool_chunks(
+            [
+                echo_call("discarded"),
+                {
+                    "index": 1,
+                    "type": "function",
+                    "id": "invalid",
+                    "function": {
+                        "name": "write_stdin",
+                        "arguments": arguments,
+                    },
+                },
+            ]
+        ),
+    ]
+    if recover:
+        streams.extend(
+            [
+                tool_chunks([echo_call("recovered")]),
+                build_text_chunks("done"),
+            ]
+        )
+    capture_dir = tmp_path / "chat_capture"
+    fake_chat_server = build_test_server(ChatCaptureStore(capture_dir), streams)
+    compat_server = ManagedResponseServer(
+        CompatServerConfig(
+            outcomming_base_url=f"{fake_chat_server.base_url}/v1",
+        )
+    )
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            model="demo",
+            provider_name="demo",
+            base_url=compat_server.base_url,
+            api_key_env=None,
+            stream_max_retries=max_retries,
+        )
+    )
+    monkeypatch.setattr(client, "_retry_delay_seconds", lambda retries: 0)
+    original_send = requests.Session.send
+
+    def send_response(session, request, **kwargs):
+        requests_seen.append((request.body, request.headers["session_id"]))
+        return original_send(session, request, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "send", send_response)
+    tools = ToolRegistry()
+    tools.register(RecordingTool())
+    agent = Agent(
+        client,
+        tools,
+        ContextConfig(base_instructions="Fixture.", codex_home=tmp_path, cwd=tmp_path),
+        event_handler=events.append,
+    )
+    fake_chat_server.start()
+    try:
+        compat_server.start()
+        try:
+            if recover:
+                result = await agent.run_turn(["continue"])
+                assert result.output_text == "done"
+                assert result.iterations == 3
+            else:
+                with pytest.raises(expected_error) as exc_info:
+                    await agent.run_turn(["continue"])
+                if expected_error is ResponsesRetryableError:
+                    assert "response.failed" in str(exc_info.value)
+                    assert "server_error" in str(exc_info.value)
+        finally:
+            compat_server.stop()
+    finally:
+        agent.shutdown()
+        fake_chat_server.stop()
+
+    if recover:
+        retries = 1
+    elif expected_error is ResponsesRetryableError:
+        retries = max_retries
+    else:
+        retries = 0
+    assert len(requests_seen) == (4 if recover else 2 + retries)
+    downstream_requests = [
+        json.loads(path.read_text(encoding="utf-8"))["body"]
+        for path in sorted(capture_dir.glob("*.json"))
+    ]
+    assert len(downstream_requests) == len(requests_seen)
+    if retries:
+        assert requests_seen[1] == requests_seen[2]
+        assert downstream_requests[1] == downstream_requests[2]
+    expected_calls = ["previous", "recovered"] if recover else ["previous"]
+    assert executed == expected_calls
+    assert [
+        item.call_id for item in agent.history if isinstance(item, ToolCall)
+    ] == expected_calls
+    assert [
+        item.call_id for item in agent.history if isinstance(item, ToolResult)
+    ] == expected_calls
+    assert [
+        item.text for item in agent.history if isinstance(item, UserMessage)
+    ] == ["continue"]
+    stream_errors = [event for event in events if event.kind == "stream_error"]
+    assert len(stream_errors) == retries
+    for event in stream_errors:
+        assert "response.failed" in event.error
+        assert "server_error" in event.error
+        assert "write_stdin" in event.error
+        assert "Expecting ',' delimiter" in event.error
+        assert arguments not in event.error
+
+
+@pytest.mark.asyncio
+async def test_responses_model_client_retries_initial_compat_backend_disconnect(
+    tmp_path, monkeypatch
+) -> "None":
+    import responses_server.stream_router as stream_router
+    from responses_server import CompatServerConfig, ManagedResponseServer
+    from tests.responses_server.fake_chat_completions_server import (
+        CaptureStore as ChatCaptureStore,
+        build_test_server,
+        build_text_chunks,
+    )
+
+    fake_chat_server = build_test_server(
+        ChatCaptureStore(tmp_path / "chat_capture"),
+        build_text_chunks("done"),
+    )
+    fake_chat_server.start()
+    compat_server = ManagedResponseServer(
+        CompatServerConfig(
+            outcomming_base_url=f"{fake_chat_server.base_url}/v1",
+        )
+    )
+    compat_server.start()
+    urlopen = stream_router.urllib.request.urlopen
+    requests_seen = []
+
+    def open_response(request, **kwargs):
+        requests_seen.append(request.data)
+        if len(requests_seen) == 1:
+            raise http.client.RemoteDisconnected(
+                "Remote end closed connection without response"
+            )
+        return urlopen(request, **kwargs)
+
+    monkeypatch.setattr(stream_router.urllib.request, "urlopen", open_response)
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            model="demo-model",
+            provider_name="demo",
+            base_url=compat_server.base_url,
+            api_key_env=None,
+            stream_max_retries=1,
+        )
+    )
+    events = []
+    try:
+        response = await client.complete(
+            Prompt(input=[UserMessage(text="hi")], tools=[]),
+            events.append,
+        )
+    finally:
+        compat_server.stop()
+        fake_chat_server.stop()
+
+    assert [
+        item.text for item in response.items if isinstance(item, AssistantMessage)
+    ] == ["done"]
+    assert len(requests_seen) == 2
+    assert requests_seen[0] == requests_seen[1]
+    stream_errors = [event for event in events if event.kind == "stream_error"]
+    assert len(stream_errors) == 1
+    assert stream_errors[0].message == "Reconnecting... 1/1"
+    assert "RemoteDisconnected" in stream_errors[0].error
+    assert "response.failed" in stream_errors[0].error
+    assert "phase=waiting_response_headers" in stream_errors[0].error
+    assert "headers=not_received, first_chunk=not_received, chunks=0" in stream_errors[0].error
 
 
 @pytest.mark.asyncio

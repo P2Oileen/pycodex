@@ -541,7 +541,8 @@ context; `ResponsesModelClient.model` uses the same provider config as metadata.
 
 Only the Responses provider classifies external error text:
 
-- Transient/disconnected streams use `ResponsesRetryableError`.
+- Transient/disconnected streams and retryable `response.failed` events
+  use `ResponsesRetryableError`.
 - Context overflow uses `ContextLengthExceeded`, with optional usage and limit
   parsed from the provider's error details.
 - A genuine terminal incomplete response uses `ResponsesIncompleteError` and
@@ -549,6 +550,22 @@ Only the Responses provider classifies external error text:
 
 Custom clients must raise the corresponding exception rather than rely on
 arbitrary `RuntimeError` text being reinterpreted by the Agent or compactor.
+
+The local `responses_server` validates ordinary function-call arguments after
+assembling the downstream stream. Malformed JSON produces `response.failed` with
+`type = "server_error"` before any final output items are emitted. The error names
+the tool and JSON parsing failure without including raw arguments.
+`ResponsesModelClient` handles this through its generic provider error path and
+retries only the current request under `stream_max_retries`; it does not classify
+tool argument parse failures as retryable locally. Earlier completed tools stay
+in history and retries do not restart the turn. Valid JSON that decodes to a
+non-object still raises a terminal API error; freeform/custom tool inputs remain
+plain text.
+
+Assistant message text remains text, including content that resembles a tool
+call. Tool parse errors require a structured tool item or an explicit provider
+error; the client does not infer them from patterns in assistant prose.
+
 For max-output incomplete responses, the Agent persists done assistant/reasoning
 items for continuation, but not bare text deltas or tool calls without results.
 

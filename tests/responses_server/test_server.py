@@ -1,7 +1,11 @@
+import http.client
+import io
 import json
 import socket
 import threading
 import typing
+import urllib.error
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -1303,6 +1307,75 @@ def test_responses_server_translates_chat_tool_calls_to_incomming_items(
     assert '\\"text\\":\\"hello\\"' in body
 
 
+@pytest.mark.parametrize("outcomming_api", ["chat_completions", "messages"])
+@pytest.mark.parametrize(
+    "arguments_parts",
+    [
+        ['{"session_id":1073 ', '"yield_time_ms":80000}'],
+        ['{"text":"', "unfinished"],
+    ],
+)
+def test_responses_server_rejects_invalid_function_arguments(
+    tmp_path, outcomming_api, arguments_parts
+) -> "None":
+    capture_dir = tmp_path / "capture"
+    capture_store = CaptureStore(capture_dir)
+    if outcomming_api == "messages":
+        fake_server = build_fake_messages_server(
+            capture_store,
+            build_messages_tool_use_events("invalid", "echo", arguments_parts),
+        )
+    else:
+        fake_server = build_fake_chat_server(
+            capture_store,
+            build_tool_call_chunks("invalid", "echo", arguments_parts),
+        )
+    fake_server.start()
+    app = ManagedResponseServer.build_app(
+        CompatServerConfig(
+            outcomming_base_url=f"{fake_server.base_url}/v1",
+            outcomming_api=outcomming_api,
+        )
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/responses",
+                json={
+                    "model": "demo",
+                    "input": [],
+                    "stream": True,
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "echo",
+                            "parameters": {"type": "object"},
+                        }
+                    ],
+                },
+            )
+    finally:
+        fake_server.stop()
+
+    assert response.status_code == 200
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert [event["type"] for event in events] == [
+        "response.created",
+        "response.failed",
+    ]
+    error = events[-1]["response"]["error"]
+    assert error["type"] == "server_error"
+    assert "'echo' contain invalid JSON" in error["message"]
+    assert "line 1 column" in error["message"]
+    assert "".join(arguments_parts) not in error["message"]
+    assert "Traceback" not in error["message"]
+    assert len(list(capture_dir.glob("*.json"))) == 1
+
+
 def test_responses_server_reconstructs_tool_history_for_outcomming_chat(
     tmp_path,
 ) -> "None":
@@ -1829,8 +1902,15 @@ def test_responses_server_reconstructs_custom_tool_history_for_outcomming_chat(
     ]
 
 
+@pytest.mark.parametrize(
+    "arguments_parts",
+    [
+        ['{"input":"', '*** Begin Patch\\n*** End Patch\\n"}'],
+        ["*** Begin Patch\n", "*** End Patch\n"],
+    ],
+)
 def test_responses_server_translates_adapted_custom_calls_back_to_custom_items(
-    tmp_path,
+    tmp_path, arguments_parts
 ) -> "None":
     capture_store = CaptureStore(tmp_path / "chat_capture")
     fake_chat_server = build_fake_chat_server(
@@ -1838,7 +1918,7 @@ def test_responses_server_translates_adapted_custom_calls_back_to_custom_items(
         build_tool_call_chunks(
             "call_1",
             "apply_patch",
-            ['{"input":"', '*** Begin Patch\\n*** End Patch\\n"}'],
+            arguments_parts,
         ),
     )
     fake_chat_server.start()
@@ -2516,6 +2596,181 @@ def test_responses_server_turns_initial_downstream_timeout_into_response_failed(
     assert response.status_code == 200
     assert "event: response.failed" in response.text
     assert "outcomming chat request timed out after 12.5s" in response.text
+
+
+@pytest.mark.parametrize("outcomming_api", ["chat_completions", "messages"])
+@pytest.mark.parametrize(
+    "error_class",
+    [http.client.RemoteDisconnected, ConnectionResetError, EOFError],
+)
+def test_responses_server_turns_initial_downstream_disconnect_into_response_failed(
+    monkeypatch, tmp_path, outcomming_api, error_class
+) -> "None":
+    monkeypatch.setenv("PYCODEX_DUMP", str(tmp_path / "trajectory"))
+    clock = [100.0]
+    monkeypatch.setattr(
+        "responses_server.stream_router.time",
+        SimpleNamespace(monotonic=lambda: clock[0]),
+    )
+
+    def raise_disconnect(*args, **kwargs):
+        clock[0] = 160.25
+        raise error_class("connection closed before response")
+
+    monkeypatch.setattr(
+        "responses_server.stream_router.urllib.request.urlopen",
+        raise_disconnect,
+    )
+    app = ManagedResponseServer.build_app(
+        CompatServerConfig(
+            outcomming_base_url="https://example.invalid/v1",
+            outcomming_api=outcomming_api,
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "step-5-preview", "input": [], "stream": True},
+        )
+
+    assert response.status_code == 200
+    assert "event: response.created" in response.text
+    assert "event: response.failed" in response.text
+    assert "failed while opening response" in response.text
+    assert error_class.__name__ in response.text
+    assert "phase=waiting_response_headers, elapsed=60.25s, timeout=300s" in response.text
+    assert "headers=not_received, first_chunk=not_received, chunks=0" in response.text
+    assert "Traceback" not in response.text
+    assert "event: response.completed" not in response.text
+    record = json.loads(
+        (tmp_path / "trajectory" / "dump.jsonl").read_text(encoding="utf-8")
+    )
+    assert record["stream_completed"] is False
+    assert record["stream_error_type"] == "OutcommingChatError"
+    assert record["stream_error_cause_type"] == error_class.__name__
+    assert record["tokens"] == {"prefill": [], "decode": []}
+
+
+@pytest.mark.parametrize("outcomming_api", ["chat_completions", "messages"])
+@pytest.mark.parametrize("partial", [False, True])
+def test_responses_server_includes_stream_failure_timing(
+    monkeypatch, outcomming_api, partial
+) -> "None":
+    clock = [100.0]
+    monkeypatch.setattr(
+        "responses_server.stream_router.time",
+        SimpleNamespace(monotonic=lambda: clock[0]),
+    )
+
+    class StreamResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def __iter__(self):
+            yield b": heartbeat\n"
+            yield b"\n"
+            if partial:
+                clock[0] = 102.0
+                chunk = (
+                    {"choices": [{"delta": {"content": "partial"}}]}
+                    if outcomming_api == "chat_completions"
+                    else {
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": {"type": "text_delta", "text": "partial"},
+                    }
+                )
+                yield ("data: " + json.dumps(chunk) + "\n").encode("utf-8")
+                yield b"\n"
+            clock[0] = 160.0
+            raise ConnectionResetError("connection lost")
+
+    def open_response(*args, **kwargs):
+        clock[0] = 101.0
+        return StreamResponse()
+
+    monkeypatch.setattr(
+        "responses_server.stream_router.urllib.request.urlopen", open_response
+    )
+    app = ManagedResponseServer.build_app(
+        CompatServerConfig(
+            outcomming_base_url="https://example.invalid/v1",
+            outcomming_api=outcomming_api,
+        )
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "test", "input": [], "stream": True},
+        )
+
+    assert "event: response.failed" in response.text
+    assert "elapsed=60.00s, timeout=300s" in response.text
+    assert "headers=1.00s" in response.text
+    assert "status=200" in response.text
+    assert "exception=ConnectionResetError" in response.text
+    if partial:
+        assert "phase=reading_stream" in response.text
+        assert "first_chunk=2.00s, chunks=1, idle=58.00s" in response.text
+    else:
+        assert "phase=waiting_first_chunk" in response.text
+        assert "first_chunk=not_received, chunks=0" in response.text
+
+
+def test_responses_server_includes_downstream_http_error_status(monkeypatch) -> "None":
+    def open_response(*args, **kwargs):
+        raise urllib.error.HTTPError(
+            "https://example.invalid/v1/chat/completions",
+            504,
+            "Gateway Timeout",
+            {},
+            io.BytesIO(b"upstream timed out"),
+        )
+
+    monkeypatch.setattr(
+        "responses_server.stream_router.urllib.request.urlopen", open_response
+    )
+    app = ManagedResponseServer.build_app(
+        CompatServerConfig(outcomming_base_url="https://example.invalid/v1")
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "test", "input": [], "stream": True},
+        )
+
+    assert "event: response.failed" in response.text
+    assert "upstream timed out" in response.text
+    assert "phase=reading_error_body" in response.text
+    assert "status=504" in response.text
+    assert "exception=HTTPError" in response.text
+
+
+def test_responses_server_turns_initial_models_disconnect_into_bad_gateway(
+    monkeypatch,
+) -> "None":
+    def raise_disconnect(*args, **kwargs):
+        raise http.client.RemoteDisconnected("connection closed before response")
+
+    monkeypatch.setattr(
+        "responses_server.stream_router.urllib.request.urlopen",
+        raise_disconnect,
+    )
+    app = ManagedResponseServer.build_app(
+        CompatServerConfig(outcomming_base_url="https://example.invalid/v1")
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/v1/models")
+
+    assert response.status_code == 502
+    assert "RemoteDisconnected" in response.json()["error"]["message"]
 
 
 def test_managed_response_server_forces_asyncio_loop() -> "None":

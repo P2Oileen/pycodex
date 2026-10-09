@@ -1,9 +1,11 @@
 import http.client
 import json
 import ssl
+import time
 import typing
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 
 from .config import CompatServerConfig
 from .messages_api import MessagesAPIAdapterError, build_messages_request
@@ -194,12 +196,19 @@ class StreamRouter:
             headers=self._build_headers(accept="text/event-stream"),
             method="POST",
         )
+        with self._request_diagnostics(request) as progress:
+            yield from self._read_outcomming_chat_stream(request, progress)
+
+    def _read_outcomming_chat_stream(self, request, progress):
         try:
             with urllib.request.urlopen(
                 request,
                 context=ssl.create_default_context(),
                 timeout=self._config.timeout_seconds,
             ) as response:
+                progress["headers_at"] = time.monotonic()
+                progress["status"] = response.status
+                progress["phase"] = "waiting_first_chunk"
                 try:
                     saw_done = False
                     for _event_name, data in self._iter_sse_events(response):
@@ -209,6 +218,7 @@ class StreamRouter:
                             saw_done = True
                             break
                         payload = json.loads(data)
+                        self._received_chunk(progress)
                         if isinstance(payload, dict) and payload.get("error") is not None:
                             raise OutcommingChatError(
                                 "outcomming chat stream returned an error: "
@@ -231,6 +241,9 @@ class StreamRouter:
                         f"{exc}"
                     ) from exc
         except urllib.error.HTTPError as exc:
+            progress["headers_at"] = time.monotonic()
+            progress["status"] = exc.code
+            progress["phase"] = "reading_error_body"
             body = exc.read().decode("utf-8", errors="replace")
             raise OutcommingChatError(
                 f"outcomming chat request failed with status {exc.code}: {body[:500]}"
@@ -243,6 +256,11 @@ class StreamRouter:
         except urllib.error.URLError as exc:
             raise OutcommingChatError(
                 f"outcomming chat request failed: {exc.reason}"
+            ) from exc
+        except (OSError, EOFError, http.client.HTTPException) as exc:
+            raise OutcommingChatError(
+                "outcomming chat request failed while opening response: "
+                f"{type(exc).__name__}: {exc}"
             ) from exc
 
     def _open_outcomming_messages_stream(
@@ -260,12 +278,19 @@ class StreamRouter:
             headers=self._build_headers(accept="text/event-stream"),
             method="POST",
         )
+        with self._request_diagnostics(request) as progress:
+            yield from self._read_outcomming_messages_stream(request, progress)
+
+    def _read_outcomming_messages_stream(self, request, progress):
         try:
             with urllib.request.urlopen(
                 request,
                 context=ssl.create_default_context(),
                 timeout=self._config.timeout_seconds,
             ) as response:
+                progress["headers_at"] = time.monotonic()
+                progress["status"] = response.status
+                progress["phase"] = "waiting_first_chunk"
                 try:
                     stream_state: "typing.Dict[str, object]" = {}
                     for event_name, data in self._iter_sse_events(response):
@@ -274,6 +299,7 @@ class StreamRouter:
                         payload = json.loads(data)
                         if not isinstance(payload, dict):
                             continue
+                        self._received_chunk(progress)
                         for chunk in iter_chat_chunks_from_messages(
                             event_name,
                             payload,
@@ -297,6 +323,9 @@ class StreamRouter:
                         f"{exc}"
                     ) from exc
         except urllib.error.HTTPError as exc:
+            progress["headers_at"] = time.monotonic()
+            progress["status"] = exc.code
+            progress["phase"] = "reading_error_body"
             body = exc.read().decode("utf-8", errors="replace")
             raise OutcommingChatError(
                 f"outcomming messages request failed with status {exc.code}: {body[:500]}"
@@ -309,6 +338,11 @@ class StreamRouter:
         except urllib.error.URLError as exc:
             raise OutcommingChatError(
                 f"outcomming messages request failed: {exc.reason}"
+            ) from exc
+        except (OSError, EOFError, http.client.HTTPException) as exc:
+            raise OutcommingChatError(
+                "outcomming messages request failed while opening response: "
+                f"{type(exc).__name__}: {exc}"
             ) from exc
 
     def route_stream(
@@ -468,6 +502,58 @@ class StreamRouter:
             outcomming_stream,
             outcomming_request,
         )
+
+    @contextmanager
+    def _request_diagnostics(self, request):
+        started = time.monotonic()
+        progress = {
+            "phase": "waiting_response_headers",
+            "headers_at": None,
+            "first_chunk_at": None,
+            "last_chunk_at": None,
+            "chunks": 0,
+            "status": None,
+        }
+        try:
+            yield progress
+        except OutcommingChatError as exc:
+            now = time.monotonic()
+            cause = exc.__cause__ or exc
+            if isinstance(cause, urllib.error.URLError) and isinstance(
+                cause.reason, BaseException
+            ):
+                cause = cause.reason
+
+            def timing(received_at):
+                if received_at is None:
+                    return "not_received"
+                return f"{received_at - started:.2f}s"
+
+            idle = (
+                f"{now - progress['last_chunk_at']:.2f}s"
+                if progress["last_chunk_at"] is not None
+                else "not_started"
+            )
+            details = (
+                f"phase={progress['phase']}, elapsed={now - started:.2f}s, "
+                f"timeout={self._config.timeout_seconds:g}s\n"
+                f"headers={timing(progress['headers_at'])}, "
+                f"first_chunk={timing(progress['first_chunk_at'])}, "
+                f"chunks={progress['chunks']}, idle={idle}\n"
+                f"status={progress['status']}, "
+                f"request_bytes={len(request.data or b'')}, "
+                f"exception={type(cause).__name__}"
+            )
+            exc.args = (f"{exc}\n{details}",)
+            raise
+
+    def _received_chunk(self, progress):
+        now = time.monotonic()
+        if progress["chunks"] == 0:
+            progress["first_chunk_at"] = now
+        progress["last_chunk_at"] = now
+        progress["chunks"] += 1
+        progress["phase"] = "reading_stream"
 
     def _responses_input_to_chat_messages(
         self,
@@ -970,6 +1056,14 @@ class StreamRouter:
                 except CustomToolAdapterError as exc:
                     raise OutcommingChatError(str(exc)) from exc
                 continue
+            try:
+                json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise OutcommingChatError(
+                    f"outcomming function call arguments for {name!r} "
+                    f"contain invalid JSON: {exc}",
+                    error_type="server_error",
+                ) from exc
             items.append(
                 {
                     "type": "function_call",
@@ -984,14 +1078,24 @@ class StreamRouter:
     def _request_json(
         self, request: "urllib.request.Request"
     ) -> "typing.Dict[str, object]":
+        with self._request_diagnostics(request) as progress:
+            return self._read_json_response(request, progress)
+
+    def _read_json_response(self, request, progress):
         try:
             with urllib.request.urlopen(
                 request,
                 context=ssl.create_default_context(),
                 timeout=self._config.timeout_seconds,
             ) as response:
+                progress["headers_at"] = time.monotonic()
+                progress["status"] = response.status
+                progress["phase"] = "reading_response_body"
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            progress["headers_at"] = time.monotonic()
+            progress["status"] = exc.code
+            progress["phase"] = "reading_error_body"
             body = exc.read().decode("utf-8", errors="replace")
             raise OutcommingChatError(
                 f"outcomming request failed with status {exc.code}: {body[:500]}"
@@ -1004,6 +1108,10 @@ class StreamRouter:
         except urllib.error.URLError as exc:
             raise OutcommingChatError(
                 f"outcomming request failed: {exc.reason}"
+            ) from exc
+        except (OSError, EOFError, http.client.HTTPException) as exc:
+            raise OutcommingChatError(
+                f"outcomming request failed: {type(exc).__name__}: {exc}"
             ) from exc
 
     def _build_headers(self, accept: "str") -> "typing.Dict[str, str]":

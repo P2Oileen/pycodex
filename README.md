@@ -135,6 +135,9 @@ Chained failures also retain `stream_error_cause_type` and, for HTTP errors,
 `stream_error_http_status`; exception messages, headers and URLs are not
 copied into these diagnostic fields.
 
+Downstream errors include elapsed time, timeout, failure stage, response-header
+and first-chunk timing, and received chunk count directly in the error message.
+
 ## Live Model Integration
 
 If this machine already has a Codex CLI configuration, `pycodex` can reuse the
@@ -307,6 +310,15 @@ Current behavior:
   reasoning, retries the same downstream request once, and only then emits
   `response.failed` with `type = "model_output_invalid"` if the retry is still
   reasoning-only
+- malformed JSON in ordinary downstream function-call arguments is detected by
+  `responses_server` and returned as `response.failed` with `type = "server_error"`;
+  the client's existing `stream_max_retries` policy retries the current request
+  before its local tools execute
+- downstream connection failures before HTTP response headers or during SSE
+  reading are converted to `response.failed` for provider retries. Downstream
+  requests honor environment proxies; see the
+  [connection troubleshooting notes](docs/responses_server/README.md#连接排查)
+  for `RemoteDisconnected` and proxy bypass configuration
 - standalone `responses_server` now also supports downstream `/v1/messages`
   backends via `--outcomming-api messages`, while keeping the internal
   canonical request/route logic in chat-completions shape

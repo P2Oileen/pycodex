@@ -35,8 +35,9 @@ prompt 渲染路径一致，也保留 provider 自定义 effort 值（例如 `ma
 - vLLM 历史 `reasoning` item -> assistant message `reasoning` 字段回放
 - vLLM streaming `usage` -> final `response.completed.response.usage`
 - 当环境变量 `PYCODEX_DUMP` 存在时，为每条 outcomming 请求附加 `return_token_ids = true`，并把实际下发的 request body、下游 usage/cache、`prompt_token_ids` / `token_ids` 以 JSONL 追加到 `{PYCODEX_DUMP}/dump.jsonl`
-- 下游 chat stream 如果半路断开，会转成上游可解析的 `response.failed` 事件，而不是直接截断 HTTP body
+- 下游请求在等待响应头或读流时失败，会返回 `response.failed`，错误直接包含耗时、timeout、失败阶段、响应头/首个 chunk 的时间和 chunk 数量
 - 普通 function tools
+- 普通 function-call 参数拼接完成后校验 JSON；解析失败返回 `response.failed(type=server_error)`，由客户端按现有策略重试
 - custom tools 的 function-wrapper 兼容适配
 - mock `web_search` 接口对齐（返回空结果）
 - function / custom tool follow-up history 重建
@@ -123,6 +124,14 @@ template 不消费 `developer` role；使用该模板的 provider 应显式配�
 length-stopped thinking 被持久化成 terminal reasoning-only history，并在下一轮转换成
 下游 chat 后端不接受的裸 assistant message。
 
+普通 function-call 的 `arguments` 在拼接完成后由 server 校验 JSON。解析失败时，
+server 在发出本次最终 output items 之前返回 `response.failed(type=server_error)`；
+错误只包含工具名和解析位置，不包含原始参数。`ResponsesModelClient` 通过通用
+`response.failed` 处理按 `stream_max_retries` 重试当前请求，默认最多重试 5 次。
+这条路径不增加 server 内部重试，也不把本次失败响应里的工具交给 Agent 执行。
+合法 JSON 的内容保持原样；非 object 的参数仍由客户端按既有契约报错。
+custom/freeform 工具继续使用原有适配流程，assistant 正文也继续作为文本处理。
+
 `messages` compat 则故意不改这层 canonical request：仍然先构造 chat 风格
 `outcomming_request`，只有在真正发请求和读 SSE 时，才在边界把它翻译成
 messages request / event。这样 tool hydration、mock `web_search`
@@ -131,6 +140,11 @@ follow-up、provider payload post-process 仍然复用同一套主逻辑。
 当前 messages 边界还会补一个兼容性细节：下游如果像 vLLM `0.19.0` 一样要求
 `max_tokens`，则优先透传上游请求里的 `max_output_tokens` / `max_tokens`；
 如果上游没给，当前默认补 `32000`，避免直接被下游 `400` 拒绝。
+
+下游失败无需开启调试模式。正常错误里的 `phase=waiting_response_headers`
+表示尚未收到响应头，`waiting_first_chunk` 表示响应头已到但尚无完整 chunk，
+`reading_stream` 表示流已开始；`elapsed` 是本次请求耗时，`idle` 是距离
+最近一个完整 chunk 的时间。SSE 心跳不计入 chunk 数。
 
 ## 验证
 
