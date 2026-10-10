@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,6 +31,31 @@ def test_workspace_distribution_tracks_core_version() -> "None":
     ]
     assert "scripts" not in workspace["project"]
     assert core["project"]["scripts"]["pycodex-ws"] == "workspace_server:main"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "exit_code", "output"),
+    [
+        (["--help"], 0, "usage: pycodex "),
+        (["doctor", "--help"], 0, "usage: pycodex doctor "),
+        (["--unknown-option"], 2, "unrecognized arguments: --unknown-option"),
+    ],
+)
+def test_python_module_entrypoint(tmp_path, arguments, exit_code, output):
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(ROOT)
+    result = subprocess.run(
+        [sys.executable, "-m", "pycodex"] + arguments,
+        cwd=str(tmp_path),
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+        timeout=15,
+    )
+
+    assert result.returncode == exit_code, result.stderr
+    assert output in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("filename", ["test.yml", "publish.yml"])

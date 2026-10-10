@@ -4,8 +4,16 @@
 [`python-codex`](https://pypi.org/project/python-codex/).
 
 ```bash
-pip install pycodex-ws
+python3 -m pip install pycodex-ws
 pycodex-ws --help
+```
+
+Requires Python 3.6.2 or newer. With multiple Python installations, use the
+installing interpreter to launch either frontend directly:
+
+```bash
+python3 -m workspace_server --help
+python3 -m pycodex --help
 ```
 
 This distribution intentionally contains only package metadata. It depends on

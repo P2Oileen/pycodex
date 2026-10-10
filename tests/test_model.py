@@ -268,6 +268,94 @@ def test_provider_config_reads_codex_style_config_with_profile_override(
     assert provider.beta_features_header == "guardian_approval"
 
 
+@pytest.mark.parametrize("selection", ["", 'model_provider = "openai"\n'])
+def test_provider_config_defaults_to_builtin_openai(
+    tmp_path, monkeypatch, selection
+) -> "None":
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'model = "gpt-5.4"\n' + selection,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    provider = ResponsesProviderConfig.from_codex_config(config_path)
+    client = ResponsesModelClient(provider)
+
+    assert provider.model == "gpt-5.4"
+    assert provider.provider_name == "openai"
+    assert client.responses_url() == "https://api.openai.com/v1/responses"
+    assert provider.api_key_env == "OPENAI_API_KEY"
+    assert provider.api_key() == "test-key"
+
+
+def test_provider_config_uses_openai_default_with_unselected_custom_provider(
+    tmp_path,
+) -> "None":
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'model = "gpt-5.4"\n'
+        "[model_providers.local]\n"
+        'base_url = "http://localhost:8000/v1"\n',
+        encoding="utf-8",
+    )
+
+    provider = ResponsesProviderConfig.from_codex_config(config_path)
+
+    assert provider.provider_name == "openai"
+    assert provider.base_url == "https://api.openai.com/v1"
+
+
+def test_provider_config_profile_selects_builtin_openai(tmp_path) -> "None":
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'model = "base-model"\n'
+        'model_provider = "local"\n'
+        "[model_providers.local]\n"
+        'base_url = "http://localhost:8000/v1"\n'
+        "[profiles.openai]\n"
+        'model = "gpt-5.4"\n'
+        'model_provider = "openai"\n'
+        'openai_base_url = "https://example.invalid/v1"\n',
+        encoding="utf-8",
+    )
+
+    provider = ResponsesProviderConfig.from_codex_config(config_path, "openai")
+
+    assert provider.model == "gpt-5.4"
+    assert provider.provider_name == "openai"
+    assert provider.base_url == "https://example.invalid/v1"
+    assert provider.api_key_env == "OPENAI_API_KEY"
+
+
+def test_provider_config_preserves_explicit_openai_provider(tmp_path) -> "None":
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'model = "local-model"\n'
+        'model_provider = "openai"\n'
+        "[model_providers.openai]\n"
+        'base_url = "http://localhost:8000/v1"\n',
+        encoding="utf-8",
+    )
+
+    provider = ResponsesProviderConfig.from_codex_config(config_path)
+
+    assert provider.base_url == "http://localhost:8000/v1"
+    assert provider.api_key_env is None
+    assert provider.api_key() is None
+
+
+def test_provider_config_rejects_unknown_provider(tmp_path) -> "None":
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'model = "gpt-5.4"\nmodel_provider = "missing"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unknown Codex model provider: missing"):
+        ResponsesProviderConfig.from_codex_config(config_path)
+
+
 def test_build_payload_omits_tool_choice_when_no_tools() -> "None":
     client = ResponsesModelClient(
         ResponsesProviderConfig(

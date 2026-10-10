@@ -2,6 +2,8 @@
 
 中文 README。English version: `README.md`
 
+0.3.2 启动修复：[发布说明](docs/RELEASE_0.3.2.md)。
+
 0.3.0 发版准备与 Python API 迁移说明：`docs/RELEASE_0.3.0.md`。
 
 PyPI distributions：
@@ -34,11 +36,22 @@ Import 路径仍保持 `pycodex`；CLI 命令为 `pycodex` 和 `pycodex-ws`。
 安装完整包或 workspace 安装别名：
 
 ```bash
-pip install python-codex
-pip install pycodex-ws
+python3 -m pip install python-codex
+python3 -m pip install pycodex-ws
 ```
 
-先安装开发依赖：
+要求 Python 3.6.2 或更新版本。两个命令会安装到该解释器的 scripts 目录。
+在同时存在 Python 2/3 或多套 Python 的机器上，可以明确使用安装时的解释器启动：
+
+```bash
+python3 -m pycodex
+python3 -m workspace_server --help
+```
+
+如果 `PATH` 中找不到 `pycodex`，或者命中了旧安装，使用以上模块入口即可。
+`python3 -m pip --version` 可确认包安装到了哪个 Python 环境。
+
+从本仓库开发时，先安装依赖：
 
 ```bash
 uv sync
@@ -187,6 +200,16 @@ from pycodex import ResponsesModelClient
 
 client = ResponsesModelClient.from_codex_config()
 ```
+
+`model_provider` 可省略，默认使用 `openai`。内置 provider 不要求
+`[model_providers.openai]` 表，默认地址为 `https://api.openai.com/v1`，
+从 `OPENAI_API_KEY` 读取密钥；可用 `openai_base_url` 覆盖地址。
+显式 provider 表仍使用其配置的 `base_url` 和可选 `env_key`，
+未知 provider 名称会报明确的配置错误。模型名仍从配置或所选 profile 的
+`model` 字段读取。
+
+当前认证通过环境变量或 `.env` 中的 API key 完成，尚不读取官方 Codex
+桌面端/CLI 保存在 `auth.json` 或系统钥匙串中的 ChatGPT 登录凭据。
 
 当前实现走 OpenAI-compatible Responses API 的流式 `/responses` 接口。这个点
 已经用本机 `~/.codex/config.toml` 做过联调验证。

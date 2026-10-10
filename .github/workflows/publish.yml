@@ -117,6 +117,17 @@ jobs:
           python -m build --outdir dist/pycodex-ws packages/pycodex-ws
           python -m twine check dist/python-codex/* dist/pycodex-ws/*
 
+      - name: Smoke test installed wheels
+        run: |
+          python -m venv "$RUNNER_TEMP/pycodex-wheel"
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip install \
+            dist/python-codex/*.whl dist/pycodex-ws/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pycodex-wheel/bin/pycodex" --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/pycodex-ws" --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pycodex --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m workspace_server --help
+
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:

@@ -107,8 +107,17 @@ class ResponsesProviderConfig:
                 raise ValueError(f"unknown Codex profile: {profile}")
             selected.update(overrides)
 
-        provider_name = selected["model_provider"]
-        provider = data["model_providers"][provider_name]
+        provider_name = selected.get("model_provider", "openai")
+        provider = data.get("model_providers", {}).get(provider_name)
+        if provider is None:
+            if provider_name != "openai":
+                raise ValueError(f"unknown Codex model provider: {provider_name}")
+            provider = {
+                "base_url": (
+                    selected.get("openai_base_url") or "https://api.openai.com/v1"
+                ),
+                "env_key": "OPENAI_API_KEY",
+            }
         wire_api = provider.get("wire_api", "responses")
         if wire_api != "responses":
             raise ValueError(f"unsupported wire_api for Python client: {wire_api}")

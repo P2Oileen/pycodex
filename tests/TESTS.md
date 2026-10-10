@@ -22,8 +22,20 @@
 - 如果已推送的 tag 在 CI 初始化阶段失败，修复 workflow 后应从包含修复的
   branch 手动运行 `publish`，并选择正确的 `repository`。直接重跑旧的
   tag workflow 仍使用旧提交；不要为了 CI 修复强制移动已公开的 tag。
+- `publish.yml` 构建两个 wheel 后，在新 venv 中通过 pip 安装 `pycodex-ws`
+  及同批 `python-codex`，离开源码目录后检查两个 console script 和
+  `python -m pycodex` / `python -m workspace_server`，成功后才上传发布产物。
+  `test_packaging.py` 另覆盖模块入口的帮助、doctor 分发及参数错误退出码。
 
 ## 自动化测试
+
+### Provider 配置
+
+- `test_model.py` 覆盖省略 `model_provider` / provider 表时默认使用内置
+  `openai`、显式选择内置 provider、profile 选择及 `openai_base_url` 覆盖、
+  保留显式 provider 表语义，以及未知 provider 的明确错误。
+- `test_doctor.py` 用本地 Responses fixture 验证省略 provider 的配置可完成
+  配置、API key、连通性和模型请求检查，不访问真实模型服务。
 
 ### VS Code 前端
 

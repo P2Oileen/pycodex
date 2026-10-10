@@ -30,9 +30,11 @@ def _write_config(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("builtin_openai", [False, True])
 async def test_collect_doctor_report_succeeds_with_live_check(
     tmp_path,
     monkeypatch,
+    builtin_openai,
 ) -> "None":
     capture_store = CaptureStore(tmp_path / "capture")
     httpd = ThreadingHTTPServer(
@@ -43,8 +45,18 @@ async def test_collect_doctor_report_succeeds_with_live_check(
     server_thread.start()
 
     config_path = tmp_path / "config.toml"
-    _write_config(config_path, f"http://127.0.0.1:{httpd.server_port}/v1")
-    monkeypatch.setenv("DOCTOR_KEY", "dummy-key")
+    base_url = f"http://127.0.0.1:{httpd.server_port}/v1"
+    if builtin_openai:
+        config_path.write_text(
+            'model = "gpt-5.4"\n'
+            f'openai_base_url = "{base_url}"\n',
+            encoding="utf-8",
+        )
+        env_key = "OPENAI_API_KEY"
+    else:
+        _write_config(config_path, base_url)
+        env_key = "DOCTOR_KEY"
+    monkeypatch.setenv(env_key, "dummy-key")
 
     try:
         report = await collect_doctor_report(
@@ -58,8 +70,8 @@ async def test_collect_doctor_report_succeeds_with_live_check(
         httpd.server_close()
 
     assert report.ok is True
-    assert report.provider_name == "neo"
-    assert report.api_key_env == "DOCTOR_KEY"
+    assert report.provider_name == ("openai" if builtin_openai else "neo")
+    assert report.api_key_env == env_key
     assert report.api_key_loaded is True
     assert report.live_output_text == "OK"
     assert {check.name for check in report.checks} == {

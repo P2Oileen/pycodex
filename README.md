@@ -2,6 +2,8 @@
 
 English README. Chinese version: `README_ZH.md`
 
+0.3.2 startup fixes: [release notes](docs/RELEASE_0.3.2.md).
+
 0.3.0 release preparation and Python API migration: `docs/RELEASE_0.3.0.md`.
 
 PyPI distributions:
@@ -37,11 +39,24 @@ Relevant Rust reference points:
 Install the full package or the workspace-oriented alias:
 
 ```bash
-pip install python-codex
-pip install pycodex-ws
+python3 -m pip install python-codex
+python3 -m pip install pycodex-ws
 ```
 
-Install dependencies first:
+Use Python 3.6.2 or newer. Both console commands are installed into that
+interpreter's scripts directory. On a machine with multiple Python installations,
+you can select the same interpreter explicitly for startup:
+
+```bash
+python3 -m pycodex
+python3 -m workspace_server --help
+```
+
+If `pycodex` is missing from `PATH` or resolves to an older installation, use these
+module entry points. `python3 -m pip --version` shows which Python environment
+received the installation.
+
+For development from this repository, install dependencies first:
 
 ```bash
 uv sync
@@ -176,6 +191,18 @@ from pycodex import ResponsesModelClient
 
 client = ResponsesModelClient.from_codex_config()
 ```
+
+`model_provider` is optional and defaults to `openai`. The built-in provider
+does not require a `[model_providers.openai]` table: it uses
+`https://api.openai.com/v1` and reads `OPENAI_API_KEY`. Set `openai_base_url` to
+override this address. Explicit provider tables retain their configured
+`base_url` and optional `env_key`; unknown provider names raise a configuration
+error. The model still comes from `model` in the configuration or selected
+profile.
+
+Authentication currently uses API keys from environment variables or `.env`;
+Codex desktop/CLI ChatGPT sign-in credentials in `auth.json` or the OS keychain
+are not loaded.
 
 The current implementation uses the streaming OpenAI-compatible `/responses`
 endpoint. This path has already been validated against the local
