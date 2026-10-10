@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import secrets
+import sys
 import threading
 from dataclasses import asdict, fields, is_dataclass
 
@@ -86,6 +87,7 @@ def build_parser() -> "argparse.ArgumentParser":
     parser = argparse.ArgumentParser(
         prog="pycodex-ws",
         description="Run a local pycodex workspace with a board and chat session.",
+        epilog="Stdin EOF gracefully shuts down the server after accepted work finishes.",
     )
     parser.add_argument(
         "--listen",
@@ -1516,7 +1518,7 @@ def _workspace_entry_or_404(
 
 
 def run_serve_cli(args: "argparse.Namespace") -> int:
-    import uvicorn
+    from .owned_process import run_owned_server
 
     host, port = parse_listen(args.listen)
     configure_loguru()
@@ -1549,7 +1551,7 @@ def run_serve_cli(args: "argparse.Namespace") -> int:
             ),
             flush=True,
         )
-    uvicorn.run(app, host=host, port=port, loop="asyncio")
+    run_owned_server(app, host, port, sys.stdin.fileno())
     return 0
 
 

@@ -301,14 +301,14 @@ def test_provider_config_allows_provider_without_env_key(tmp_path) -> "None":
                 "",
                 "[profiles.step]",
                 'model = "step-3.5-flash-2603"',
-                'model_provider = "stepfun-chat-zhy"',
+                'model_provider = "example-chat"',
                 "",
                 "[model_providers.local]",
                 'base_url = "http://localhost:8000/v1"',
                 'wire_api = "responses"',
                 "",
-                "[model_providers.stepfun-chat-zhy]",
-                'base_url = "http://100.96.255.200:8001/v1"',
+                "[model_providers.example-chat]",
+                'base_url = "https://provider.example.invalid/v1"',
                 'wire_api = "responses"',
             ]
         )
@@ -316,8 +316,8 @@ def test_provider_config_allows_provider_without_env_key(tmp_path) -> "None":
 
     provider = ResponsesProviderConfig.from_codex_config(config_path, "step")
 
-    assert provider.provider_name == "stepfun-chat-zhy"
-    assert provider.base_url == "http://100.96.255.200:8001/v1"
+    assert provider.provider_name == "example-chat"
+    assert provider.base_url == "https://provider.example.invalid/v1"
     assert provider.api_key_env is None
     assert provider.api_key() is None
 

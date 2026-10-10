@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "python-codex"
-version = "0.3.0"
+version = "0.3.1"
 description = "A minimal Python extraction of Codex's main agent loop"
 readme = "README.md"
 requires-python = ">=3.6.2"
@@ -55,7 +55,7 @@ artifacts = [
 ]
 
 [tool.hatch.build.targets.sdist]
-exclude = [".venv*"]
+exclude = [".venv*", "/extensions"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

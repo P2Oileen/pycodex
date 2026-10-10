@@ -54,6 +54,32 @@ uv run pycodex "Reply with exactly OK."
 uv run pycodex
 ```
 
+A VS Code frontend is available in [`extensions/vscode`](extensions/vscode/README.md).
+It reuses an existing `python-codex>=0.3.1` installation. On first use, missing
+or older backends are installed/upgraded with pip in the selected Python
+environment on the workspace host; compatible versions need no network check.
+It starts a dedicated `pycodex-ws` workspace on the project's host and opens a
+chat in the left sidebar using VS Code's stable WebviewView API. Each chat
+creates a workspace session with no code context attached. You can insert code
+from editors, diffs or file-tree selections as editable tokens among your words.
+Each token expands at its position when you send the message.
+Previous chats fold into live status entries; each can be
+reopened or closed, and models can be changed with `/model`.
+Remote workspaces run Python on the remote host. A stdin pipe ties each backend
+to its extension host; normal closure or host failure triggers draining and exit.
+`pycodex-ws` always shuts down on stdin EOF, after accepted work finishes.
+Keep stdin open while running the server; redirecting it from `/dev/null`
+causes the server to shut down.
+Workspace configuration uses a temporary JSON file passed to `--workspace-config`;
+normal backend exit removes the temporary directory.
+The extension uses that host's `~/.codex/config.toml` by default.
+The chat settings menu selects a project venv or another Python interpreter
+and edits the Codex profile. Changes offer a window reload when a backend is
+already running.
+Its context ring shows the same remaining budget and usage details as the
+workspace web frontend.
+See the extension README for building a VSIX, server setup and Remote SSH usage.
+
 ## Design Tradeoffs
 
 This is not a 1:1 port of the Rust implementation. The current goal is a
@@ -88,6 +114,7 @@ nailing the core tool-augmented reasoning loop first.
 - `pycodex/tools/`: concrete tool implementations
 - `pycodex/agent.py`: inner turn loop
 - `pycodex/runtime.py`: session commands, submission queues and frontend event subscriptions
+- `extensions/vscode/`: VS Code chat frontend using the workspace HTTP API
 - `tests/test_agent.py`: core behavior tests
 
 ## Current Alignment Status

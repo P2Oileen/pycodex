@@ -82,6 +82,7 @@ uv run pycodex
 - `pycodex/tools/`：具体工具实现
 - `pycodex/agent.py`：主循环
 - `pycodex/runtime.py`：统一会话命令、提交队列和前端事件订阅
+- `extensions/vscode/`：通过 workspace HTTP API 接入的 VS Code 聊天前端
 - `tests/test_agent.py`：核心行为测试
 
 ## 当前对齐状态
@@ -91,6 +92,32 @@ uv run pycodex
 worker 启停及连接清理都由后端统一处理，前端只做输入和展示适配。
 Web 不再导入或运行 CLI shell，飞书运行中也能提交 steer 和回答问题。
 IPython 是明确的例外：`ipython_agent()` 仍返回裸 Agent。
+
+VS Code 前端为每个项目在项目所在机器上启动独立的 workspace 后端，通过稳定
+WebviewView 在左侧活动栏的 Pycodex 入口显示聊天。首次使用优先复用已有
+`python-codex>=0.3.1`，版本足够时不联网；缺失或版本太旧时，在对应的 Python
+环境中通过 pip 安装或升级。检查、安装和启动都在工作区所在主机完成。
+新建 session 会展开新会话、
+折叠上一个会话，保留后台任务和草稿；折叠条目继续更新状态，可直接点击展开或关闭。
+每个会话提供 Markdown 回复和固定输入框，新会话默认没有代码上下文，也不绑定源文件。
+需要引用代码时，可从编辑器、Diff（含只读一侧）或文件树/工作树右键插入上下文。
+片段像 emoji 一样插在文字光标处，可点击编辑，也可整体删除或复制粘贴。
+发送时按照文字和片段的原始顺序展开为普通 prompt，后续消息不会自动附加。
+模型名称仅作展示，通过 `/model <name>` 切换模型，
+`/model` 列出可用模型；关闭会话会等待后端正常收尾。隐藏侧边栏只解除订阅。
+后端通过既有 `--workspace-config <path>` 读取临时 JSON 配置文件，正常退出后清理临时目录。
+`pycodex-ws` 默认在 stdin EOF 时排空已接收任务并退出；运行期间须保持 stdin 打开，
+重定向到 `/dev/null` 会触发关闭。扩展通过保持管道打开管理后端生命周期；
+关闭项目或宿主崩溃使管道关闭，插件正常停用会等待退出确认。
+Remote SSH 等远程工作区的 Python 后端在远程服务器上启动；
+短暂断联但远端宿主仍在运行时，会话继续保留。
+默认读取后端所在主机的 `~/.codex/config.toml`，欢迎页会说明这一点。
+聊天栏设置菜单可选择项目 `.venv`、`venv` 或浏览其他 Python 解释器，
+也可修改 Profile；例如 `step` 等价于 `--profile step`。
+已有后端运行时会提示重新加载窗口后生效。输入框底部的 context meter 与 workspace 前端一致，
+可查看剩余比例、最近一次模型上报的用量、压缩阈值和上下文上限。
+构建 VSIX、Python 环境配置及 Remote SSH 用法见
+[`extensions/vscode/README.md`](extensions/vscode/README.md)。
 
 外部程序使用 `pycodex.bootstrap.build_model/build_agent/build_runtime` 装配，
 通过 `await runtime.start()`、`runtime.attach(handler)`、

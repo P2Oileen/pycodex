@@ -63,6 +63,7 @@ Session wrapper. Queue data remains internal to Runtime.
 
 ```text
 CLI / Web / Feishu -> AgentRuntime -> Agent
+VS Code -> workspace_server HTTP -> AgentRuntime
 IPython ---------------------------> Agent
 ```
 
@@ -88,6 +89,69 @@ Commands return structured results and never become user messages. Unknown
 commands and invalid arguments produce explicit command errors. Destructive
 commands reject active or queued work; a command lock serializes asynchronous
 commands and lets close wait for accepted command work.
+
+The [VS Code frontend](../extensions/vscode/README.md) starts a workspace backend
+per project using the existing CLI. Before startup it reads package metadata
+from the selected Python interpreter. Automatic detection resolves an existing
+console script's interpreter or finds Python on the workspace host. A compatible
+`python-codex>=0.3.1` is reused without a network check; missing or older packages
+are installed/upgraded through that interpreter's pip, including the optional
+`pycodex-ws` metapackage when present. It launches `python -m workspace_server`
+with the same interpreter, including when a selected venv initially has no Pycodex.
+Installation finishes before the backend startup deadline starts. Pending
+installs are shared per Python environment, and closing during preparation waits
+for pip before discarding the launch. No private environment is created.
+It uses the backend host's
+`~/.codex/config.toml` by default; the welcome screen explains the local/remote
+configuration source. The header settings menu selects project `.venv`/`venv`
+interpreters or browses for another Python, and edits the Profile name.
+Selections are validated without installing packages and saved to the project's
+`pycodex.pythonPath` and `pycodex.profile` settings. A profile adds
+`--profile <name>` to the launch. Changing either setting through the menu
+offers a window reload if the backend is running; existing sessions keep their
+startup settings until it restarts.
+Sessions have no source-file binding or
+automatically attached editor context. On request, the frontend captures the
+source file, one-based cursor/selection and a bounded editor-buffer excerpt.
+Read-only Git diff documents and Explorer/SCM file selections use VS Code's
+document API. Context appears as atomic tokens interleaved with ordinary text in
+the composer. Insertion uses the saved cursor/selection; clicking a token edits
+its content. Sending expands text and tokens in their original order into the
+ordinary `prompt` field.
+Commands and pending answers use
+the same existing HTTP API.
+Connections are keyed by workspace endpoint and session id.
+Each new chat creates a session; clicking a collapsed entry
+activates that chat. A stable WebviewView in the Pycodex activity-bar container
+displays one expanded chat and collapsed entries for the others, preserving each
+chat's draft. All opened entries retain live status while the
+sidebar is visible; hiding it stops observation without closing sessions.
+Model changes use typed `/model` commands; the model label is read-only.
+Closing an entry uses the existing session DELETE endpoint and waits for normal
+backend draining before removing the entry. HTTP snapshot polling uses the
+existing Web projection. In remote workspaces, the extension host starts Python
+and makes HTTP requests on the remote machine; the webview only exchanges
+messages with the extension host.
+The input footer's context ring uses the existing snapshot fields
+`context_remaining_percent`, `usage_tokens`, `auto_compact_token_limit` and
+`max_context_window`. It shares the Web meter semantics below, including compact
+thresholds, unknown usage and reset after compaction. Hover/focus shows exact
+values, click pins them, and Escape, outside click or session switching closes
+the details. The frontend does not estimate draft tokens or recalculate limits.
+The launcher writes UTF-8 workspace JSON into a private temporary directory
+and passes the filename through the existing `--workspace-config` option.
+It removes that directory after backend exit or failed startup; an abrupt host
+crash can leave the temporary files behind. The `pycodex-ws` CLI always
+shuts down on stdin EOF. Stdin stays open for the backend's lifetime.
+EOF on folder removal, deactivation,
+or extension-host death starts normal server shutdown, including when EOF arrives
+before startup finishes. Accepted turns and queues drain through existing Runtime
+closure; no turn timeout or forced cancellation is added. Deactivation waits for
+all owned processes to exit. A temporary remote disconnection leaves sessions
+running if their extension host remains alive.
+Other CLI launchers must also keep stdin open; closed stdin (including
+`/dev/null`) requests shutdown. Programmatic FastAPI app construction does not
+read stdin.
 
 Web command output preserves the event's plain text, including resume-list
 numbering and line breaks.
