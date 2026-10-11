@@ -2,6 +2,8 @@
 
 中文 README。English version: `README.md`
 
+0.3.3 看板文件/diff 查看器与推理流修复：[发布说明](docs/RELEASE_0.3.3.md)。
+
 0.3.2 启动修复：[发布说明](docs/RELEASE_0.3.2.md)。
 
 0.3.0 发版准备与 Python API 迁移说明：`docs/RELEASE_0.3.0.md`。
