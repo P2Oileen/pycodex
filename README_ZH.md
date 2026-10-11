@@ -287,6 +287,7 @@ pycodex doctor
   后恢复，完整语法和大小限制见 [workspace content views](docs/RUNTIME.md#workspace-content-views)。
 - workspace 右侧会话区只在当前活动 tab 上显示关闭按钮
 - `--vllm-endpoint http://host:port` 会自动拉起一个本地 `responses_server` compat 层；当 path 为空时会内部补 `/v1`，继续把 `/responses` 请求转到下游 `/v1/chat/completions`。这条本地 compat 路径始终使用标准 Responses request shape，即使所选模型的 metadata 打开了 `responses_lite` 也不会切换成 lite wire format；启动时还会读取下游 `/v1/models`，自动使用返回列表中的最后一个 model id。当前对 `model_provider = "vllm"` 已补上 reasoning 兼容：会把 chat chunk 里的 `reasoning` / `reasoning_content` 翻回 Responses `reasoning` item，并把历史里的 `reasoning` item 回放成下游 assistant message 的 `reasoning` 字段；同时会向 vLLM 请求 streaming usage，并在最终 `response.completed.response.usage` 中回传
+- compat 层会立即将 reasoning 分片转发为 `response.reasoning_text.delta`，也适用于 `/v1/messages` 的 thinking 流。持续到达的思考分片可避免等待正文期间触发客户端读空闲超时；只有最终确认的 reasoning item 才进入历史
 - `pycodex doctor` 会检查配置、`.env`、API key、DNS、TCP/TLS，以及可选的 live Responses API 请求
 
 它目前主要用于：

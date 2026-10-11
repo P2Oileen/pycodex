@@ -403,6 +403,10 @@ Current behavior:
   reasoning, retries the same downstream request once, and only then emits
   `response.failed` with `type = "model_output_invalid"` if the retry is still
   reasoning-only
+- compat reasoning fragments are forwarded immediately as
+  `response.reasoning_text.delta`, including thinking from `/v1/messages`.
+  Continuous reasoning keeps the client's read idle timeout from expiring
+  while it waits for assistant text; only finalized reasoning items enter history
 - malformed JSON in ordinary downstream function-call arguments is detected by
   `responses_server` and returned as `response.failed` with `type = "server_error"`;
   the client's existing `stream_max_retries` policy retries the current request

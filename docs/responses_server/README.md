@@ -12,6 +12,14 @@ compat runtime 的下游 chat-completions / messages 流读取 timeout 默认是
 `300` 秒，与 pycodex Responses client 的 `300_000 ms` SSE idle timeout
 对齐。
 
+下游 `reasoning` / `reasoning_content` 分片会立即转成
+`response.reasoning_text.delta`，同一分片的两个别名内容相同时只转发一次。
+`/v1/messages` 的 `thinking` 分片经边界适配后也走这条路径。因此，只要
+reasoning 分片持续到达且相邻间隔没有超过读空闲阈值，正文前的思考总时长
+可以超过该阈值；真正没有数据的连接仍按原有 timeout 失败。客户端只把
+最终 `response.output_item.done` 中的 reasoning 写入历史，增量不会显示为
+assistant 正文。
+
 Responses 请求里的 `reasoning.effort` 会转换为下游 chat 请求的
 `chat_template_kwargs.reasoning_effort`。这与 vLLM Responses renderer 的
 prompt 渲染路径一致，也保留 provider 自定义 effort 值（例如 `max`）。
@@ -31,7 +39,7 @@ prompt 渲染路径一致，也保留 provider 自定义 effort 值（例如 `ma
 - outcomming `POST /v1/chat/completions`
 - outcomming `POST /v1/messages`（通过边界适配复用同一套 canonical chat request / stream routing）
 - 流式 assistant 文本
-- vLLM chat-completions `reasoning` / `reasoning_content` -> Responses `reasoning` item 适配
+- chat-completions `reasoning` / `reasoning_content` -> Responses reasoning 增量和最终 `reasoning` item 适配
 - vLLM 历史 `reasoning` item -> assistant message `reasoning` 字段回放
 - vLLM streaming `usage` -> final `response.completed.response.usage`
 - 当环境变量 `PYCODEX_DUMP` 存在时，为每条 outcomming 请求附加 `return_token_ids = true`，并把实际下发的 request body、下游 usage/cache、`prompt_token_ids` / `token_ids` 以 JSONL 追加到 `{PYCODEX_DUMP}/dump.jsonl`
@@ -118,8 +126,9 @@ template 不消费 `developer` role；使用该模板的 provider 应显式配�
 `stepfun`，否则 base instructions / AGENTS context 会被静默忽略。
 
 如果下游 chat stream 一轮结束时只给了 `reasoning` / `reasoning_content`，
-没有 assistant `content` 且没有 tool call，server 会丢弃这次 partial reasoning 并用
-原样 downstream request 静默重试一次。若 retry 后仍是 reasoning-only，才发
+没有 assistant `content` 且没有 tool call，server 会丢弃这次累积的 partial reasoning，
+不发对应的 `response.output_item.done`，并用原样 downstream request 静默重试一次。
+已转发的 reasoning 增量不进入最终 history。若 retry 后仍是 reasoning-only，才发
 `response.failed(type=model_output_invalid)`。这样可以避免 interrupted 或
 length-stopped thinking 被持久化成 terminal reasoning-only history，并在下一轮转换成
 下游 chat 后端不接受的裸 assistant message。
@@ -156,6 +165,15 @@ uv run pytest tests/responses_server/test_server.py -q
 
 这些测试通过一个假的 outcomming chat server 做端到端验证，不依赖现有
 `pycodex` runtime。
+
+`tests/test_model.py` 另有真实 HTTP client → compat server → fake backend 的
+读空闲超时回归：每 `0.1` 秒发送 reasoning 分片，正文延迟超过客户端的
+`1` 秒空闲阈值，验证请求仍能成功且没有重试。覆盖两个 chat reasoning
+字段和 messages thinking 流：
+
+```bash
+uv run pytest tests/test_model.py -k long_compat_reasoning -q
+```
 
 测试结构现在是：
 

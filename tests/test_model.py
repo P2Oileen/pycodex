@@ -3,6 +3,7 @@ import http.client
 import json
 import re
 import threading
+import time
 import typing
 import uuid
 from dataclasses import replace
@@ -1832,6 +1833,126 @@ async def test_responses_model_client_retries_compat_function_argument_errors(
         assert "write_stdin" in event.error
         assert "Expecting ',' delimiter" in event.error
         assert arguments not in event.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcomming_api, reasoning_field",
+    [
+        ("chat_completions", "reasoning"),
+        ("chat_completions", "reasoning_content"),
+        ("messages", "thinking"),
+    ],
+)
+async def test_responses_model_client_receives_long_compat_reasoning_without_idle_timeout(
+    tmp_path, outcomming_api, reasoning_field
+) -> "None":
+    from responses_server import CompatServerConfig, ManagedResponseServer
+    from tests.responses_server.fake_chat_completions_server import (
+        CaptureStore as ChatCaptureStore,
+        build_messages_server,
+        build_messages_text_events,
+        build_test_server,
+        build_text_chunks,
+    )
+
+    model = "step-5-preview"
+    reasoning_parts = ["思考%d " % index for index in range(15)]
+    capture_dir = tmp_path / "chat_capture"
+    capture_store = ChatCaptureStore(capture_dir)
+    if outcomming_api == "messages":
+        messages_events = build_messages_text_events("done", model_id=model)
+        for event in messages_events[1:]:
+            if "index" in event["data"]:
+                event["data"]["index"] = 1
+        messages_events[1:1] = [
+            {
+                "event": "content_block_start",
+                "data": {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                },
+            },
+            *[
+                {
+                    "event": "content_block_delta",
+                    "data": {
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": {"type": "thinking_delta", "thinking": part},
+                    },
+                }
+                for part in reasoning_parts
+            ],
+            {
+                "event": "content_block_stop",
+                "data": {"type": "content_block_stop", "index": 0},
+            },
+        ]
+        fake_server = build_messages_server(
+            capture_store, messages_events, model_id=model, chunk_delay_seconds=0.1
+        )
+    else:
+        chunks = [
+            {"choices": [{"index": 0, "delta": {reasoning_field: part}}]}
+            for part in reasoning_parts
+        ]
+        chunks.extend(build_text_chunks("done", model_id=model))
+        fake_server = build_test_server(
+            capture_store, chunks, model_id=model, chunk_delay_seconds=0.1
+        )
+
+    compat_server = ManagedResponseServer(
+        CompatServerConfig(
+            outcomming_base_url=f"{fake_server.base_url}/v1",
+            outcomming_api=outcomming_api,
+            model_provider="stepfun",
+        )
+    )
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            model=model,
+            provider_name="stepfun",
+            base_url=compat_server.base_url,
+            api_key_env=None,
+            stream_idle_timeout_ms=1000,
+            stream_max_retries=1,
+        )
+    )
+    events = []
+    fake_server.start()
+    try:
+        compat_server.start()
+        try:
+            started = time.monotonic()
+            response = await client.complete(
+                Prompt(input=[UserMessage(text="hi")], tools=[]),
+                lambda event: events.append((time.monotonic() - started, event)),
+            )
+        finally:
+            compat_server.stop()
+    finally:
+        fake_server.stop()
+
+    assistant_deltas = [
+        (elapsed, event.delta)
+        for elapsed, event in events
+        if isinstance(event, AssistantDeltaEvent)
+    ]
+    assert len(assistant_deltas) == 1
+    assert assistant_deltas[0][0] > 1.0
+    assert assistant_deltas[0][1] == "done"
+    assert [
+        item.text for item in response.items if isinstance(item, AssistantMessage)
+    ] == ["done"]
+    assert [
+        item.payload["content"][0]["text"]
+        for item in response.items
+        if isinstance(item, ReasoningItem)
+    ] == ["".join(reasoning_parts)]
+    assert not [event for _, event in events if event.kind == "stream_error"]
+    assert len(list(capture_dir.glob("*_POST_*.json"))) == 1
 
 
 @pytest.mark.asyncio

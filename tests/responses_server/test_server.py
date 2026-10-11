@@ -356,6 +356,19 @@ def test_responses_server_vllm_translates_chat_reasoning_to_incomming_items(
         for line in body.splitlines()
         if line.startswith("data: ")
     ]
+    reasoning_deltas = [
+        event
+        for event in events
+        if event.get("type") == "response.reasoning_text.delta"
+    ]
+    assert [event["delta"] for event in reasoning_deltas] == ["inspect ", "repo"]
+    assert all(event["content_index"] == 0 for event in reasoning_deltas)
+    assert [event["type"] for event in events[:4]] == [
+        "response.created",
+        "response.reasoning_text.delta",
+        "response.reasoning_text.delta",
+        "response.output_text.delta",
+    ]
     reasoning_items = [
         event["item"]
         for event in events
@@ -776,8 +789,10 @@ def test_responses_server_stepfun_reconstructs_reasoning_history_for_outcomming_
     ]
 
 
+@pytest.mark.parametrize("retry_reasoning", ["", "new plan"])
 def test_responses_server_retries_terminal_reasoning_only_chat_output_once(
     tmp_path,
+    retry_reasoning,
 ) -> "None":
     capture_store = CaptureStore(tmp_path / "chat_capture")
     reasoning_only_chunks = [
@@ -809,11 +824,13 @@ def test_responses_server_retries_terminal_reasoning_only_chat_output_once(
             ],
         },
     ]
+    successful_chunks = build_text_chunks("done")
+    successful_chunks[0]["choices"][0]["delta"]["reasoning"] = retry_reasoning
     fake_chat_server = build_fake_chat_server(
         capture_store,
         [
             reasoning_only_chunks,
-            build_text_chunks("done"),
+            successful_chunks,
         ],
     )
     fake_chat_server.start()
@@ -852,7 +869,25 @@ def test_responses_server_retries_terminal_reasoning_only_chat_output_once(
         fake_chat_server.stop()
 
     assert status == 200
-    assert '"type": "reasoning"' not in body
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert [
+        event["delta"]
+        for event in events
+        if event.get("type") == "response.reasoning_text.delta"
+    ] == ["inspect repo"] + ([retry_reasoning] if retry_reasoning else [])
+    reasoning_items = [
+        event["item"]
+        for event in events
+        if event.get("type") == "response.output_item.done"
+        and event["item"].get("type") == "reasoning"
+    ]
+    assert [item["content"][0]["text"] for item in reasoning_items] == (
+        [retry_reasoning] if retry_reasoning else []
+    )
     assert '"text": "done"' in body
     assert "event: response.completed" in body
     request_files = sorted((tmp_path / "chat_capture").glob("*_POST_*.json"))
@@ -939,6 +974,8 @@ def test_responses_server_fails_terminal_reasoning_only_chat_output_after_retry(
     assert "model_output_invalid" in body
     assert "ended without assistant content or tool calls" in body
     assert "event: response.completed" not in body
+    assert body.count("event: response.reasoning_text.delta") == 2
+    assert "event: response.output_item.done" not in body
     request_files = sorted((tmp_path / "chat_capture").glob("*_POST_*.json"))
     assert len(request_files) == 2
 

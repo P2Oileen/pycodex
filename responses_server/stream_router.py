@@ -894,19 +894,23 @@ class StreamRouter:
 
             reasoning = delta.get("reasoning")
             reasoning_content = delta.get("reasoning_content")
-            if (
-                isinstance(reasoning, str)
-                and reasoning
-                and isinstance(reasoning_content, str)
-                and reasoning == reasoning_content
-            ):
-                # Some chat providers expose the same delta under both aliases.
-                reasoning_parts.append(reasoning)
-            else:
-                if isinstance(reasoning, str) and reasoning:
-                    reasoning_parts.append(reasoning)
-                if isinstance(reasoning_content, str) and reasoning_content:
-                    reasoning_parts.append(reasoning_content)
+            reasoning_deltas = [reasoning]
+            # Some chat providers expose the same delta under both aliases.
+            if reasoning_content != reasoning:
+                reasoning_deltas.append(reasoning_content)
+            for reasoning_delta in reasoning_deltas:
+                if isinstance(reasoning_delta, str) and reasoning_delta:
+                    reasoning_parts.append(reasoning_delta)
+                    events.append(
+                        (
+                            "response.reasoning_text.delta",
+                            {
+                                "type": "response.reasoning_text.delta",
+                                "content_index": 0,
+                                "delta": reasoning_delta,
+                            },
+                        )
+                    )
 
             content = delta.get("content")
             if isinstance(content, str) and content:

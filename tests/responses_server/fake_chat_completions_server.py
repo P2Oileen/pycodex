@@ -350,6 +350,7 @@ def build_test_app(
     stream_chunks: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]]]",
     model_id: "str" = DEFAULT_MODEL_ID,
     messages_events: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]], None]" = None,
+    chunk_delay_seconds: "float" = 0.0,
 ) -> "FastAPI":
     app = FastAPI(title="FakeChat", version="0.1.0")
     chat_completion_count = 0
@@ -391,6 +392,8 @@ def build_test_app(
 
         def event_stream():
             for chunk in selected_chunks:
+                if chunk_delay_seconds:
+                    time.sleep(chunk_delay_seconds)
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode(
                     "utf-8"
                 )
@@ -419,6 +422,8 @@ def build_test_app(
 
         def event_stream():
             for raw_event in selected_events:
+                if chunk_delay_seconds:
+                    time.sleep(chunk_delay_seconds)
                 if not isinstance(raw_event, dict):
                     continue
                 payload = raw_event.get("data", raw_event)
@@ -455,9 +460,15 @@ def build_test_server(
     capture_store: "CaptureStore",
     stream_chunks: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]]]",
     model_id: "str" = DEFAULT_MODEL_ID,
+    chunk_delay_seconds: "float" = 0.0,
 ) -> "RunningFastAPITestServer":
     return RunningFastAPITestServer(
-        build_test_app(capture_store, stream_chunks, model_id=model_id)
+        build_test_app(
+            capture_store,
+            stream_chunks,
+            model_id=model_id,
+            chunk_delay_seconds=chunk_delay_seconds,
+        )
     )
 
 
@@ -465,6 +476,7 @@ def build_messages_server(
     capture_store: "CaptureStore",
     messages_events: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]]]",
     model_id: "str" = DEFAULT_MODEL_ID,
+    chunk_delay_seconds: "float" = 0.0,
 ) -> "RunningFastAPITestServer":
     return RunningFastAPITestServer(
         build_test_app(
@@ -472,6 +484,7 @@ def build_messages_server(
             [],
             model_id=model_id,
             messages_events=messages_events,
+            chunk_delay_seconds=chunk_delay_seconds,
         )
     )
 

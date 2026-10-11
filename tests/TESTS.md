@@ -301,6 +301,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
 - 其中有一个 hardcoded reference 测试会直接固定一份示例 request body JSON，用来防止 payload format 被悄悄改坏。
 - SSE 解析要能恢复 assistant message、function tool call、custom tool call。
 - 如果 Responses 流里出现 `reasoning` item，协议层也要保留它，并允许下一轮请求把它原样回传。
+- 真实 HTTP compat 回归覆盖持续 reasoning 超过客户端读空闲阈值后仍成功、无重试；两个 chat reasoning 字段和 messages thinking 流都不混入 assistant 正文，最终 reasoning 只保留一次。
 - 普通 function-call 的 JSON 解析失败由 compat server 返回 `response.failed(type=server_error)`；客户端通用重试保持请求和 session 不变，已完成工具不重复执行，失败响应的工具不写入 history。直接收到坏参数时客户端不再自行归类为 retryable。
 - 本地 compat 下游在响应头到达前断连时，返回 `response.failed`；模型客户端用相同请求重试并完成回复，不让网络异常逃出 ASGI。
 - 下游失败的正常错误包含阶段、耗时、timeout 和接收进度；验证响应头前断连、首个 chunk 前失败、读流中断及 HTTP 错误。
