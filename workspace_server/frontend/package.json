@@ -1,0 +1,17 @@
+{
+  "name": "pycodex-workspace-editor",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "monaco-editor": "0.57.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

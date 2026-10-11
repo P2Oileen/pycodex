@@ -241,6 +241,45 @@ Current behavior:
 - with an argv prompt or piped stdin, run a single turn
 - `pycodex-ws` starts the standalone browser workspace manager and serves each
   workspace with a board pane and a pycodex session pane
+- the left pane is the board, containing a live HTML Canvas tab and closable read-only file/diff tabs that
+  scroll together in one toolbar; a mouse wheel scrolls overflowing tab strips
+  horizontally.
+  Click Markdown file links such as `[source](src/app.py:42)` or
+  `[source](/data/project/app.py#L42)` to open a view. Git-style diff links use
+  `[changes](diff:HEAD:src/app.py)` for working changes,
+  `[versions](diff:HEAD~1..HEAD:src/app.py)` for two revisions, and
+  `[files](diff:old.py..new.py)` for two local files. Append `#L42` or `#R42`
+  to a diff link to select a 1-based line on the left or right.
+  Views open when the user clicks; model replies alone do not create tabs.
+  Reopening the same file or comparison selects its existing tab in that
+  browser, including when the line changes. Other pages keep their selection.
+  Tabs show filenames first, adding a short directory suffix
+  for duplicate names. Git versions use short commit IDs in a secondary label.
+  Long labels use the same width limit as session tabs, shortening the secondary
+  information before the filename;
+  hover titles retain the complete paths and revisions. Text,
+  Markdown, HTML, common raster images and text diffs are supported. Monaco
+  provides syntax highlighting, find, folding and character-level diffs.
+  Its code and styles load only when a code or diff view opens, so Canvas,
+  Markdown and HTML previews do not load the editor. Viewer assets use gzip
+  when supported and revalidate cached content with ETags.
+  Narrow content panes automatically use a unified diff; targeting the left
+  side keeps both sides visible. Markdown and HTML links default to previews;
+  line targets open their source. Clicking a link without a line returns that
+  same tab to preview. Manual tab switches preserve the chosen mode and reading state.
+  All views remain
+  read-only, with text selection and copying available. Local files update
+  automatically, including both sides of file diffs and the working side of
+  Git diffs; Git revisions stay fixed. Updates keep the active editor and
+  reading state without replaying an earlier line request.
+  Canvas is for explanations and custom visuals; source and diffs use links.
+  `[Canvas](workspace://canvas)` returns to the live page; an HTML file link opens
+  a preview tab, and `page.html:1` opens its source. File links work even with an empty `--toolset`.
+  Canvas and HTML previews share the same origin and script permissions;
+  the browser loads their resources with the workspace login cookie.
+  Open views survive reloads and server restarts. See
+  [workspace content views](docs/RUNTIME.md#workspace-content-views) for the
+  complete syntax and limits.
 - interactive mode exits through `/exit`, `/quit`, Ctrl+D on an empty prompt,
   or a single Ctrl+C; accepted work finishes before cleanup and normal exit.
   A `[closing]` message explains the wait. Press Ctrl+C again while closing
@@ -343,7 +382,7 @@ Current behavior:
   time when it expires.
 - while a background command or clock is pending, the idle status is
   `idle: sleeping`
-- only the active workspace tab shows its close button; closing it restores
+- only the active workspace session tab shows its close button; closing it restores
   the selected tab's conversation, draft, and scroll position immediately
   after its snapshot loads
 - `--vllm-endpoint http://host:port` automatically launches a local

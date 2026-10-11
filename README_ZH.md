@@ -260,7 +260,32 @@ pycodex doctor
 - 当前默认工具集由上游对齐子集和 pycodex 的 `clock` 扩展组成：`shell`、`shell_command`、`exec_command`、`write_stdin`、`clock`、`exec`、`wait`、`web_search`、`update_plan`、`request_user_input`、`request_permissions`、`spawn_agent`、`send_input`、`resume_agent`、`wait_agent`、`close_agent`、`apply_patch`、`grep_files`、`read_file`、`list_dir`、`view_image`
 - `clock(period_m)` 为当前 Agent session 设置一个周期计时器，传 `null` 取消；每次回复后重新计时，到期后用包含当前时区时间的 `<clock_tick>` 消息唤醒 Agent
 - 后台命令或 clock 正在等待时，空闲状态统一显示为 `idle: sleeping`
-- workspace 只在当前活动 tab 上显示关闭按钮
+- workspace 整个左侧展示区称为看板，包含实时 HTML Canvas 首标签和只读文件/diff 标签；
+  所有标签在同一行共同滚动，溢出时可用鼠标滚轮横向滚动。点击普通 Markdown 文件链接
+  `[源码](src/app.py:42)` 或 `[源码](/data/project/app.py#L42)` 即可打开视图。
+  diff 使用 Git 风格链接：`[工作区改动](diff:HEAD:src/app.py)`、
+  `[两个版本](diff:HEAD~1..HEAD:src/app.py)`、`[两个文件](diff:old.py..new.py)`。
+  只有用户点击后才创建或复用标签，模型输出链接本身不会打开文件。
+  再次打开同一文件或比较会切换到已有标签，保持原有顺序；其他页面的焦点不变。
+  diff 后加 `#L42` / `#R42` 可居中并选中左/右侧第 42 行，行号从 1 开始。
+  行号不参与标签身份，改变行号仍复用已有标签；普通刷新不会重放旧定位。
+  标签优先显示文件名，同名文件补充可区分的短目录；Git 版本用短 commit ID 作为次要说明。
+  长标题沿用会话标签的宽度上限，优先截断次要说明，悬停标题保留完整路径和 Git revision。
+  支持文本、Markdown、HTML、PNG/JPEG/GIF/WebP 和文本 diff。
+  代码与 diff 使用 Monaco，支持语法高亮、查找、折叠、字符级差异和差异跳转；
+  编辑器代码和样式在首次打开源码或 diff 时才加载，Canvas、Markdown/HTML 预览
+  不加载 Monaco。查看器静态资源支持 gzip 传输及 ETag 缓存校验。
+  内容区变窄时自动切换单栏 diff，定位左侧行号时保留双栏以显示目标。
+  Markdown 和 HTML 不带行号时默认预览，带行号时显示源码；再次点击无行号链接会在
+  同一标签回到预览，手动切换标签保留所选模式和阅读位置。用户可以选中复制，不能在查看器中修改源文件。
+  本地文件自动更新，包括文件 diff 两侧和 Git diff 的工作区一侧；Git 提交版本保持固定。
+  更新复用当前编辑器并保留阅读状态。Canvas 用于导读和自定义图示，源码和 diff 通过链接查看；
+  `[Canvas](workspace://canvas)` 返回实时页面，HTML 文件链接打开预览标签，`page.html:1` 查看源码。
+  Canvas 与 HTML 预览使用相同的同源权限，资源请求由浏览器自动携带工作区登录 cookie。
+  空 `--toolset` 不影响用户点击文件链接。
+  用户可关闭标签，打开列表和视图在刷新及服务重启
+  后恢复，完整语法和大小限制见 [workspace content views](docs/RUNTIME.md#workspace-content-views)。
+- workspace 右侧会话区只在当前活动 tab 上显示关闭按钮
 - `--vllm-endpoint http://host:port` 会自动拉起一个本地 `responses_server` compat 层；当 path 为空时会内部补 `/v1`，继续把 `/responses` 请求转到下游 `/v1/chat/completions`。这条本地 compat 路径始终使用标准 Responses request shape，即使所选模型的 metadata 打开了 `responses_lite` 也不会切换成 lite wire format；启动时还会读取下游 `/v1/models`，自动使用返回列表中的最后一个 model id。当前对 `model_provider = "vllm"` 已补上 reasoning 兼容：会把 chat chunk 里的 `reasoning` / `reasoning_content` 翻回 Responses `reasoning` item，并把历史里的 `reasoning` item 回放成下游 assistant message 的 `reasoning` 字段；同时会向 vLLM 请求 streaming usage，并在最终 `response.completed.response.usage` 中回传
 - `pycodex doctor` 会检查配置、`.env`、API key、DNS、TCP/TLS，以及可选的 live Responses API 请求
 

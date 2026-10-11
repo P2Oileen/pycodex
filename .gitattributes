@@ -1,0 +1,2 @@
+# The generated Monaco bundle preserves significant whitespace in template literals.
+workspace_server/editor.mjs -whitespace

@@ -504,7 +504,7 @@ def test_workspace_registry_crud_and_duplicate_board(tmp_path):
         assert workspace["id"]
         assert workspace["board_path"].startswith("/tmp/pcws-")
         assert (
-            "Board pending" in browser.get("/w/{}/board".format(workspace["id"])).text
+            "Canvas pending" in browser.get("/w/{}/board".format(workspace["id"])).text
         )
         assert browser.get("/w/alpha/").status_code == 200
         assert browser.delete("/api/workspaces/alpha").status_code == 200
@@ -562,7 +562,7 @@ def test_boardless_workspace_preserves_context_and_tools(
     prompt = model.prompts[0]
     assert prompt.base_instructions == "Fix the task."
     assert str(tmp_path / "repo") in repr(prompt.input)
-    assert "Current workspace board file:" not in repr(prompt.input)
+    assert "Current workspace Canvas file:" not in repr(prompt.input)
     assert [tool.name for tool in prompt.tools] == toolset
     assert load_workspace_definitions(config)[0].board_path is None
 

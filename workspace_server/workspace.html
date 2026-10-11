@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>__WORKSPACE_TITLE__</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+  <link rel="stylesheet" href="assets/content_views.css">
   <style>
     :root {
       color-scheme: light;
@@ -78,60 +79,17 @@
       min-width: 0;
       border-bottom: 1px solid var(--line);
       height: 44px;
-      padding: 0 12px;
+      padding: 0 8px;
       color: var(--muted);
       font-size: 12px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       white-space: nowrap;
       overflow: hidden;
     }
-    .boardbar-paths {
-      min-width: 0;
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      overflow: hidden;
-      line-height: 1.4;
-    }
-    .boardbar-title {
-      color: var(--ink);
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .boardbar-paths code { border: 0; padding: 0; background: none; font-size: 11px; }
-    .board-location { margin-left: auto; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
-    .boardbar-paths span {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
     .workspace-back {
-      flex: 0 0 auto;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 32px;
-      height: 32px;
-      border: 0;
-      border-radius: var(--radius-sm);
-      background: transparent;
-      color: var(--ink);
-      padding: 0;
       text-decoration: none;
-    }
-    .workspace-back:hover {
-      background: var(--accent-soft);
-    }
-    .workspace-back:focus {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-    .workspace-back svg {
-      display: block;
-      width: 18px;
-      height: 18px;
     }
     .board {
       border: 0;
@@ -286,7 +244,10 @@
       gap: 4px;
       min-width: 0;
       overflow-x: auto;
-      scrollbar-width: thin;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar {
+      display: none;
     }
     .tab {
       position: relative;
@@ -309,7 +270,8 @@
       background: var(--panel-hover);
       color: var(--ink);
     }
-    .tab-new:focus-visible {
+    .tab-new:focus-visible,
+    .workspace-back:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
@@ -375,7 +337,8 @@
       user-select: text;
     }
     .tab-close,
-    .tab-new {
+    .tab-new,
+    .workspace-back {
       width: 31px;
       height: 31px;
       border: 0;
@@ -403,14 +366,16 @@
       width: 12px;
       height: 12px;
     }
-    .tab-new {
+    .tab-new,
+    .workspace-back {
       display: grid;
       place-items: center;
       width: 30px;
       height: 30px;
       background: var(--panel-deep);
     }
-    .tab-new svg {
+    .tab-new svg,
+    .workspace-back svg {
       display: block;
       width: 18px;
       height: 18px;
@@ -425,7 +390,8 @@
       cursor: default;
     }
     .tab-close:hover,
-    .tab-new:hover {
+    .tab-new:hover,
+    .workspace-back:hover {
       color: var(--ink);
       background: var(--panel-hover);
     }
@@ -913,8 +879,6 @@
       .workspace[data-mobile-pane="chat"] .board-pane,
       .workspace[data-mobile-pane="board"] .chat { display: none; }
       .topbar { height: 44px; padding: 6px 16px; }
-      .boardbar { padding: 0 16px; }
-      .board-location { display: none; }
       .log { padding: 14px 16px; gap: 14px; }
       .composer { padding: 8px 16px max(10px, env(safe-area-inset-bottom)); }
       textarea { font-size: 16px; line-height: 24px; padding: 2px 0; }
@@ -933,11 +897,9 @@
             <path d="M15 6l-6 6 6 6"/>
           </svg>
         </a>
-        <div class="boardbar-paths">
-          <span class="boardbar-title">__WORKSPACE_TITLE__</span>
-          <span title="__CWD_LABEL__"><code>__CWD_LABEL__</code></span>
-        </div>
-        <span class="board-location" title="__BOARD_LABEL__">Board</span>
+        <div id="contentTabs" class="tabs content-tabs" role="tablist" aria-label="Board views"
+             data-board-title="Workspace: __WORKSPACE_TITLE__&#10;Current dir: __CWD_LABEL__&#10;Canvas file: __BOARD_LABEL__"></div>
+        <span id="viewStatus" class="content-status" role="status" hidden></span>
         <button class="pane-toggle" type="button" data-pane="chat" title="Show chat" aria-label="Show chat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -945,7 +907,10 @@
           </svg>
         </button>
       </div>
-      <iframe id="boardFrame" class="board" src="board" title="board"></iframe>
+      <div class="content-area">
+        <iframe id="boardFrame" class="board" src="board" title="Canvas"></iframe>
+        <div id="contentView" class="content-view" role="tabpanel" hidden></div>
+      </div>
     </section>
     <button id="splitter" class="splitter" type="button" aria-label="Resize chat panel"></button>
     <section class="chat" aria-label="pycodex chat">
@@ -1025,7 +990,9 @@
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"></script>
-  <script>
+  <script type="module">
+    import {isWorkspaceLink, mountContentViews} from "./assets/content_views.mjs";
+
     const log = document.getElementById("log");
     const spinner = document.getElementById("spinner");
     const queueHint = document.getElementById("queueHint");
@@ -1060,6 +1027,18 @@
     const markdownRenderer = window.markdownit
       ? window.markdownit({html: false, linkify: true, breaks: false})
       : null;
+    if (markdownRenderer) {
+      markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
+        const token = tokens[index];
+        const href = token.attrGet("href");
+        if (isWorkspaceLink(href)) {
+          token.attrSet("data-workspace-link", href);
+          // Preserve file/URI destinations without widening DOMPurify's protocol allowlist.
+          token.attrSet("href", "#");
+        }
+        return renderer.renderToken(tokens, index, options);
+      };
+    }
     const mathDelimiters = [
       {left: "$$", right: "$$", display: true},
       {left: "\\[", right: "\\]", display: true},
@@ -1146,8 +1125,13 @@
       });
       renderProtectedMath(root, protectedMath.expressions);
       root.querySelectorAll("a").forEach((anchor) => {
-        anchor.target = "_blank";
-        anchor.rel = "noopener noreferrer";
+        const link = anchor.getAttribute("data-workspace-link");
+        if (isWorkspaceLink(link)) {
+          anchor.setAttribute("href", link);
+        } else if (!(anchor.getAttribute("href") || "").startsWith("#")) {
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+        }
       });
       renderMermaidInto(root);
     }
@@ -2206,6 +2190,78 @@
     resizePrompt();
     startPolling();
     startBoardPolling();
+    document.querySelectorAll(".tabs").forEach(tabs => {
+      tabs.addEventListener("wheel", event => {
+        if (event.ctrlKey || event.shiftKey || event.deltaX !== 0 || event.deltaY === 0) return;
+        const previous = tabs.scrollLeft;
+        const unit = event.deltaMode === 1 ? tabs.clientHeight : event.deltaMode === 2 ? tabs.clientWidth : 1;
+        tabs.scrollLeft += event.deltaY * unit;
+        if (tabs.scrollLeft !== previous) event.preventDefault();
+      }, {passive: false});
+    });
+
+    const contentTabs = mountContentViews({
+      tabs: document.getElementById("contentTabs"),
+      frame: document.getElementById("boardFrame"),
+      content: document.getElementById("contentView"),
+      status: document.getElementById("viewStatus"),
+      storage: window.localStorage,
+      storageKey: "pycodex.workspace.contentTab:" + window.location.pathname,
+      renderMarkdown: renderMarkdownInto,
+      request: async (path, options = {}) => {
+        const response = await fetch(new URL(path, window.location.href), options);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "HTTP " + response.status);
+        return payload;
+      },
+    });
+    let canvasDocument = null;
+
+    function followViewLink(event, href) {
+      if (event.defaultPrevented || event.button !== 0) return;
+      event.preventDefault();
+      contentTabs.open(href).catch(error => showToast("Unable to open view: " + error.message));
+    }
+
+    function followMarkdownLink(event) {
+      const anchor = event.target.closest("a[data-workspace-link]");
+      if (anchor) followViewLink(event, anchor.getAttribute("data-workspace-link"));
+    }
+
+    function followCanvasLink(event) {
+      const anchor = event.target.closest("a[href]");
+      if (anchor && isWorkspaceLink(anchor.getAttribute("href"), false)) {
+        followViewLink(event, anchor.getAttribute("href"));
+      }
+    }
+
+    function bindCanvasLinks() {
+      if (canvasDocument) canvasDocument.removeEventListener("click", followCanvasLink);
+      canvasDocument = boardFrame.contentDocument;
+      if (canvasDocument) canvasDocument.addEventListener("click", followCanvasLink);
+    }
+
+    function startContentViews() {
+      document.addEventListener("click", followMarkdownLink);
+      boardFrame.addEventListener("load", bindCanvasLinks);
+      bindCanvasLinks();
+      contentTabs.start();
+    }
+
+    function stopContentViews() {
+      document.removeEventListener("click", followMarkdownLink);
+      boardFrame.removeEventListener("load", bindCanvasLinks);
+      if (canvasDocument) canvasDocument.removeEventListener("click", followCanvasLink);
+      canvasDocument = null;
+      contentTabs.stop();
+    }
+
+    startContentViews();
+    window.addEventListener("pagehide", stopContentViews);
+    window.addEventListener("pageshow", startContentViews);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") contentTabs.poll();
+    });
   </script>
 </body>
 </html>

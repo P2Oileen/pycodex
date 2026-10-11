@@ -163,7 +163,7 @@ under `Diagram source`. Loading or syntax errors leave the source visible.
 A render that finishes after its conversation view has been replaced is discarded;
 completed diagrams keep the view at the bottom only if it is already there.
 
-Closing the active workspace tab uses the same browser transition as selecting
+Closing the active workspace session tab uses the same browser transition as selecting
 another tab: reset that tab's render signature, restore its draft and scroll
 position, and request its snapshot immediately. A pending poll for the previous
 tab is aborted; late responses or errors cannot overwrite the selected tab.
@@ -249,7 +249,7 @@ own; unlinking a Feishu card only detaches that frontend. Web submits directly
 to the backend, including across its worker-thread boundary: it does not run a
 CLI shell or maintain an extra prompt queue.
 
-Workspace state stores every open tab in order, starting when the tab is created.
+Workspace state stores every open session tab in order, starting when the tab is created.
 An empty tab stores an empty title and rollout path, so restoring it creates a
 fresh empty session without writing a rollout. Manual titles and first messages
 are not prerequisites for keeping a tab across a server restart. Changes to
@@ -437,6 +437,295 @@ Sub-agent services observe ordinary Agent lifecycle events. They retain the last
 completed/failed status, but active execution and pending inputs take precedence
 when reporting busy. Direct calls and background invokes produce the same events;
 status observers no longer inspect raw Task results.
+
+## Workspace content views
+
+The entire left workspace pane is the board. It starts with a permanent Canvas
+tab for live HTML, followed by read-only file/diff tabs. All tabs scroll together horizontally.
+The tab strips hide their native scrollbars so overflowing tabs stay vertically
+aligned with the toolbar buttons while remaining scrollable.
+Both content and session tab strips translate ordinary vertical mouse-wheel
+input into horizontal scrolling. Horizontal trackpad gestures, Shift+wheel and
+Ctrl+wheel retain their browser behavior; wheel input is consumed only when
+the strip actually moves.
+The file/diff toolbar beneath the tabs keeps its complete path labels in a
+horizontal scroll area with no visible scrollbar. It uses the same wheel
+behavior as the tab strips; the action buttons stay outside the scrolling area.
+Canvas keeps its existing live HTML and image routes. Clicking a Markdown file
+or diff link selects the existing tab for that target, or appends a new read-only
+tab when the target is not already open. Rendering a link does not open a view.
+Reusing a tab keeps its ID, order and reading state. On mobile, selecting a view reveals the content pane. Switching
+tabs preserves their scroll positions; closing a view removes that tab
+without changing a source file, the Canvas or a conversation.
+
+Content tabs share the session tabs' rounded styling and show a close button
+only on the active content tab. They occupy the same 44-pixel toolbar as the
+workspace back link and mobile pane switch. The Canvas tab's hover title labels
+`Workspace`, `Current dir`, and `Canvas file` on separate lines.
+Diff views start with the two file labels; the opening time, read-only status
+and whether the view follows files are available in the tab's hover title.
+Stored titles, API responses and hover titles retain complete paths and both Git revisions, for example
+`COMMIT_A:src/A.py <-> COMMIT_B:src/A.py` for full commit IDs. A symbolic or
+abbreviated revision also includes its resolved ID, such as `HEAD (COMMIT):src/A.py`,
+so comparisons opened before and after a branch moves remain distinguishable.
+Visible labels follow VS Code's filename/description layout: the basename is
+the main label, with no leading directory. When open files share a name but
+have different paths, a secondary label adds the shortest directory suffix that
+distinguishes them. For example, two `src/app.py` files in different packages
+can show `app.py` with `client/src` and `server/src`. Opening or closing a
+duplicate updates these descriptions without changing tab identity or focus.
+Git versions use seven-character commit IDs in the secondary label; a comparison
+of the same path shows its filename once, followed by `abc1234 ↔ def5678` or
+`abc1234 ↔ working tree`. Different comparison paths retain both filenames and
+any needed directory descriptions. This is browser display formatting only;
+source identity, stored titles and API responses retain their full information.
+Content tabs share the session tabs' 180-pixel maximum width. Secondary text
+shrinks and ends in an ellipsis before the filename loses space; a filename
+that alone exceeds the available width also uses an ellipsis. The complete
+title remains available on hover and as the tab's accessible label.
+
+Workspace assembly introduces the Canvas file, explains that edits are shown
+in real time and that the model can create or modify it anytime. It then describes
+the extended file/diff links supported in replies and Canvas HTML, including
+optional line anchors and the link back to the live Canvas.
+Detailed syntax and viewer behavior are documented below. There is no `workspace_display` tool.
+Link clicks use the browser's view API, independently of Agent/Runtime, and add
+no messages or tool results to the conversation. They also work with an empty
+`--toolset`. Internal `board` IDs, configuration keys and HTTP routes keep their
+existing names.
+
+Ordinary Markdown file links accept absolute or workspace-relative paths.
+Use Git-style expressions for comparisons:
+
+| Markdown link | View |
+| --- | --- |
+| `[source](src/app.py)` | Working file |
+| `[line](src/app.py:42)` or `[line](/data/project/app.py#L42)` | File, line 42 |
+| `[document](README.md)` or `[page](report.html)` | Markdown or HTML preview |
+| `[source](README.md:1)` or `[source](report.html#L1)` | Markdown or HTML source, line 1 |
+| `[version](git:HEAD:src/app.py#L42)` | Git file at a fixed revision, line 42 |
+| `[changes](diff:HEAD:src/app.py)` | HEAD versus the working file |
+| `[versions](diff:HEAD~1..HEAD:src/app.py)` | Two revisions of the same file |
+| `[rename](diff:HEAD~1:old.py..HEAD:new.py)` | Two Git files with different paths |
+| `[files](diff:old.py..new.py)` | Two local files |
+| `[left](diff:HEAD:src/app.py#L12)` | Diff, left line 12 |
+| `[right](diff:HEAD:src/app.py#R42)` | Diff, right line 42 |
+| `[Canvas](workspace://canvas)` | The existing live HTML Canvas |
+
+`..` compares the two specified snapshots directly, like `git diff A..B`.
+It does not calculate a merge base. Line numbers start at 1 and select the
+whole line. A diff uses `#L` for its left side and `#R` for its right side;
+plain file links use `:line` or `#Lline`. Zero, negative or out-of-range lines,
+images and missing target files are errors and do not change the selection.
+Line targets do not affect a tab's identity or title.
+
+These links work in chat Markdown, rendered Markdown file views and, for the
+explicit `git:`, `diff:` and `workspace://canvas` forms, Canvas HTML anchors.
+Canvas's ordinary HTML navigation keeps its existing behavior. Linking the
+Canvas HTML file path opens a preview tab; adding a line number opens its source.
+`workspace://canvas` selects the existing live page. External URLs, `mailto:` links and plain `#anchor` links keep their browser
+behavior. The renderer preserves recognized view destinations through sanitizing
+without permitting executable URL protocols.
+
+Percent-encode literal special characters in paths: space as `%20`, `#` as `%23`,
+`?` as `%3F`, `%` as `%25`, and a literal colon as `%3A`. For example,
+`[source](src/a%20%23%25.py)` opens `src/a #%.py`. In a diff endpoint, encode
+a literal `..` within a filename as `%2E%2E` so it is not a comparison separator.
+Parent-directory components such as `diff:../old.py..../new.py` work directly.
+Links are limited to 8192 characters; malformed percent encoding and control
+characters are rejected.
+
+File identities use normalized absolute paths, so relative/absolute spellings
+of the same path reuse a tab. Comparisons use the ordered pair of their sources;
+reversing the sides opens a separate view. Git identities include the repository,
+resolved revision and repository-relative path. Equivalent link forms share
+a tab, while distinct commits remain distinct even when their file contents
+match. Without a line target, a missing file can still select its existing tab
+with the last readable contents and an error. A line request reads current content to
+validate the line before changing the selection.
+
+Local paths resolve from the workspace working directory; absolute paths and
+percent-encoded paths with spaces are accepted. Backslashes are preserved for
+Windows paths. Git `revision:path` operands follow Git's object syntax and
+identify blobs; their paths start at the repository root, or at the workspace
+directory when explicitly prefixed with `./` or `../`. One revision compares the
+Git file with its working counterpart; two revisions compare the same repository
+path in both revisions. A file missing on just one side is displayed as empty, including
+an explicitly selected new working file. Missing on both sides is an error.
+Other protocols, multiple comparisons and arbitrary Git flags are rejected.
+Links are parsed into internal operations, never passed to a shell; Git
+content is read by object ID without running diff drivers or text conversions.
+
+Local file views follow changes on disk. Both sides of `diff:A..B` update, while
+`diff:REV:file` updates only its working file. Git operands are resolved
+once when opening the view, so a later commit or branch move does not change
+the pinned Git contents. This also applies to comparisons between two revisions.
+Opening the moved reference again resolves its new version and creates a separate
+comparison when that version is not already open.
+
+Text is decoded as UTF-8 with replacement for invalid bytes. Markdown and HTML
+files default to previews. Markdown uses the existing sanitized renderer; HTML
+(`.html` / `.htm`, case-insensitive) renders its markup, styles and scripts in an
+ordinary same-origin iframe, just like Canvas. Canvas is the persistent iframe
+for the configured live HTML file; other HTML tabs render their current file or
+Git snapshot through `srcdoc`. Both use the browser's normal resource loading
+and automatically send the workspace login cookie. HTML scripts have the same
+access to the parent page and authenticated workspace APIs as Canvas scripts;
+the login cookie remains `HttpOnly` and is never copied into the HTML.
+Preview host messages only save and restore scrolling, and are checked against the
+active frame and current document generation. Unchanged HTML keeps its current
+frame and interactive state; content changes reload it and restore scrolling.
+Switching away destroys the frame, and returning rebuilds it at the saved position.
+Relative asset URLs still use the workspace HTTP base and existing Board image
+routes; filesystem image paths are not implicitly converted into asset URLs.
+Image `src`, `srcset`, CSS resource URLs and HTML `<base>` URLs keep their native
+browser behavior. The viewer does not fetch or convert HTML images to data URLs.
+The existing Board image routes continue to enforce directory and MIME boundaries.
+Code and SVG files are shown as source, and
+PNG/JPEG/GIF/WebP files are stored as image data URLs. Code and text diffs use
+Monaco with filename-based syntax highlighting, line numbers, native
+find, code folding, selection/copying and optional line wrapping. Unknown
+extensions use plain text. Both editor state and DOM editing are read-only;
+find has no replace controls, and diff views disable the editing gutter menu,
+with no accept/reject or revert controls.
+The editor uses textarea input (`editContext: false`) so `domReadOnly` sets the
+native `readonly` attribute and touching code does not open the mobile keyboard.
+The separate find field remains editable.
+Opening Markdown or HTML with a line number switches that tab to its source
+editor, so line numbers refer to the actual file. An explicit link without a
+line switches the same tab back to preview. Source and preview keep separate
+reading positions. Ordinary content refreshes and manual tab switches preserve
+the current presentation and do not replay line requests. Presentation choices
+belong to that browser page; another page's opens do not change them.
+Markdown/HTML comparisons always use the code diff editor.
+
+Monaco's diff worker computes line and character changes from the two complete
+documents, including leading and trailing whitespace changes.
+The native diff editor keeps both sides aligned when
+scrolling or opening find. Arrow buttons and `Alt+Up`/`Alt+Down` navigate
+changes. A `ResizeObserver` on the content container selects split mode at
+720 pixels or wider and unified mode below that, including splitter changes
+without a window resize. A line request on the original (left) side keeps split
+mode even below that width so the selected line remains visible. Focusing or
+targeting the modified (right) editor restores automatic layout. This setting
+is preserved when switching tabs. Layout changes reuse the same editors and text models.
+Long documents keep their full searchable text while Monaco renders only the
+visible region.
+
+Only the active code view owns an editor (or a pair of editors for a split
+diff). Switching tabs captures Monaco's serializable view state plus find and
+wrapping options, then disposes the editor, text models, event subscriptions and
+observer. Capture happens before hiding the pane so scroll positions remain
+available. Returning restores that reading state; closing the tab also drops its
+caches. Late module/editor completions
+cannot replace a newly selected view. Markdown and image previews retain their
+existing rendering and scroll state.
+Content updates reuse that active editor and its models. Monaco's existing worker
+computes text edits, which are applied without flushing the models so folding and
+find decorations survive; the editor restores its reading state afterward.
+Find stays open and editable. Superseded updates and updates to disposed editors
+are discarded. Updates to
+background tabs invalidate their cached content; selecting them fetches the
+latest version. A refresh keeps the current content visible while loading and
+does not select a tab or switch the mobile pane.
+Explicit line requests wait for current file contents and diff computation,
+then select the line, reveal it and focus the target editor. A newer selection
+or a tab switch invalidates an older pending request. Ordinary content refreshes
+and manual tab switches do not replay an earlier line request; another click
+can explicitly reveal even the same line again.
+
+Files are limited to 2 MiB each, text to 20,000 lines and raster images to
+20 megapixels. View storage is limited to 64 MiB per workspace; exceeding a
+limit when opening a view is reported in the browser and does not create or replace a tab.
+If a live file becomes unreadable or invalid, its last readable content remains
+visible with an error. A deleted file view also keeps its last content; a
+deleted side of a diff becomes empty and is marked missing. Recreating or fixing
+the file resumes updates. A storage write or total-budget failure is reported
+to the browser and leaves the previous persisted views intact.
+
+`workspace_server/workspace_views.py` owns `WorkspaceViewOpener` and `WorkspaceViewStore`.
+It saves open views, explicit file/Git sources, the latest contents, optional
+line targets and the monotonic reveal counter
+atomically in the Canvas file's sibling `.pycodex-views.json` file, separately from
+conversation state. Sources are checked again after a server restart.
+Earlier saved snapshots without source information remain fixed; reopening
+their file or diff creates a view with explicit sources. Such snapshots are not
+matched by title alone. Saved titles are reconstructed from their full document
+labels without guessing source paths. The store is shared across that workspace's
+session threads; closing a tab is also reflected in other connected browsers.
+Selected-tab state is local to each browser/workspace. A click focuses its target
+only in that page; other pages can discover the tab without changing their
+selection. A new page defaults to Canvas, or restores its saved selection.
+
+`POST api/views/open` accepts `{"href": "<file path or URI>"}` and returns
+`{"view": <full snapshot>, "views": <metadata list>}`. Relative local paths use the
+workspace's `work_dir`; single-workspace `create_app(..., work_dir=...)` defaults
+to the process's working directory. The other routes use view IDs:
+`GET api/views` lists metadata, including content/reveal revisions, a live/fixed
+flag and optional `selection` (`document`: zero-based side, `line`: one-based line);
+`GET api/views/<id>` returns the current contents and
+`DELETE api/views/<id>` closes the view. These routes use the existing
+workspace authentication and namespace in both single- and multi-workspace
+apps. The browser polls
+the list every two seconds. The store checks only recorded file paths, using
+file identity, size and modification/change times to detect writes and atomic
+replacements; unchanged files are not reread. No recursive scan or additional
+watcher process is needed. Content/error changes advance the view revision and
+invalidate browser caches. Stale poll/content responses cannot replace a
+newer revision or a different selected view.
+Each successful click advances the target's `reveal_revision`. Only the initiating
+page uses that open response to select a tab and apply its optional line target;
+polling never follows another page's reveal. Newer clicks, manual selection,
+closing a tab or stopping the page invalidate an outstanding open request.
+Late success/failure responses and polls cannot override the user's latest choice.
+Reveals keep the current editor when possible and do not reorder tabs. The
+counter survives closing its latest target and restarting the server. File
+refreshes change only the content `revision` and therefore do not move focus.
+The JS/CSS assets and third-party licenses ship in the wheel and are served
+through concrete routes before the Board image fallback. `content_views.mjs`
+and `content_views.css` contain only the lightweight tabs and preview controller.
+The first code or diff view loads the separate same-origin `editor.mjs` and
+`editor.css` in parallel, and waits for both before creating an editor. Canvas,
+Markdown, HTML and image previews do not request either editor asset. Each
+display retains its loading promise and stylesheet for later code views;
+switching away during loading still invalidates the pending editor creation.
+
+The editor bundle includes all language highlighters and its editor/diff worker,
+but registers only the features used by the read-only viewer. JSON uses its
+tokenizer and language configuration directly: the language-service entry point
+would also import the full editor feature set even with diagnostics disabled.
+The worker starts from an embedded Blob URL and the editor CSS embeds the icon
+font. `MonacoEnvironment.getWorker` is the library-required global host hook;
+other viewer state belongs to each content display. No editor, font, worker or
+language package is fetched from a CDN. Python installation and `pycodex-ws`
+startup do not require Node.
+
+Only these static viewer assets use negotiated gzip responses. Each application
+instance caches the requested identity/gzip representations, invalidating them
+when the corresponding file's modification time or size changes. Responses use
+`Vary: Accept-Encoding`, representation-specific ETags and `Cache-Control: no-cache`;
+matching conditional requests return 304. HEAD reports the same representation
+headers without a body. Compression does not buffer session traffic, and the
+wheel contains one copy of each asset, without precompressed duplicates. The
+package's Python requirements are unchanged. Monaco does not officially support
+mobile browsers; viewport and touch checks supplement, but do not establish,
+support across real mobile browsers.
+
+Frontend sources and exact dependency versions live in
+`workspace_server/frontend/`, with `package-lock.json` fixing transitive
+dependencies. After changing those sources, rebuild the generated assets using
+Node 18+ from the repository root:
+
+```bash
+npm --prefix workspace_server/frontend ci
+npm --prefix workspace_server/frontend run build
+```
+
+The build collects licenses and third-party notices for bundled packages and stages every output
+before replacing the public JS entry. For an isolated preview, pass a staging
+directory with `npm --prefix workspace_server/frontend run build -- /tmp/workspace-assets`.
+The wheel contains the generated assets, without frontend sources, `node_modules`
+or the build toolchain.
 
 ## Observation
 

@@ -1,10 +1,13 @@
 import argparse
 import asyncio
+import gzip
+import hashlib
 import html
 import json
 import mimetypes
 import os
 import secrets
+import subprocess
 import sys
 import threading
 from dataclasses import asdict, fields, is_dataclass
@@ -63,6 +66,7 @@ from pycodex.utils.event_helpers import (
     shorten_title,
 )
 
+from .workspace_views import WorkspaceViewOpener, WorkspaceViewStore
 from .workspaces import (
     WorkspaceDefinition,
     WorkspaceEntry,
@@ -122,7 +126,7 @@ def build_parser() -> "argparse.ArgumentParser":
         "--toolset",
         nargs="*",
         default=None,
-        help="Builtin tool names for all sessions; an empty list disables tools.",
+        help="Builtin tool names for all sessions. An empty list disables all tools.",
     )
     parser.add_argument(
         "--timeout-seconds",
@@ -815,6 +819,7 @@ def create_app(
     session_source: "typing.Union[WorkspaceSessionManager, SessionFactory]",
     board_path: "typing.Union[Path, None]",
     password: "typing.Union[str, None]" = None,
+    work_dir: "typing.Union[Path, None]" = None,
 ) -> FastAPI:
     manager = (
         session_source
@@ -823,7 +828,7 @@ def create_app(
     )
     app = _create_lifespan_app(manager.start, manager.close)
     auth_token = _install_auth(app, password)
-    _install_workspace_routes(app, manager, board_path)
+    _install_workspace_routes(app, manager, board_path, Path(work_dir or Path.cwd()).resolve())
     app.state.workspace_auth_token = auth_token
     return app
 
@@ -834,6 +839,7 @@ def create_multi_workspace_app(
 ) -> FastAPI:
     app = _create_lifespan_app(registry.start, registry.close)
     auth_token = _install_auth(app, password)
+    view_asset_cache = {}
 
     @app.get("/")
     async def index() -> Response:
@@ -898,6 +904,45 @@ def create_multi_workspace_app(
     async def workspace_board_status(workspace_id: str) -> JSONResponse:
         entry = _workspace_entry_or_404(registry, workspace_id)
         return _board_status_response(entry.definition.board_path)
+
+    @app.get("/w/{workspace_id}/api/views")
+    def workspace_views(workspace_id: str) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, workspace_id)
+        return _views_response(entry.manager)
+
+    @app.post("/w/{workspace_id}/api/views/open")
+    def workspace_open_view(
+        workspace_id: str, payload: "typing.Dict[str, object]"
+    ) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, workspace_id)
+        return _open_view_response(entry.manager, entry.definition.work_dir, payload)
+
+    @app.get("/w/{workspace_id}/api/views/{view_id}")
+    def workspace_view(workspace_id: str, view_id: str) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, workspace_id)
+        return _view_response(entry.manager, view_id)
+
+    @app.delete("/w/{workspace_id}/api/views/{view_id}")
+    def workspace_close_view(workspace_id: str, view_id: str) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, workspace_id)
+        return _close_view_response(entry.manager, view_id)
+
+    @app.api_route(
+        "/w/{workspace_id}/assets/content_views.mjs", methods=["GET", "HEAD"]
+    )
+    @app.api_route(
+        "/w/{workspace_id}/assets/content_views.css", methods=["GET", "HEAD"]
+    )
+    @app.api_route(
+        "/w/{workspace_id}/assets/content_views.LICENSE.txt", methods=["GET", "HEAD"]
+    )
+    @app.api_route("/w/{workspace_id}/assets/editor.mjs", methods=["GET", "HEAD"])
+    @app.api_route("/w/{workspace_id}/assets/editor.css", methods=["GET", "HEAD"])
+    def workspace_view_asset(workspace_id: str, request: Request) -> Response:
+        _workspace_entry_or_404(registry, workspace_id)
+        return _view_asset_response(
+            request.url.path.rsplit("/", 1)[-1], request, view_asset_cache
+        )
 
     @app.get("/w/{workspace_id}/ws/session")
     async def workspace_websocket_backend_hint(workspace_id: str) -> JSONResponse:
@@ -1139,10 +1184,13 @@ def _install_workspace_routes(
     app: FastAPI,
     manager: WorkspaceSessionManager,
     board_path: "typing.Union[Path, None]",
+    work_dir: Path,
 ) -> None:
+    view_asset_cache = {}
+
     @app.get("/")
     async def index() -> HTMLResponse:
-        return _html_response(_render_workspace_shell(board_path))
+        return _html_response(_render_workspace_shell(board_path, work_dir=work_dir))
 
     @app.get("/favicon.ico")
     async def favicon() -> Response:
@@ -1155,6 +1203,32 @@ def _install_workspace_routes(
     @app.get("/api/board")
     async def board_status() -> JSONResponse:
         return _board_status_response(board_path)
+
+    @app.get("/api/views")
+    def views() -> JSONResponse:
+        return _views_response(manager)
+
+    @app.post("/api/views/open")
+    def open_view(payload: "typing.Dict[str, object]") -> JSONResponse:
+        return _open_view_response(manager, work_dir, payload)
+
+    @app.get("/api/views/{view_id}")
+    def view(view_id: str) -> JSONResponse:
+        return _view_response(manager, view_id)
+
+    @app.delete("/api/views/{view_id}")
+    def close_view(view_id: str) -> JSONResponse:
+        return _close_view_response(manager, view_id)
+
+    @app.api_route("/assets/content_views.mjs", methods=["GET", "HEAD"])
+    @app.api_route("/assets/content_views.css", methods=["GET", "HEAD"])
+    @app.api_route("/assets/content_views.LICENSE.txt", methods=["GET", "HEAD"])
+    @app.api_route("/assets/editor.mjs", methods=["GET", "HEAD"])
+    @app.api_route("/assets/editor.css", methods=["GET", "HEAD"])
+    def view_asset(request: Request) -> Response:
+        return _view_asset_response(
+            request.url.path.rsplit("/", 1)[-1], request, view_asset_cache
+        )
 
     @app.get("/ws/session")
     async def websocket_backend_hint() -> JSONResponse:
@@ -1197,6 +1271,117 @@ def _install_workspace_routes(
     @app.api_route("/{asset_path:path}", methods=["GET", "HEAD"])
     async def board_asset(asset_path: str) -> Response:
         return _board_asset_response(board_path, asset_path)
+
+
+def _views_response(manager: WorkspaceSessionManager) -> JSONResponse:
+    try:
+        views = manager.views.list_views()
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return JSONResponse({"views": views}, headers={"Cache-Control": "no-store"})
+
+
+def _open_view_response(
+    manager: WorkspaceSessionManager, work_dir: Path, payload: "typing.Dict[str, object]"
+) -> JSONResponse:
+    try:
+        view = WorkspaceViewOpener(manager.views, work_dir).open(payload.get("href"))
+        views = manager.views.list_views()
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return JSONResponse(
+        {"view": view, "views": views}, headers={"Cache-Control": "no-store"}
+    )
+
+
+def _view_response(manager: WorkspaceSessionManager, view_id: str) -> JSONResponse:
+    try:
+        view = manager.views.get(view_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="view not found")
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return JSONResponse(view, headers={"Cache-Control": "no-store"})
+
+
+def _close_view_response(
+    manager: WorkspaceSessionManager, view_id: str
+) -> JSONResponse:
+    try:
+        manager.views.close(view_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="view not found")
+    return JSONResponse({"ok": True})
+
+
+def _view_asset_encoding(accept_encoding: str) -> str:
+    qualities = {}
+    for entry in accept_encoding.lower().split(","):
+        name, *parameters = entry.strip().split(";")
+        quality = 1.0
+        for parameter in parameters:
+            key, _, value = parameter.strip().partition("=")
+            if key != "q":
+                continue
+            try:
+                quality = float(value)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400, detail="invalid encoding quality"
+                ) from exc
+            if not 0 <= quality <= 1:
+                raise HTTPException(status_code=400, detail="invalid encoding quality")
+        qualities[name.strip()] = quality
+    gzip_quality = qualities.get("gzip", qualities.get("*", 0))
+    if gzip_quality > 0 and gzip_quality >= qualities.get("identity", 0):
+        return "gzip"
+    if qualities.get("identity", 0 if qualities.get("*") == 0 else 1) > 0:
+        return "identity"
+    raise HTTPException(status_code=406, detail="no acceptable asset encoding")
+
+
+def _view_asset_response(asset_name: str, request: Request, cache: dict) -> Response:
+    media_types = {
+        "content_views.mjs": "text/javascript",
+        "content_views.css": "text/css",
+        "content_views.LICENSE.txt": "text/plain",
+        "editor.mjs": "text/javascript",
+        "editor.css": "text/css",
+    }
+    if asset_name not in media_types:
+        raise HTTPException(status_code=404, detail="asset not found")
+    encoding = _view_asset_encoding(request.headers.get("accept-encoding", ""))
+    path = Path(__file__).with_name(asset_name)
+    stat = path.stat()
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    key = (asset_name, encoding)
+    cached = cache.get(key)
+    if cached is None or cached[0] != stamp:
+        body = path.read_bytes()
+        if encoding == "gzip":
+            body = gzip.compress(body, compresslevel=6)
+        etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+        cached = cache[key] = (stamp, body, etag)
+    _, body, etag = cached
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "Vary": "Accept-Encoding",
+        "ETag": etag,
+    }
+    if encoding == "gzip":
+        headers["Content-Encoding"] = "gzip"
+    for candidate in request.headers.get("if-none-match", "").split(","):
+        candidate = candidate.strip()
+        if candidate.startswith("W/"):
+            candidate = candidate[2:]
+        if candidate in ("*", etag):
+            return Response(status_code=304, headers=headers)
+    headers["Content-Length"] = str(len(body))
+    return Response(
+        b"" if request.method == "HEAD" else body,
+        media_type=media_types[asset_name], headers=headers,
+    )
 
 
 def _board_status_response(board_path: "typing.Union[Path, None]") -> JSONResponse:
@@ -1560,6 +1745,8 @@ def _build_workspace_entry(
     args: "argparse.Namespace",
     persist_callback: "typing.Union[typing.Callable[[], None], None]" = None,
 ) -> "WorkspaceEntry":
+    views = WorkspaceViewStore(definition.board_path)
+
     def build_session() -> "WorkspaceInteractiveSession":
         model = build_model(
             config_path=args.config,
@@ -1575,7 +1762,7 @@ def _build_workspace_entry(
             profile=args.profile,
             system_prompt=args.system_prompt,
             extra_contextual_user_messages=(
-                [_board_context_text(definition.board_path, definition.work_dir)]
+                [_workspace_context_text(definition.board_path, definition.work_dir)]
                 if definition.board_path is not None
                 else []
             ),
@@ -1598,18 +1785,24 @@ def _build_workspace_entry(
             session_factory,
             definition.board_path,
             persist_callback=persist_callback,
+            views=views,
         ),
     )
 
 
-def _board_context_text(
+def _workspace_context_text(
     board_path: Path,
-    work_dir: "typing.Union[Path, None]" = None,
+    work_dir: "typing.Union[Path, None]",
 ) -> str:
     return (
-        "Current workspace board file: {0}. "
-        "Changes you make to this file are shown to the user in real time. "
-        "You can create or modify this file anytime."
+        "Current workspace Canvas file: {0}. "
+        "Changes you make to this HTML file are shown to the user in real time. "
+        "You can create or modify this file anytime.\n\n"
+        "Replies and Canvas HTML can use extended links to open files and diffs "
+        "in the board: git:REV:path, diff:REV:path, diff:BASE..HEAD:path, "
+        "and diff:left..right. Append #L42 to select a file or left-side line, "
+        "or #R42 for the right side of a diff. "
+        "Use workspace://canvas to return to the live Canvas."
     ).format(_format_board_path_for_prompt(board_path, work_dir=work_dir))
 
 
@@ -1662,7 +1855,7 @@ def _render_empty_board() -> str:
 
 def _render_missing_board(board_path: Path) -> str:
     return _render_board_placeholder(
-        "Board pending",
+        "Canvas pending",
         "Your work will appear here",
         "Ask pycodex to create a page, a report, or a visual. "
         "This canvas updates as you work.",

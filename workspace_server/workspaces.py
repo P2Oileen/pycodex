@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from pycodex.utils import uuid7_string
 
+from .workspace_views import WorkspaceViewStore
+
 SessionFactory = typing.Callable[[], object]
 
 
@@ -246,6 +248,7 @@ class WorkspaceSessionManager:
         session_factory: "SessionFactory",
         board_path: "typing.Union[Path, None]" = None,
         persist_callback: "typing.Union[typing.Callable[[], None], None]" = None,
+        views=None,
     ) -> None:
         self._session_factory = session_factory
         self._sessions: "typing.Dict[str, object]" = {}
@@ -255,6 +258,7 @@ class WorkspaceSessionManager:
         self._lock = None
         self._state_store = WorkspaceStateStore(board_path)
         self._persist_callback = persist_callback
+        self.views = views if views is not None else WorkspaceViewStore(board_path)
 
     def _get_lock(self):
         if self._lock is None:

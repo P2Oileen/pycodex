@@ -370,7 +370,7 @@
           </div>
         </div>
         <form id="workspaceForm">
-          <label>Board
+          <label>Canvas file
             <input id="boardInput" name="board" placeholder="/tmp/pcws-xxxx.html" spellcheck="false">
           </label>
           <label>Directory
@@ -458,7 +458,7 @@
       const paths = document.createElement("div");
       paths.className = "paths";
       paths.appendChild(pathLine("Directory", workspace.work_dir || ""));
-      paths.appendChild(pathLine("Board", workspace.board_path || ""));
+      paths.appendChild(pathLine("Canvas", workspace.board_path || ""));
 
       const actions = document.createElement("div");
       actions.className = "actions";
