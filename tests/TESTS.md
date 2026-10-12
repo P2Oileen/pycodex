@@ -2,25 +2,60 @@
 
 这个文件记录当前 `pycodex` 的测试面，以及每类测试的预期行为。
 
+## 按包运行
+
+- `tests/` 覆盖 core：Agent、Runtime、CLI、工具、Responses compat 和整套
+  portable，支持 Python 3.6.2+。
+- `packages/pycodex-ws/tests/` 覆盖 Web、飞书、IPython 及跨前端集成，
+  支持 Python 3.7+。混合测试按行为归属拆开，纯 Runtime 用例仍留在 core。
+- 根目录 `conftest.py` 为两组测试隔离 `CODEX_HOME`；workspace 的
+  `conftest.py` 另隔离 `HOME`，避免飞书测试读取开发者的真实凭据。
+  两组共用 `tests/fakes.py`。
+
+在仓库根目录运行全部测试或仅 workspace 测试：
+
+```bash
+env -u VIRTUAL_ENV uv sync --dev
+env -u VIRTUAL_ENV uv run --dev pytest
+env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests
+```
+
+core 使用独立的 `test` 依赖组。在单独环境验证，可保留日常开发环境中的
+workspace 安装：
+
+```bash
+env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv sync --group test
+env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test pytest tests
+```
+
+`test` 不安装 workspace、飞书或 IPython。Pillow 用于图片工具的生成、解码及
+有/无 Pillow 两种行为测试；PyCryptodomex 用于加密参考结果。两者只在测试
+依赖组中，不是 core 的运行时依赖。`dev` 包含 `test`、workspace 和开发工具，
+保留 `uv sync --dev` 一次安装两包的方式。pytest 默认收集这两个测试目录。
+
 ## CI 环境
 
-- Python 3.6 兼容性需要用真实解释器运行；现代 Python 下的语法检查不覆盖旧
+- `test.yml` 和 `publish.yml` 分别运行 core 和 workspace job。
+  core 在 Python 3.7、3.8、3.10 使用 `uv sync --group test`，并在运行
+  `pytest tests` 前确认 `workspace_server`、`pycodex_ws`、`lark_oapi` 和
+  `IPython` 均不可导入。workspace 在 Python 3.7、3.8、3.10 使用
+  `uv sync --dev`，只运行 `packages/pycodex-ws/tests/`。
+- core 的 Python 3.6 兼容性需要用真实解释器运行；现代 Python 下的语法检查不覆盖旧
   asyncio 和依赖库的执行行为。异步测试显式标记 `pytest.mark.asyncio`，
   避免 pytest-asyncio 0.16 在没有 auto mode 时跳过这些用例。
-  workspace 线程清理还覆盖兼容层的 `asyncio.all_tasks()`，确保启动/关闭失败后仍关闭事件循环。
 - `test.yml` 和 `publish.yml` 的 Python 3.6 job 使用
   `python:3.6.15-slim-bullseye`，系统依赖仅从
   `https://archive.debian.org/debian` 的 `bullseye main` 归档安装。
   不使用镜像内旧的 security / updates 源，也不假定 `bullseye-security`
   归档存在。这个冻结环境仅用于旧版本兼容性测试，不提供持续的安全更新。
-- Python 3.6 job 从源码测试两包。测试命令按容器内的 `$PWD` 设置
-  `PYTHONPATH`，包含仓库根目录和 `packages/pycodex-ws`；不使用可能指向
-  runner 宿主机目录的 `${{ github.workspace }}`。`test_packaging.py` 对两份
-  工作流模拟宿主机与容器路径不同的情况，并用 `python -S` 验证源码解析路径，
-  避免已安装的 wheel 或 editable 包掩盖 workspace 源码路径缺失。
-- 该容器安装的是 Node 12。workspace 脚本测试由 fixture 显式提供 `fetch`、
-  `AbortController` 等浏览器接口，并验证切换标签页时取消旧轮询；
-  模拟请求仍可回传迟到结果，以覆盖取消后成功/失败回调的视图隔离。
+- Python 3.6 job 只从源码测试 core，使用
+  `PYTHONPATH="$PWD" python -m pytest -c /dev/null tests`。路径以容器内的
+  `$PWD` 为准，不包含 workspace 源码，也不安装 workspace 或 SDK。
+  根目录的语法检查只扫描 core、Responses compat、core 测试和共享 fixture。
+- workspace 线程清理覆盖兼容层的 `asyncio.all_tasks()`，确保启动/关闭失败后
+  仍关闭事件循环。workspace 脚本测试由 fixture 显式提供 `fetch`、
+  `AbortController` 等浏览器接口；模拟请求可回传迟到结果，以覆盖切换后的
+  视图隔离。这些测试随 workspace job 运行。
 - 归档源使用 `check-valid-until=no` 允许读取已过有效期的固定索引，
   但继续校验仓库签名；`APT::Update::Error-Mode=any` 保证索引更新失败时
   立即停止，不会继续拿旧索引安装已经不存在的包。
@@ -38,7 +73,8 @@
   安装 core 后再安装同批 workspace，检查两个 console script、
   workspace 模块入口和依赖，卸载 workspace 后检查 core 仍可用；另从 sdist
   重新构建并验证 portable。全部成功后才上传发布产物，发布顺序保持 core 在前。
-  `test_packaging.py` 另覆盖模块入口的帮助、doctor 分发及参数错误退出码。
+  core 的 `test_packaging.py` 覆盖模块入口的帮助、doctor 分发及参数错误退出码；
+  workspace 的同名测试检查双包版本、依赖、模块和命令的归属。
 
 ## 自动化测试
 
@@ -46,9 +82,9 @@
 
 - 两处 HTTP 服务及 fake 下游均直接使用 Starlette。Python 3.6 CI 安装
   Starlette 0.19.x；安装和运行不需要 FastAPI、Pydantic 或 pydantic-core。
-- `responses_server/test_server.py` 覆盖路由别名、JSON 响应和 HTTP 错误，
+- `tests/responses_server/test_server.py` 覆盖路由别名、JSON 响应和 HTTP 错误，
   并通过真实本地下游验证 SSE、tool follow-up 和模型请求转换。
-- `test_workspace_server.py` 覆盖单/多 workspace 的 JSON 对象校验、
+- `packages/pycodex-ws/tests/test_workspace_server.py` 覆盖单/多 workspace 的 JSON 对象校验、
   非 JSON Content-Type 拒绝、JSON HTTP 错误、登录和 WebSocket。
   `test_workspace_views.py` 还在文件打开操作阻塞时并发轮询会话，
   验证线程池边界；原有静态资源、图片目录边界和生命周期回归继续保留。
@@ -72,7 +108,7 @@
 
 ### VS Code 前端
 
-- `extensions/vscode` 使用 Node 22+，运行
+- `extensions/vscode` 属于 workspace 前端，独立构建 VSIX。它使用 Node 22+，运行
   `npm ci --omit=optional --ignore-scripts && npm test`；与 Python 3.6
   测试环境独立，不给 Python runtime 增加 Node 依赖。
 - 前端测试覆盖项目后端启动、临时配置文件权限与退出/启动失败清理、stdin 关闭、
@@ -97,7 +133,7 @@
   `/model` 原样发送、关闭等待/失败与其他会话隔离，
   以及隐藏/恢复握手、CSP、过期消息和发送确认。VS Code API 使用 mock，
   桌面 UI 联调需运行 Extension Development Host；聊天通过稳定 API 在左侧栏打开。
-- `uv run pytest tests/test_owned_workspace_server.py tests/test_workspace_server.py`
+- `uv run --dev pytest packages/pycodex-ws/tests/test_owned_workspace_server.py packages/pycodex-ws/tests/test_workspace_server.py`
   覆盖 UTF-8 workspace 配置文件、既有 schema 验证，以及
   不传额外选项时默认启用 EOF 关闭、真实 CLI 使用关闭的 stdin 启动后正常退出，
   stdin 在启动前/启动后关闭时仍执行完整 lifespan shutdown，
@@ -132,8 +168,11 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
 
 - 小幅文案、布局、样式改动做页面检查，不搭建专用 Node/DOM 模拟测试；
   状态或队列语义只保留必要的行为回归，按变更范围运行相关用例。
-- 会话命令、问答、权限和订阅契约集中在 `test_session_backend.py`；
-  CLI/Web 不再分别重测每一个后端命令。
+- 纯后端的权限、问题取消、fork 和关闭契约集中在 `tests/test_session_backend.py`；
+  CLI/Web/飞书的会话命令与订阅集成集中在
+  `packages/pycodex-ws/tests/test_session_backend.py`，不在每个前端重复测试后端命令。
+- 两组 `test_async_bridge.py` 分别覆盖 core 与 workspace 在构造和执行使用
+  不同事件循环时的行为；core 测试不导入 workspace。
 - Agent/Runtime 保持单向控制：Agent 无队列引用，裸 `stop_asap` 不取消已发出的
   工具且保持 call/result 配对；Runtime 结算停止回执并启动下一批输入。
   compaction/overflow 期间停止、steer 合并、关闭排空及子 Agent 接入在
@@ -204,7 +243,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
 - 小测试文件并入所属组件：终端 API 兼容检查并入 `test_cli.py`，
   provider 迟到回调检查并入 `test_model.py`。
 - 事件字段/冻结约束、纯文本和有状态展示在 `test_events.py` 验证，身份补全不修改原事件由
-  `test_session_backend.py` 覆盖；`test_workspace_server.py` 固定 Web 序列化形状。
+  workspace 的 `test_session_backend.py` 覆盖；`test_workspace_server.py` 固定 Web 序列化形状。
 
 ### `tests/test_events.py`
 
@@ -218,7 +257,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   自动 compact 不结束 turn；ANSI 只出现在展示输出，不进入事件数据和纯文本视图。
 - CLI 仅验证事件委派与实际 log/status/prompt 执行，不再重复遍历流重试规则。
 
-### `tests/test_feishu_card.py`
+### `packages/pycodex-ws/tests/test_feishu_card.py`
 
 - 飞书复用独立的无色 `EventDisplay`；未知事件只需实现 `render` 即能展示，
   无需增加飞书分支。测试验证回调到卡片字段的适配、展示长度上限和流式区域。
@@ -226,16 +265,23 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   工具活动、错误和待答问题单独展示，不能混入回复正文。
 - 覆盖快照恢复不重复 active turn、重试移除 partial、fatal 保留 partial、
   问答输入提示和关闭/detach；保留 Markdown 降级及请求传输回归。
-- 运行时隔离 HOME，避免测试读取真实飞书 refresh token。
+- 包内的 autouse fixture 隔离 HOME，避免测试读取真实飞书 refresh token。
 - refresh token 只从专用文件读取和轮换，旧环境变量不生效；覆盖多个实例及
   已缓存 access token 的实例在过期后接力、写入失败不缓存新 access token。
 
-### `tests/test_feishu_oauth.py`
+### `packages/pycodex-ws/tests/test_feishu_oauth.py`
 
 - 首次授权只写 `~/.codex/.feishu_refresh_token`，权限为 `0600`，不创建或
   更新 `.env`，不打印凭证；脚本从 `.env` 读取应用配置并写入共享 token 文件。
 
 ### `tests/test_session_backend.py`
+
+- 权限接纳与显式 scope、空答/超时/detach/close 取消及过期 request id。
+- fork 同步 Agent/provider identity，保留 history/usage；首次续写才创建 rollout。
+- 未启动/重复关闭、工具清理错误和 worker 错误传播，不留下悬挂的关闭等待。
+- 子进程验证 core 后端装配不导入 CLI、Web、飞书或 IPython。
+
+### `packages/pycodex-ws/tests/test_session_backend.py`
 
 - CLI/Web/飞书的全部会话命令使用相同后端、不落为模型 user message；
   compact 只调用摘要请求，fork 同步 Agent/provider identity、保留 history/usage；
@@ -250,7 +296,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   包括排队中的请求重新设置 clock 的情况，清理期间禁止恢复会话。
 - `test_runtime_state.py` 验证子 Agent 清理报错后仍关闭其余子 Agent，
   首个错误向调用方传播，其余错误向事件循环报告。
-- 子进程验证后端装配不导入前端、Web 不导入 CLI；IPython 保持裸 Agent。
+- 验证 Web 不导入 CLI；IPython 保持裸 Agent。
 
 ### `tests/test_agent.py`
 

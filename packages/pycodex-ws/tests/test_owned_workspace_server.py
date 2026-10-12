@@ -68,7 +68,7 @@ def test_cli_exits_cleanly_when_stdin_is_closed_at_startup(tmp_path):
             sys.executable, "-m", "workspace_server",
             "--listen", "127.0.0.1:0", "--workspace-config", str(config_path),
         ],
-        cwd=str(Path(__file__).resolve().parents[1]),
+        cwd=str(Path(__file__).resolve().parents[3]),
         env=environment,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -107,7 +107,7 @@ run_owned_server(app, "127.0.0.1", 0, sys.stdin.fileno())
     environment["CODEX_HOME"] = str(tmp_path / "codex")
     with subprocess.Popen(
         [sys.executable, "-c", code, shutdown_signal],
-        cwd=str(Path(__file__).resolve().parents[1]),
+        cwd=str(Path(__file__).resolve().parents[3]),
         env=environment,
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,

@@ -1,3 +1,5 @@
+"""Feishu OAuth helper integration."""
+
 import os
 
 import pytest

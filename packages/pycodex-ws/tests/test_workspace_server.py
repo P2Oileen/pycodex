@@ -109,7 +109,7 @@ def wait_snapshot(client, predicate, path="/api/session"):
 def test_closing_active_tab_restores_visited_tab(late_poll):
     source = (
         Path(__file__).parents[1]
-        / "packages" / "pycodex-ws" / "workspace_server" / "workspace.html"
+        / "workspace_server" / "workspace.html"
     ).read_text(encoding="utf-8")
     fragments = []
     for start, end in [

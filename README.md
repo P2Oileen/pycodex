@@ -96,7 +96,21 @@ uv run pycodex "Reply with exactly OK."
 uv run pycodex
 ```
 
+Tests are split by package. `uv run --dev pytest` runs both suites;
+`uv run --dev pytest packages/pycodex-ws/tests` runs workspace and integration
+tests. To check core without installing workspace or its SDKs, use a separate
+environment:
+
+```bash
+UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv sync --group test
+UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test pytest tests
+```
+
+See [test environments and coverage](tests/TESTS.md). Core tests support Python
+3.6.2+; workspace tests require Python 3.7+.
+
 A VS Code frontend is available in [`extensions/vscode`](extensions/vscode/README.md).
+It belongs to the workspace frontend and is packaged separately as a VSIX.
 It reuses an existing `pycodex-ws>=0.3.1` installation. On first use, missing
 or older backends are installed/upgraded with pip in the selected Python
 environment on the workspace host; compatible versions need no network check.
@@ -169,8 +183,9 @@ Supporting services live in `tools/`, `portable/` and `utils/`.
 - `pycodex/prompts/`: vendored prompts and model metadata
 - `packages/pycodex-ws/workspace_server/`: Web board, API and file/diff viewers
 - `packages/pycodex-ws/pycodex_ws/`: Feishu, IPython and workspace assembly
-- `extensions/vscode/`: VS Code chat frontend using the workspace HTTP API
-- `tests/test_agent.py`: core behavior tests
+- `extensions/vscode/`: workspace's VS Code frontend, built separately as a VSIX
+- `tests/`: core tests
+- `packages/pycodex-ws/tests/`: workspace and cross-frontend integration tests
 
 See [package layout and import paths](docs/RUNTIME.md#package-layout).
 

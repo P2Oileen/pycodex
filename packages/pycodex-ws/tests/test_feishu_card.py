@@ -1,3 +1,5 @@
+"""Feishu card presentation and API behavior."""
+
 import json
 import os
 

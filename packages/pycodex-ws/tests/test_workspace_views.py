@@ -16,7 +16,7 @@ import workspace_server.app as workspace_app
 from pycodex import AssistantMessage, ModelResponse
 from pycodex.bootstrap import get_tools
 from tests.fakes import ScriptedModelClient
-from tests.test_workspace_server import make_session, wait_snapshot
+from test_workspace_server import make_session, wait_snapshot
 from workspace_server import (
     WorkspaceDefinition,
     WorkspaceEntry,
@@ -965,9 +965,7 @@ def test_content_tab_controller():
 
 
 def test_page_imports_match_shipped_module():
-    workspace = (
-        Path(__file__).parents[1] / "packages" / "pycodex-ws" / "workspace_server"
-    )
+    workspace = Path(__file__).parents[1] / "workspace_server"
     # Canvas must not load Monaco's multi-megabyte code or stylesheet.
     assert (workspace / "content_views.mjs").stat().st_size < 30000
     assert (workspace / "content_views.css").stat().st_size < 5000

@@ -6,10 +6,8 @@ import pytest
 
 
 def _iter_python_files():
-    for root in [
-        "pycodex", "responses_server", "packages/pycodex-ws/workspace_server",
-        "packages/pycodex-ws/pycodex_ws", "tests",
-    ]:
+    yield "conftest.py"
+    for root in ["pycodex", "responses_server", "tests"]:
         for dirpath, _dirnames, filenames in os.walk(root):
             for filename in filenames:
                 if filename.endswith(".py"):

@@ -8,8 +8,8 @@ on:
       - main
 
 jobs:
-  pytest-modern:
-    name: pytest (Python ${{ matrix.python-version }})
+  pytest-core:
+    name: core (Python ${{ matrix.python-version }})
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -31,13 +31,21 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Sync dependencies
-        run: uv sync --dev
+        run: uv sync --group test
 
-      - name: Run pytest
-        run: uv run pytest
+      - name: Check core test environment
+        run: |
+          uv run --group test python - <<'PY'
+          from importlib.util import find_spec
+          for name in ("workspace_server", "pycodex_ws", "lark_oapi", "IPython"):
+              assert find_spec(name) is None, name
+          PY
 
-  pytest-py36:
-    name: pytest (Python 3.6)
+      - name: Run core tests
+        run: uv run --group test pytest tests
+
+  pytest-core-py36:
+    name: core (Python 3.6)
     runs-on: ubuntu-22.04
     container:
       image: python:3.6.15-slim-bullseye
@@ -81,5 +89,41 @@ jobs:
             "pytest>=6.2.5,<7" \
             "pytest-asyncio>=0.16,<0.17"
 
-      - name: Run Python 3.6 pytest
-        run: PYTHONPATH="$PWD:$PWD/packages/pycodex-ws" python -m pytest -c /dev/null
+      - name: Check core test environment
+        run: |
+          python - <<'PY'
+          from importlib.util import find_spec
+          for name in ("workspace_server", "pycodex_ws", "lark_oapi", "IPython"):
+              assert find_spec(name) is None, name
+          PY
+
+      - name: Run Python 3.6 core tests
+        run: PYTHONPATH="$PWD" python -m pytest -c /dev/null tests
+
+  pytest-workspace:
+    name: workspace (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.7"
+          - "3.8"
+          - "3.10"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Run workspace and integration tests
+        run: uv run --dev pytest packages/pycodex-ws/tests

@@ -1,3 +1,5 @@
+"""Fixtures shared by the core and workspace test suites."""
+
 import pytest
 
 

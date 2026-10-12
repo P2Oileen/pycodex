@@ -135,55 +135,6 @@ async def test_queue_busy_includes_pending_submissions_before_worker_starts():
 
 
 @pytest.mark.asyncio
-async def test_interactive_commands_reject_direct_background_work(monkeypatch):
-    from workspace_server.app import WorkspaceInteractiveSession
-
-    started = asyncio.Event()
-    release = asyncio.Event()
-
-    async def response_factory(prompt, call_count):
-        started.set()
-        await release.wait()
-        return ModelResponse([AssistantMessage("done")])
-
-    model = ScriptedModelClient(response_factory=response_factory)
-    model.model = "original"
-    agent = Agent(model, ToolRegistry(), ContextConfig())
-    session = WorkspaceInteractiveSession(AgentRuntime(agent))
-    lines = []
-    commands_handled = asyncio.Event()
-
-    def record_line(text):
-        lines.append(text)
-        if "Cannot resume" in text:
-            commands_handled.set()
-
-    monkeypatch.setattr(session.view, "show_error", record_line)
-    await session.start()
-    await asyncio.sleep(0)
-    turn = asyncio.create_task(agent.run_turn(["background"]))
-    try:
-        await asyncio.wait_for(started.wait(), 1)
-        for command in ["/model changed", "/compact", "/fork", "/resume 1"]:
-            await asyncio.wait_for(session.submit(command), 1)
-        await asyncio.wait_for(commands_handled.wait(), 1)
-        output = "\n".join(lines)
-        for message in [
-            "Cannot change model",
-            "Cannot compact",
-            "Cannot fork",
-            "Cannot resume",
-        ]:
-            assert message in output
-        assert agent.model_name == "original"
-        assert model.call_count == 1
-    finally:
-        release.set()
-        await turn
-        await session.close()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("interrupt", [False, True])
 async def test_subagent_waits_for_pending_work_after_failed_or_interrupted_turn(
     interrupt,

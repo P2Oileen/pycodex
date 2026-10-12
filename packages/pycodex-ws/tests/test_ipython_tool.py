@@ -1,3 +1,5 @@
+"""IPython tool and event display integration."""
+
 import sys
 import types
 

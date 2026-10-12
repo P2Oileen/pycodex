@@ -113,6 +113,13 @@ Its source lives in `packages/pycodex-ws/` and it depends on the exact matching
 core version, plus the Feishu and IPython SDKs. The workspace package requires
 Python 3.7+; core keeps Python 3.6.2 support.
 
+Tests follow the same boundary: root `tests/` runs with the `test` dependency
+group and no workspace or SDK installation; `packages/pycodex-ws/tests/` runs
+with `dev` on Python 3.7+. Pure Runtime tests stay in core, while Web, Feishu,
+IPython and cross-frontend integration tests belong to workspace.
+The VS Code extension in `extensions/vscode/` is a workspace frontend with its
+own Node tests and VSIX build, separate from both Python distributions.
+
 Both HTTP services use Starlette and Uvicorn directly, without Pydantic.
 Workspace routes parse JSON objects explicitly and return HTTP 422 with a
 `detail` message for invalid bodies or content types. HTTP errors retain their

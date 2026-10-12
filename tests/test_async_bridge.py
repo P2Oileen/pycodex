@@ -55,8 +55,6 @@ def test_sync_construction_uses_the_execution_loop(tmp_path, construction_loop):
             ContextConfig, ModelResponse, ToolRegistry, UnifiedExecManager,
         )
         from tests.fakes import ScriptedModelClient
-        from workspace_server.app import WorkspaceInteractiveSession
-        from workspace_server.workspaces import WorkspaceSessionManager
 
         def main():
             asyncio.run(asyncio.sleep(0))
@@ -72,9 +70,6 @@ def test_sync_construction_uses_the_execution_loop(tmp_path, construction_loop):
                     ModelResponse([AssistantMessage("parent done")]),
                 ])
                 runtime = AgentRuntime(Agent(model, tools, ContextConfig()))
-                workspace = WorkspaceSessionManager(
-                    lambda: WorkspaceInteractiveSession(runtime)
-                )
             finally:
                 asyncio.set_event_loop(None)
                 if old_loop is not None:
@@ -96,7 +91,7 @@ def test_sync_construction_uses_the_execution_loop(tmp_path, construction_loop):
 
                 children.set_runtime_builder(build_child)
                 try:
-                    await workspace.start()
+                    await runtime.start()
                     # Let the worker block before waking it with a submission.
                     await asyncio.sleep(0)
                     receipt = await runtime.submit_input("hello")
@@ -119,7 +114,7 @@ def test_sync_construction_uses_the_execution_loop(tmp_path, construction_loop):
                     assert code_manager.enabled_tools() == []
                 finally:
                     release_child.set()
-                    await workspace.close()
+                    await runtime.close()
 
             asyncio.run(asyncio.wait_for(exercise(), 5))
             print("EXECUTION_LOOP_OK")

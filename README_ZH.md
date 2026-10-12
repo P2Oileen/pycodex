@@ -86,6 +86,18 @@ uv run pycodex "Reply with exactly OK."
 uv run pycodex
 ```
 
+测试按包拆分：`uv run --dev pytest` 运行两组测试；
+`uv run --dev pytest packages/pycodex-ws/tests` 只运行 workspace 及集成测试。
+用独立环境验证 core，可确保没有安装 workspace 和 SDK，同时保留开发环境：
+
+```bash
+UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv sync --group test
+UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test pytest tests
+```
+
+core 测试支持 Python 3.6.2+，workspace 测试要求 Python 3.7+；
+依赖组和覆盖范围见[测试文档](tests/TESTS.md)。
+
 ## 设计取舍
 
 这里不是对 Rust 版本做 1:1 移植，而是先收敛到一个最小可复用内核：
@@ -130,8 +142,9 @@ uv run pycodex
 - `pycodex/prompts/`：内置提示和模型元数据
 - `packages/pycodex-ws/workspace_server/`：Web 看板、API、文件/diff 查看器
 - `packages/pycodex-ws/pycodex_ws/`：飞书、IPython 与 workspace 装配
-- `extensions/vscode/`：通过 workspace HTTP API 接入的 VS Code 聊天前端
-- `tests/test_agent.py`：核心行为测试
+- `extensions/vscode/`：属于 workspace 的 VS Code 前端，独立构建 VSIX
+- `tests/`：core 测试
+- `packages/pycodex-ws/tests/`：workspace 与跨前端集成测试
 
 导入路径和目录职责见 [运行时文档](docs/RUNTIME.md#package-layout)。
 

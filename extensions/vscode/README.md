@@ -294,7 +294,7 @@ They mock the VS Code API; run an Extension Development Host for a desktop UI ch
 From the repository root, the backend ownership checks are:
 
 ```bash
-env -u VIRTUAL_ENV uv run pytest tests/test_owned_workspace_server.py tests/test_workspace_server.py
+env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests/test_owned_workspace_server.py packages/pycodex-ws/tests/test_workspace_server.py
 ```
 
 They cover UTF-8 workspace configuration files, default EOF shutdown without

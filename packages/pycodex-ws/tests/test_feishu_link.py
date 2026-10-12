@@ -1,3 +1,5 @@
+"""Feishu connection lifecycle and event delivery."""
+
 import asyncio
 import sys
 import threading
