@@ -92,9 +92,7 @@ jobs:
             "pytest-asyncio>=0.16,<0.17"
 
       - name: Run Python 3.6 pytest
-        env:
-          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/packages/pycodex-ws
-        run: python -m pytest -c /dev/null
+        run: PYTHONPATH="$PWD:$PWD/packages/pycodex-ws" python -m pytest -c /dev/null
 
   build:
     needs:

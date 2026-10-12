@@ -13,6 +13,11 @@
   `https://archive.debian.org/debian` 的 `bullseye main` 归档安装。
   不使用镜像内旧的 security / updates 源，也不假定 `bullseye-security`
   归档存在。这个冻结环境仅用于旧版本兼容性测试，不提供持续的安全更新。
+- Python 3.6 job 从源码测试两包。测试命令按容器内的 `$PWD` 设置
+  `PYTHONPATH`，包含仓库根目录和 `packages/pycodex-ws`；不使用可能指向
+  runner 宿主机目录的 `${{ github.workspace }}`。`test_packaging.py` 对两份
+  工作流模拟宿主机与容器路径不同的情况，并用 `python -S` 验证源码解析路径，
+  避免已安装的 wheel 或 editable 包掩盖 workspace 源码路径缺失。
 - 该容器安装的是 Node 12。workspace 脚本测试由 fixture 显式提供 `fetch`、
   `AbortController` 等浏览器接口，并验证切换标签页时取消旧轮询；
   模拟请求仍可回传迟到结果，以覆盖取消后成功/失败回调的视图隔离。

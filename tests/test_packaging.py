@@ -1,4 +1,6 @@
+import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -104,3 +106,55 @@ def test_python36_workflows_install_compatibility_dependencies(filename):
     assert '"pyyaml>=6.0"' in install["run"]
     assert '"starlette>=0.19.1,<0.20"' in install["run"]
     assert "fastapi" not in install["run"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="CI container uses a POSIX shell")
+@pytest.mark.parametrize("filename", ["test.yml", "publish.yml"])
+def test_python36_workflows_resolve_sources_inside_container(filename, tmp_path):
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / filename).read_text(encoding="utf-8")
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["pytest-py36"]["steps"]
+        if item["name"] == "Run Python 3.6 pytest"
+    )
+    environment = dict(os.environ)
+    environment["GITHUB_WORKSPACE"] = str(ROOT)
+    environment["PYTHONPATH"] = ""
+    for name, value in step.get("env", {}).items():
+        environment[name] = value.replace(
+            "${{ github.workspace }}", str(tmp_path / "host-workspace")
+        )
+    probe = (
+        "import importlib.util, json; "
+        "print(json.dumps({name: importlib.util.find_spec(name).origin "
+        "for name in ('pycodex', 'responses_server', 'workspace_server', 'pycodex_ws')}))"
+    )
+    pytest_command = "python -m pytest -c /dev/null"
+    assert step["run"].count(pytest_command) == 1
+    command = step["run"].replace(
+        pytest_command,
+        "{} -S -c {}".format(shlex.quote(sys.executable), shlex.quote(probe)),
+    )
+    result = subprocess.run(
+        ["sh", "-eu", "-c", command],
+        cwd=str(ROOT),
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "pycodex": str(ROOT / "pycodex" / "__init__.py"),
+        "responses_server": str(ROOT / "responses_server" / "__init__.py"),
+        "workspace_server": str(
+            ROOT / "packages" / "pycodex-ws" / "workspace_server" / "__init__.py"
+        ),
+        "pycodex_ws": str(
+            ROOT / "packages" / "pycodex-ws" / "pycodex_ws" / "__init__.py"
+        ),
+    }
