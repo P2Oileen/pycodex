@@ -2,6 +2,8 @@
 
 English README. Chinese version: `README_ZH.md`
 
+0.4.0 core/workspace package split and dependency cleanup: [release notes](docs/RELEASE_0.4.0.md).
+
 0.3.3 workspace viewers and reasoning stream fix: [release notes](docs/RELEASE_0.3.3.md).
 
 0.3.2 startup fixes: [release notes](docs/RELEASE_0.3.2.md).
