@@ -29,7 +29,7 @@ from fastapi.responses import (
     Response,
 )
 
-from pycodex.bootstrap import build_agent, build_model, build_runtime, configure_loguru
+from pycodex.bootstrap import build_agent, build_model, configure_loguru
 from pycodex.events import (
     IDLE_SLEEPING_STATUS,
     AssistantDeltaEvent,
@@ -65,6 +65,7 @@ from pycodex.utils.event_helpers import (
     completed_history,
     shorten_title,
 )
+from pycodex_ws import build_runtime
 
 from .workspace_views import WorkspaceViewOpener, WorkspaceViewStore
 from .workspaces import (

@@ -10,15 +10,28 @@ English README. Chinese version: `README_ZH.md`
 
 PyPI distributions:
 
-- Primary package: `python-codex`
-- Workspace install alias: `pycodex-ws`
+- Core package: `python-codex`
+- Workspace and integrations: `pycodex-ws`
 
 The import path remains `pycodex`; the CLI commands are `pycodex` and
 `pycodex-ws`.
 
-`pycodex-ws` is a thin metapackage that depends on the exact matching
-`python-codex` version. The implementation and console script remain owned by
-`python-codex`, so the two distributions never install duplicate modules.
+`python-codex` contains the Agent, runtime, CLI, standard tools, Responses
+compatibility server and portable storage support. `pycodex-ws` depends on the
+exact matching core version and contains the browser workspace, viewer assets,
+Feishu and IPython integrations, including their dependencies. It owns the
+`workspace_server` and `pycodex_ws` modules and the `pycodex-ws` command.
+
+Core does not require Pillow. Without it, `view_image` sends the original image
+bytes with `detail="original"`, including when `high` is requested. With Pillow
+installed, the default path retains resizing to a maximum dimension of 2048.
+`pycodex-ws` installs Pillow for image preview validation.
+
+Portable encryption uses a bundled pure Python AES-GCM subset of pyaes and
+tlslite-ng, under MIT and BSD licenses. Core does not require a crypto package
+or compiler and ships a `py3-none-any` wheel. Existing `PCX1` bundles and call
+tokens remain compatible; large bundles take longer to encrypt and decrypt.
+See the [source notes](pycodex/utils/_aes_gcm/README.md).
 
 This repository extracts the core Codex agent loop from upstream Codex
 (`https://github.com/openai/codex`) into a deliberately small Python version,
@@ -38,16 +51,17 @@ Relevant Rust reference points:
 
 ## Quick Start
 
-Install the full package or the workspace-oriented alias:
+Install the core CLI, or install the workspace package to include all integrations:
 
 ```bash
 python3 -m pip install python-codex
 python3 -m pip install pycodex-ws
 ```
 
-Use Python 3.6.2 or newer. Both console commands are installed into that
-interpreter's scripts directory. On a machine with multiple Python installations,
-you can select the same interpreter explicitly for startup:
+The core supports Python 3.6.2 or newer. The workspace package requires Python
+3.7 or newer because of its Feishu SDK dependency. Commands are installed into
+that interpreter's scripts directory. On a machine with multiple Python
+installations, select the same interpreter explicitly for startup:
 
 ```bash
 python3 -m pycodex
@@ -58,10 +72,14 @@ If `pycodex` is missing from `PATH` or resolves to an older installation, use th
 module entry points. `python3 -m pip --version` shows which Python environment
 received the installation.
 
+For an existing Web installation, use `python3 -m pip install --upgrade pycodex-ws`
+to upgrade the workspace and its matching core together. Installing only
+`python-codex` provides the CLI and core API.
+
 For development from this repository, install dependencies first:
 
 ```bash
-uv sync
+uv sync --dev
 ```
 
 Try the real entry points:
@@ -72,7 +90,7 @@ uv run pycodex
 ```
 
 A VS Code frontend is available in [`extensions/vscode`](extensions/vscode/README.md).
-It reuses an existing `python-codex>=0.3.1` installation. On first use, missing
+It reuses an existing `pycodex-ws>=0.3.1` installation. On first use, missing
 or older backends are installed/upgraded with pip in the selected Python
 environment on the workspace host; compatible versions need no network check.
 It starts a dedicated `pycodex-ws` workspace on the project's host and opens a
@@ -330,8 +348,8 @@ Current behavior:
   non-persisted follow-up session and submits the file contents as the next
   user instruction; this is intended for side-effect follow-ups such as
   Feishu notifications
-- `/link <feishu-email|open_id|chat_id>` attaches the current interactive
-  session to a Feishu card; multiple sessions in the same pycodex process share
+- `/link <feishu-email|open_id|chat_id>` in a workspace session attaches it
+  to a Feishu card; multiple sessions in the same workspace process share
   one Feishu long-connection listener and route card actions by message id
 - Feishu user OAuth stores its refresh token only in
   `~/.codex/.feishu_refresh_token` (mode `0600`). Run
@@ -636,7 +654,9 @@ CLI, Web and Feishu all use `AgentRuntime.submit_input`: not just `/model`
 and `/resume`, but every session command, steer/queue admission, interactive
 questions and permissions, state notifications and shutdown. Frontends only
 adapt input and render events. Web no longer imports or runs the CLI shell.
-IPython is the deliberate exception: `ipython_agent()` still returns a bare Agent.
+IPython is the deliberate exception: `pycodex_ws.ipython.ipython_agent()` returns
+a bare Agent. Workspace assembly uses `pycodex_ws.build_runtime()` to add
+`/link` and `/unlink`; `pycodex.bootstrap.build_runtime()` provides core commands.
 
 ```python
 from pycodex.bootstrap import build_agent, build_model, build_runtime

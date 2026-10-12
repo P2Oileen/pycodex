@@ -13,7 +13,7 @@ fs.appendFileSync(path.join(directory, "calls.jsonl"), JSON.stringify(
 if (checking) {
   process.stdout.write(JSON.stringify({
     python: process.argv[1], sitePackages: path.join(directory, "site-packages"),
-    version: state.version, workspaceAlias: !!state.workspaceAlias,
+    version: state.version,
   }) + "\n");
 } else if (args[0] === "-m" && args[1] === "pip" && args[2] === "install") {
   setTimeout(() => {
@@ -23,7 +23,7 @@ if (checking) {
     } else {
       state.version = state.nextVersion || "0.3.1";
       fs.writeFileSync(statePath, JSON.stringify(state));
-      process.stdout.write("Successfully installed python-codex\n");
+      process.stdout.write("Successfully installed pycodex-ws\n");
     }
   }, state.installDelay || 0);
 } else {

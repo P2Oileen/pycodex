@@ -10,14 +10,24 @@
 
 PyPI distributions：
 
-- 主包：`python-codex`
-- Workspace 安装别名：`pycodex-ws`
+- 核心包：`python-codex`
+- Workspace 与扩展包：`pycodex-ws`
 
 Import 路径仍保持 `pycodex`；CLI 命令为 `pycodex` 和 `pycodex-ws`。
 
-`pycodex-ws` 是一个薄 metapackage，精确依赖同版本的 `python-codex`。
-实际代码和 console script 继续由 `python-codex` 提供，两个 distribution
-不会重复安装同名模块。
+`python-codex` 提供 Agent、Runtime、CLI、标准工具、Responses 兼容服务和
+整套 portable 功能。`pycodex-ws` 精确依赖同版本的核心包，提供 Web 看板、
+viewer 资源、飞书和 IPython 集成及其依赖；它独立拥有 `workspace_server`、
+`pycodex_ws` 模块和 `pycodex-ws` 命令。
+
+核心包不依赖 Pillow。未安装时，`view_image` 直接发送原图并返回
+`detail="original"`，省略 `detail` 或指定 `high` 也一样；已安装时默认仍将
+最长边缩至不超过 2048。`pycodex-ws` 为图片预览校验直接依赖 Pillow。
+
+Portable 加密使用从 pyaes 和 tlslite-ng 裁出的纯 Python AES-GCM 实现，采用
+MIT/BSD 许可。核心包无需加密扩展或编译器，统一分发 `py3-none-any` wheel。
+已有 `PCX1` 密文和 call token 保持兼容，大包加解密的耗时会增加。
+源码来源和裁剪范围见 [说明](pycodex/utils/_aes_gcm/README.md)。
 
 这个仓库把上游 Codex（`https://github.com/openai/codex`）里最核心的 agent
 闭环先抽成一个尽量小的 Python 版本，重点保留两层结构：
@@ -35,14 +45,15 @@ Import 路径仍保持 `pycodex`；CLI 命令为 `pycodex` 和 `pycodex-ws`。
 
 ## 快速开始
 
-安装完整包或 workspace 安装别名：
+安装核心 CLI，或安装包含前端和全部扩展的 workspace 包：
 
 ```bash
 python3 -m pip install python-codex
 python3 -m pip install pycodex-ws
 ```
 
-要求 Python 3.6.2 或更新版本。两个命令会安装到该解释器的 scripts 目录。
+核心包要求 Python 3.6.2 或更新版本；workspace 包因飞书 SDK 要求 Python 3.7+。
+命令会安装到该解释器的 scripts 目录。
 在同时存在 Python 2/3 或多套 Python 的机器上，可以明确使用安装时的解释器启动：
 
 ```bash
@@ -53,10 +64,13 @@ python3 -m workspace_server --help
 如果 `PATH` 中找不到 `pycodex`，或者命中了旧安装，使用以上模块入口即可。
 `python3 -m pip --version` 可确认包安装到了哪个 Python 环境。
 
+已有 Web 安装使用 `python3 -m pip install --upgrade pycodex-ws` 升级，
+它会一起升级到匹配的核心版本。仅安装 `python-codex` 提供 CLI 和核心 API。
+
 从本仓库开发时，先安装依赖：
 
 ```bash
-uv sync
+uv sync --dev
 ```
 
 试一下真实入口：
@@ -97,6 +111,8 @@ uv run pycodex
 - `pycodex/tools/`：具体工具实现
 - `pycodex/agent.py`：主循环
 - `pycodex/runtime.py`：统一会话命令、提交队列和前端事件订阅
+- `packages/pycodex-ws/workspace_server/`：Web 看板、API、文件/diff 查看器
+- `packages/pycodex-ws/pycodex_ws/`：飞书、IPython 与 workspace 装配
 - `extensions/vscode/`：通过 workspace HTTP API 接入的 VS Code 聊天前端
 - `tests/test_agent.py`：核心行为测试
 
@@ -106,11 +122,13 @@ uv run pycodex
 所有会话命令、steer/queue 策略、模型/历史/标题状态、交互问答和权限响应、
 worker 启停及连接清理都由后端统一处理，前端只做输入和展示适配。
 Web 不再导入或运行 CLI shell，飞书运行中也能提交 steer 和回答问题。
-IPython 是明确的例外：`ipython_agent()` 仍返回裸 Agent。
+IPython 是明确的例外：`pycodex_ws.ipython.ipython_agent()` 返回裸 Agent。
+Workspace 使用 `pycodex_ws.build_runtime()` 装配 `/link`、`/unlink`；
+`pycodex.bootstrap.build_runtime()` 仅装配核心会话命令。
 
 VS Code 前端为每个项目在项目所在机器上启动独立的 workspace 后端，通过稳定
 WebviewView 在左侧活动栏的 Pycodex 入口显示聊天。首次使用优先复用已有
-`python-codex>=0.3.1`，版本足够时不联网；缺失或版本太旧时，在对应的 Python
+`pycodex-ws>=0.3.1`，版本足够时不联网；缺失或版本太旧时，在对应的 Python
 环境中通过 pip 安装或升级。检查、安装和启动都在工作区所在主机完成。
 新建 session 会展开新会话、
 折叠上一个会话，保留后台任务和草稿；折叠条目继续更新状态，可直接点击展开或关闭。

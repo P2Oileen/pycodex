@@ -22,12 +22,28 @@
 - 如果已推送的 tag 在 CI 初始化阶段失败，修复 workflow 后应从包含修复的
   branch 手动运行 `publish`，并选择正确的 `repository`。直接重跑旧的
   tag workflow 仍使用旧提交；不要为了 CI 修复强制移动已公开的 tag。
-- `publish.yml` 构建两个 wheel 后，在新 venv 中通过 pip 安装 `pycodex-ws`
-  及同批 `python-codex`，离开源码目录后检查两个 console script 和
-  `python -m pycodex` / `python -m workspace_server`，成功后才上传发布产物。
+- 两个包都构建普通 `py3-none-any` wheel。AES-GCM 使用内嵌纯 Python 实现，
+  不增加编译器、原生库构建或平台 wheel 矩阵。
+- `smoke_core_wheel.py` 在独立安装环境中检查 NIST 向量、认证失败、
+  1 MiB portable round-trip、模块入口，以及 core 不安装 Crypto、Cryptodome、
+  Pillow 或 workspace 模块。必须离开源码目录执行：
+  `python /path/to/pycodex/tests/smoke_core_wheel.py`。
+- `publish.yml` 构建 core 和 workspace 的普通 wheel/sdist。
+  安装 core 后再安装同批 workspace，检查两个 console script、
+  workspace 模块入口和依赖，卸载 workspace 后检查 core 仍可用；另从 sdist
+  重新构建并验证 portable。全部成功后才上传发布产物，发布顺序保持 core 在前。
   `test_packaging.py` 另覆盖模块入口的帮助、doctor 分发及参数错误退出码。
 
 ## 自动化测试
+
+### Portable 加密
+
+- `test_crypto.py` 对内嵌纯 Python AES-GCM 后端验证
+  AES-256-GCM NIST 向量、空输入、非整块长度、1 MiB 输入，以及与 PyCryptodome
+  的密文和标签互操作；验证 key/nonce/tag 长度、计数器耗尽保护、篡改拒绝、
+  先验证再解密和旧 `PCX1` 密文。
+  PyCryptodome 仅作为开发测试参考依赖。
+- `test_portable.py` 继续覆盖打包、加解密、服务上传/下载和错误处理。
 
 ### Provider 配置
 
@@ -49,7 +65,7 @@
   context meter 快照字段、每个 chat 新建 session、
   显式 session id、POST 不自动重试、旧轮询、多 session 隔离及 detach 不关闭后端。
 - 后端准备测试覆盖复用兼容版本、从 console script 定位原 Python 环境、
-  空 venv 的独立安装与启动、旧版升级、同步升级 metapackage、安装后版本复查、并发安装复用
+  空 venv 的独立安装与启动、旧版升级、通过 workspace 依赖升级 core、安装后版本复查、并发安装复用
   （含同一环境的 `python` / `python3` 别名），
   以及安装失败/缺少 Python/无效自定义路径报错与凭据脱敏。
   进程 fixture 在 POSIX 上执行；Windows launcher 解析使用固定样本验证。
@@ -262,6 +278,8 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   - 预期：列出绝对路径目录树片段。
 - `view_image`
   - 预期：返回 data URL，并把工具结果序列化成 `input_image` content item。
+  - 已安装 Pillow 时默认缩图；缺少 Pillow 时，省略或显式 `high` 均保留原图并返回
+    `original`。显式 `original` 始终保留原图；验证字节、尺寸和序列化后的 detail。
 - `spawn_agent`
   - 预期：happy path 下能创建子 agent 并通过 `wait_agent` / `close_agent` 正常回收；当前还额外校验了空参数时要返回固定校验错误 `Provide one of: message or items`。
 - `send_input`

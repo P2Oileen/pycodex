@@ -6,9 +6,9 @@ import types
 import pytest
 
 from pycodex.events import TurnCompletedEvent, TurnStartedEvent
-import pycodex.feishu_link as feishu_link
-from pycodex.feishu_card import PycodexCard
-from pycodex.feishu_link import _FeishuCardActionListener, _release_feishu_listener
+import pycodex_ws.feishu_link as feishu_link
+from pycodex_ws.feishu_card import PycodexCard
+from pycodex_ws.feishu_link import _FeishuCardActionListener, _release_feishu_listener
 
 
 class _Object:

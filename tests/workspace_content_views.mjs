@@ -1,5 +1,5 @@
 import assert from "assert";
-import {ContentTabs, SnapshotDisplay, isWorkspaceLink} from "../workspace_server/frontend/content_views.mjs";
+import {ContentTabs, SnapshotDisplay, isWorkspaceLink} from "../packages/pycodex-ws/workspace_server/frontend/content_views.mjs";
 
 // The browser supplies this API; the Python 3.6 CI image uses Node 12.
 global.AbortController = class {

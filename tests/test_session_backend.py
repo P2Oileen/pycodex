@@ -17,14 +17,14 @@ from pycodex import (
     ToolRegistry,
     UserMessage,
 )
-from pycodex.bootstrap import build_runtime
 from pycodex.cli import CliSessionView, run_interactive_session
 from pycodex.events import AssistantDeltaEvent
-from pycodex.feishu_card import PycodexCard
-from pycodex.feishu_link import PycodexRuntimeLink
 from pycodex.runtime import SubmissionInterrupted
 from pycodex.utils import uuid7_string
 from pycodex.utils.session_persist import resolve_codex_home, rollout_path_for_session
+from pycodex_ws import build_runtime as build_workspace_runtime
+from pycodex_ws.feishu_card import PycodexCard
+from pycodex_ws.feishu_link import PycodexRuntimeLink
 from tests.fakes import ScriptedModelClient
 from workspace_server.app import (
     ThreadedWorkspaceInteractiveSession,
@@ -525,8 +525,10 @@ async def test_close_waits_for_accepted_command_then_releases_connection(
         def detach(self):
             detached.append(True)
 
-    monkeypatch.setattr("pycodex.feishu_link.PycodexRuntimeLink", Link)
-    queue = build_runtime(Agent(ControlClient([]), ToolRegistry(), ContextConfig()))
+    monkeypatch.setattr("pycodex_ws.feishu_link.PycodexRuntimeLink", Link)
+    queue = build_workspace_runtime(
+        Agent(ControlClient([]), ToolRegistry(), ContextConfig())
+    )
     await queue.start()
     connecting = asyncio.create_task(queue.submit_input("/link fake"))
     await started.wait()
@@ -553,7 +555,7 @@ def test_backend_and_bootstrap_do_not_import_frontends():
     code = (
         "import sys; import pycodex.runtime; import pycodex.bootstrap; "
         "forbidden = ('pycodex.cli', "
-        "'prompt_toolkit', 'pycodex.feishu_link', 'workspace_server'); "
+        "'prompt_toolkit', 'pycodex_ws', 'workspace_server'); "
         "assert not [name for name in forbidden if name in sys.modules]"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
@@ -711,16 +713,16 @@ def test_web_transports_deliver_structured_answers(threaded, transport):
 
 
 def test_ipython_bootstrap_keeps_bare_agent(monkeypatch):
-    import pycodex.cli
+    import pycodex_ws.ipython
 
     client = ControlClient([])
     agent = Agent(client, ToolRegistry(), ContextConfig())
     attached = []
-    monkeypatch.setattr(pycodex.cli, "build_model", lambda path: client)
-    monkeypatch.setattr(pycodex.cli, "build_agent", lambda **kwargs: agent)
+    monkeypatch.setattr(pycodex_ws.ipython, "build_model", lambda path: client)
+    monkeypatch.setattr(pycodex_ws.ipython, "build_agent", lambda **kwargs: agent)
     monkeypatch.setattr(
-        "pycodex.tools.ipython_tool.attach_ipython_tool", attached.append
+        "pycodex_ws.ipython.attach_ipython_tool", attached.append
     )
-    assert pycodex.cli.ipython_agent("unused") is agent
+    assert pycodex_ws.ipython.ipython_agent("unused") is agent
     assert attached == [agent]
     assert not hasattr(agent, "submission_queue")

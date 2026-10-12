@@ -1,8 +1,12 @@
-"""Optional tool that executes code in the current IPython kernel."""
+"""Agent setup and tools for the current IPython kernel."""
 
-from ..events import ToolCompletedEvent
-from ..utils.event_helpers import colorize_tool_message
-from .base_tool import BaseTool, ToolContext
+import sys
+
+from pycodex.bootstrap import build_agent, build_model
+from pycodex.events import ToolCompletedEvent
+from pycodex.model import DEFAULT_CODEX_CONFIG_PATH
+from pycodex.tools.base_tool import BaseTool, ToolContext
+from pycodex.utils.event_helpers import colorize_tool_message
 
 
 class IPythonTool(BaseTool):
@@ -140,3 +144,14 @@ def attach_ipython_tool(
     if print_tool_events:
         attach_ipython_event_printer(agent, color=color)
     return tool
+
+
+def ipython_agent(config_path=DEFAULT_CODEX_CONFIG_PATH):
+    from loguru import logger
+
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
+    model = build_model(config_path)
+    agent = build_agent(client=model, config_path=config_path)
+    attach_ipython_tool(agent)
+    return agent

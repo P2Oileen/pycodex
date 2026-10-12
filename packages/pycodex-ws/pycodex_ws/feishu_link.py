@@ -3,9 +3,10 @@ import threading
 import time
 import typing
 
-from .events import SessionStateEvent
+from pycodex.events import SessionStateEvent
+from pycodex.runtime import AgentRuntime
+
 from .feishu_card import PycodexCard
-from .runtime import AgentRuntime
 
 CARD_UPDATE_FLUSH_INTERVAL_SECONDS = 0.5
 _LISTENER = None

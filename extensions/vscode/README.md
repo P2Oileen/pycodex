@@ -19,15 +19,15 @@ configuration. The welcome screen explains this before a backend is started.
 
 ## Python backend
 
-The extension requires **`python-codex>=0.3.1`**. On the first chat in a project,
+The extension requires **`pycodex-ws>=0.3.1`** and Python 3.7 or newer.
+On the first chat in a project,
 it checks the installation on the machine that holds the project:
 
 - Use the Python interpreter selected in **设置 → Python 环境**. If its installed
   version meets the minimum, reuse it without checking the network.
 - Upgrade an older installation with its own
-  `python -m pip install --upgrade "python-codex>=0.3.1"`, then check again.
-  If the `pycodex-ws` metapackage is installed, upgrade it in the same operation
-  so its exact core dependency stays consistent.
+  `python -m pip install --upgrade "pycodex-ws>=0.3.1"`, then check again.
+  Its exact core dependency is resolved in the same operation.
 - With **自动检测**, reuse the interpreter behind `pycodex-ws` or `pycodex` on
   `PATH`, or find `python3` / `python` (`py -3` first on Windows).
 - Install the package if missing, then run `python -m workspace_server` with
@@ -99,8 +99,8 @@ extension host; HTTP requests to Python also run on the workspace host.
 For backend development from this checkout, run `env -u VIRTUAL_ENV uv sync --dev`
 at the repository root and select its `.venv` in **Python 环境**, or set
 `pycodex.pythonPath` to `.venv/bin/python` (`.venv/Scripts/python.exe` on Windows).
-The 0.3.1 backend and matching metapackage must be published before distributing
-this extension to users who depend on automatic pip installation. Publish
+The backend packages must be published before distributing this extension to
+users who depend on automatic pip installation. Publish
 `python-codex` first, then `pycodex-ws`, then the extension.
 Python source distributions exclude the VS Code project; build the VSIX from
 the repository checkout.

@@ -8,6 +8,7 @@ Expected behavior:
   into the next model request.
 - Resize the image down to `MAX_DIMENSION` unless the caller asks for
   `original` detail, matching upstream `PromptImageMode::ResizeToFit`.
+- Use `original` detail when Pillow is unavailable.
 - Accept the documented `path` argument plus optional `detail: "high" |
   "original"` hint.
 - Return both the JSON object result and the structured `input_image` content
@@ -15,6 +16,7 @@ Expected behavior:
 """
 
 import typing
+from importlib.util import find_spec
 from pathlib import Path
 
 from ..protocol import JSONDict, JSONValue
@@ -94,6 +96,9 @@ class ViewImageTool(BaseTool):
             return f"Error: unable to locate image at `{path}`."
         if not path.is_file():
             return f"Error: image path `{path}` is not a file."
+
+        if detail == "high" and find_spec("PIL") is None:
+            detail = "original"
 
         try:
             image_url = load_image_data_url(path, detail != "original")

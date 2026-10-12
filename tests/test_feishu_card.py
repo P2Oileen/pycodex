@@ -21,8 +21,8 @@ from pycodex.events import (
     TurnInterruptedEvent,
     TurnStartedEvent,
 )
-from pycodex.feishu_card import CARD_OUTPUT_LIMIT, PycodexCard
 from pycodex.protocol import ToolCall, ToolResult
+from pycodex_ws.feishu_card import CARD_OUTPUT_LIMIT, PycodexCard
 
 
 class _Response:
@@ -692,7 +692,7 @@ def test_feishu_card_refresh_store_failure_does_not_cache_access_token(
     def fail_write(value):
         raise OSError("token store unavailable")
 
-    monkeypatch.setattr("pycodex.feishu_card._write_refresh_token", fail_write)
+    monkeypatch.setattr("pycodex_ws.feishu_card._write_refresh_token", fail_write)
     with pytest.raises(OSError, match="token store unavailable"):
         card.user_access_token()
 

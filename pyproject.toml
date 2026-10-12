@@ -14,9 +14,6 @@ dependencies = [
     "fastapi>=0.83.0; python_version >= '3.7'",
     "importlib_metadata>=4.8.3; python_version < '3.8'",
     "loguru>=0.7.3",
-    "pycryptodomex>=3.20",
-    "pillow>=8.4.0; python_version < '3.7'",
-    "pillow>=9.0.0; python_version >= '3.7'",
     "prompt-toolkit>=3.0.36",
     "pyyaml>=6.0",
     "requests>=2.27.1",
@@ -28,15 +25,16 @@ dependencies = [
 
 [project.scripts]
 pycodex = "pycodex.cli:main"
-pycodex-ws = "workspace_server:main"
 
 [dependency-groups]
 dev = [
+    "pycodex-ws==0.3.3",
     "black>=22.8.0",
     "debugpy>=1.8.20; python_version >= '3.8'",
     "httpx>=0.22.0,<0.23; python_version < '3.8'",
     "httpx>=0.28; python_version >= '3.8'",
     "isort>=5.10.1",
+    "pycryptodomex>=3.20",
     "pytest>=6.2.5,<7; python_version < '3.8'",
     "pytest>=8.0; python_version >= '3.8'",
     "pytest-asyncio>=0.16,<0.17; python_version < '3.8'",
@@ -47,21 +45,17 @@ dev = [
 package = true
 default-groups = []
 
+[tool.uv.workspace]
+members = ["packages/pycodex-ws"]
+
+[tool.uv.sources]
+pycodex-ws = { workspace = true }
+
 [tool.hatch.build.targets.wheel]
-packages = ["pycodex", "responses_server", "workspace_server"]
-exclude = ["workspace_server/frontend"]
-artifacts = [
-    "workspace_server/workspace.html",
-    "workspace_server/workspaces.html",
-    "workspace_server/content_views.mjs",
-    "workspace_server/content_views.css",
-    "workspace_server/content_views.LICENSE.txt",
-    "workspace_server/editor.mjs",
-    "workspace_server/editor.css",
-]
+packages = ["pycodex", "responses_server"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [".venv*", "/extensions", "/workspace_server/frontend/node_modules"]
+only-include = ["pycodex", "responses_server", "pyproject.toml", "README.md", "README_ZH.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

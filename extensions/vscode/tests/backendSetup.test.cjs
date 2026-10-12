@@ -80,22 +80,22 @@ processTest("an old backend upgrades the selected interpreter and preserves the 
   assert.deepEqual(await f.calls(), [
     { kind: "check" },
     { kind: "pip", args: [
-      "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input", "python-codex>=0.3.1",
+      "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input", "pycodex-ws>=0.3.1",
     ] },
     { kind: "check" },
   ]);
   assert.ok(f.messages.some(message => message.startsWith("Upgrading")));
 });
 
-processTest("the installed workspace metapackage advances with its pinned core", async t => {
-  const f = await fixture(t, { version: "0.3.0", workspaceAlias: true });
+processTest("workspace upgrades resolve the matching core through its dependency", async t => {
+  const f = await fixture(t, { version: "0.3.0" });
   await f.prepare();
   const installing = (await f.calls()).find(call => call.kind === "pip");
-  assert.deepEqual(installing.args.slice(-2), ["python-codex>=0.3.1", "pycodex-ws>=0.3.1"]);
+  assert.deepEqual(installing.args.slice(-2), ["--no-input", "pycodex-ws>=0.3.1"]);
 });
 
 processTest("an existing pycodex CLI selects its environment when pycodex-ws is absent", async t => {
-  const f = await fixture(t, { version: "0.3.0" });
+  const f = await fixture(t, { version: null });
   await fs.rename(f.command, path.join(f.bin, "pycodex"));
   assert.deepEqual(await f.prepare(), f.expectedLaunch);
   assert.equal((await f.calls()).filter(call => call.kind === "pip").length, 1);
@@ -183,14 +183,14 @@ processTest("pip failures stay visible with credentials removed and no fallback 
   assert.equal((await f.calls()).length, 2);
 });
 
-for (const requirement of ["python-codex>=0.3.1", "pycodex-ws>=0.3.1", "some-dependency>=1.0"]) {
+for (const requirement of ["python-codex==0.3.3", "pycodex-ws>=0.3.1", "some-dependency>=1.0"]) {
   processTest(`missing ${requirement} keeps pip diagnostics behind an actionable installation error`, async t => {
     const details = [
       "Looking in indexes: https://packages.example.test/simple/",
       `ERROR: Could not find a version that satisfies the requirement ${requirement}`,
       `ERROR: No matching distribution found for ${requirement}`,
     ].join("\n");
-    const f = await fixture(t, { version: "0.3.0", workspaceAlias: true, installError: details });
+    const f = await fixture(t, { version: "0.3.0", installError: details });
     await assert.rejects(f.prepare(), error => {
       const summary = error.message.split("\n")[0];
       assert.match(summary, /Pycodex 安装失败.*重试.*设置/);

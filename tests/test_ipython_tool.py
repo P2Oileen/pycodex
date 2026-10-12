@@ -5,7 +5,7 @@ import pytest
 
 from pycodex.events import AssistantDeltaEvent, ToolCompletedEvent, ToolStartedEvent
 from pycodex.protocol import ToolCall, ToolResult
-from pycodex.tools.ipython_tool import IPythonTool, attach_ipython_event_printer
+from pycodex_ws.ipython import IPythonTool, attach_ipython_event_printer
 
 
 class FakeAgent:

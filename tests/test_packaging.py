@@ -28,9 +28,42 @@ def test_workspace_distribution_tracks_core_version() -> "None":
     assert workspace["project"]["version"] == version
     assert workspace["project"]["dependencies"] == [
         "python-codex=={0}".format(version),
+        "lark-oapi",
+        "ipython>=7",
+        "pillow>=9.0.0",
     ]
-    assert "scripts" not in workspace["project"]
-    assert core["project"]["scripts"]["pycodex-ws"] == "workspace_server:main"
+    assert not any(
+        dependency.startswith(("pillow", "pycryptodomex"))
+        for dependency in core["project"]["dependencies"]
+    )
+    assert core["project"]["scripts"] == {"pycodex": "pycodex.cli:main"}
+    assert workspace["project"]["scripts"] == {
+        "pycodex-ws": "workspace_server:main",
+    }
+    assert core["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
+        "pycodex", "responses_server",
+    ]
+    assert workspace["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
+        "workspace_server", "pycodex_ws",
+    ]
+
+
+def test_runtime_commands_follow_package_boundary():
+    from pycodex import Agent, ContextConfig, ToolRegistry
+    from pycodex.bootstrap import build_runtime
+    from pycodex_ws import build_runtime as build_workspace_runtime
+    from tests.fakes import ScriptedModelClient
+
+    core = build_runtime(
+        Agent(ScriptedModelClient([]), ToolRegistry(), ContextConfig())
+    )
+    workspace = build_workspace_runtime(
+        Agent(ScriptedModelClient([]), ToolRegistry(), ContextConfig())
+    )
+
+    assert "link" not in core.commands()
+    assert "unlink" not in core.commands()
+    assert set(workspace.commands()) == set(core.commands()) | {"link", "unlink"}
 
 
 @pytest.mark.parametrize(

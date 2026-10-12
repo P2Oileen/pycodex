@@ -11,7 +11,8 @@ from typing import Callable
 from urllib.parse import quote, urlparse
 
 import requests
-from Cryptodome.Cipher import AES
+
+from .utils.crypto import aes_gcm_decrypt, aes_gcm_encrypt
 
 try:
     import tomllib
@@ -240,8 +241,7 @@ def _normalize_optional_relative_file(
 
 def _encrypt_bundle(bundle_bytes: "bytes", secret: "str") -> "bytes":
     nonce = os.urandom(NONCE_LENGTH)
-    cipher = AES.new(_encryption_key(secret), AES.MODE_GCM, nonce=nonce)
-    ciphertext, tag = cipher.encrypt_and_digest(bundle_bytes)
+    ciphertext, tag = aes_gcm_encrypt(_encryption_key(secret), nonce, bundle_bytes)
     return ENCRYPTED_BUNDLE_MAGIC + nonce + ciphertext + tag
 
 
@@ -257,10 +257,7 @@ def _decrypt_bundle(payload: "bytes", secret: "str") -> "bytes":
     ciphertext = encrypted[:-16]
     tag = encrypted[-16:]
     try:
-        cipher = AES.new(_encryption_key(secret), AES.MODE_GCM, nonce=nonce)
-        plaintext = cipher.decrypt(ciphertext)
-        cipher.verify(tag)
-        return plaintext
+        return aes_gcm_decrypt(_encryption_key(secret), nonce, ciphertext, tag)
     except ValueError as exc:
         raise RemoteStorageError(
             "call secret is invalid or bundle is corrupted"

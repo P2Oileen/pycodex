@@ -68,10 +68,26 @@ IPython ---------------------------> Agent
 ```
 
 `pycodex.bootstrap` owns model/tool/Agent/session assembly. It imports neither
-CLI nor Web nor Feishu presentation code. Optional `/link` and `/unlink`
-handlers are injected by `build_runtime(agent)`; the Feishu adapter is imported
-only when linking. A plain `AgentRuntime(agent)` has all core commands and
-can register application-specific async handlers with `register_command`.
+CLI nor Web nor Feishu presentation code. Its `build_runtime(agent)` provides
+core commands. `pycodex_ws.build_runtime(agent)` adds `/link`, `/unlink` and
+connection cleanup for workspace sessions; the Feishu adapter is imported only
+when linking. Both return the same `AgentRuntime`, which can register
+application-specific async handlers with `register_command`.
+
+The `python-codex` distribution owns `pycodex`, `responses_server` and the
+`pycodex` CLI, including all portable functionality. `pycodex-ws` owns
+`workspace_server`, `pycodex_ws`, viewer resources and the `pycodex-ws` command.
+Its source lives in `packages/pycodex-ws/` and it depends on the exact matching
+core version, plus the Feishu and IPython SDKs. The workspace package requires
+Python 3.7+; core keeps Python 3.6.2 support.
+
+Portable AES-256-GCM runs through `pycodex.utils.crypto`, using the bundled pure
+Python subset of pyaes and tlslite-ng. It uses no optional crypto backend or
+native build. The `PCX1` layout, SHA-256 key derivation, 12-byte nonce and 16-byte
+tag are unchanged. Tags are verified before ciphertext is decrypted. Core
+ships a universal Python wheel and has no PyCryptodome runtime dependency;
+large bundles incur the cost of Python encryption and authentication loops.
+See the [vendored source notes](../pycodex/utils/_aes_gcm/README.md).
 
 Every frontend calls `await runtime.submit_input(text, sender)`. The returned
 `SubmittedInput` carries a submission id, kind and future. Normal text uses
@@ -94,9 +110,9 @@ The [VS Code frontend](../extensions/vscode/README.md) starts a workspace backen
 per project using the existing CLI. Before startup it reads package metadata
 from the selected Python interpreter. Automatic detection resolves an existing
 console script's interpreter or finds Python on the workspace host. A compatible
-`python-codex>=0.3.1` is reused without a network check; missing or older packages
-are installed/upgraded through that interpreter's pip, including the optional
-`pycodex-ws` metapackage when present. It launches `python -m workspace_server`
+`pycodex-ws>=0.3.1` is reused without a network check; missing or older workspace
+packages are installed/upgraded through that interpreter's pip, which resolves
+the matching core dependency. It launches `python -m workspace_server`
 with the same interpreter, including when a selected venv initially has no Pycodex.
 Installation finishes before the backend startup deadline starts. Pending
 installs are shared per Python environment, and closing during preparation waits
@@ -305,7 +321,7 @@ The CLI still detaches its view on cleanup
 failure, and the Web adapter stops and joins its thread after session cleanup,
 including on failure; startup failure closes the partially started session.
 
-IPython retains `ipython_agent()` returning a bare Agent with its kernel tool
+`pycodex_ws.ipython.ipython_agent()` returns a bare Agent with its kernel tool
 attached. Direct `ask`, `run_turn` and idle-only background hooks stay available
 without a submission queue.
 This does not make arbitrary dependency replacement a supported mid-turn
@@ -643,7 +659,8 @@ deleted side of a diff becomes empty and is marked missing. Recreating or fixing
 the file resumes updates. A storage write or total-budget failure is reported
 to the browser and leaves the previous persisted views intact.
 
-`workspace_server/workspace_views.py` owns `WorkspaceViewOpener` and `WorkspaceViewStore`.
+`packages/pycodex-ws/workspace_server/workspace_views.py` owns
+`WorkspaceViewOpener` and `WorkspaceViewStore`.
 It saves open views, explicit file/Git sources, the latest contents, optional
 line targets and the monotonic reveal counter
 atomically in the Canvas file's sibling `.pycodex-views.json` file, separately from
@@ -712,18 +729,18 @@ mobile browsers; viewport and touch checks supplement, but do not establish,
 support across real mobile browsers.
 
 Frontend sources and exact dependency versions live in
-`workspace_server/frontend/`, with `package-lock.json` fixing transitive
+`packages/pycodex-ws/workspace_server/frontend/`, with `package-lock.json` fixing transitive
 dependencies. After changing those sources, rebuild the generated assets using
 Node 18+ from the repository root:
 
 ```bash
-npm --prefix workspace_server/frontend ci
-npm --prefix workspace_server/frontend run build
+npm --prefix packages/pycodex-ws/workspace_server/frontend ci
+npm --prefix packages/pycodex-ws/workspace_server/frontend run build
 ```
 
 The build collects licenses and third-party notices for bundled packages and stages every output
 before replacing the public JS entry. For an isolated preview, pass a staging
-directory with `npm --prefix workspace_server/frontend run build -- /tmp/workspace-assets`.
+directory with `npm --prefix packages/pycodex-ws/workspace_server/frontend run build -- /tmp/workspace-assets`.
 The wheel contains the generated assets, without frontend sources, `node_modules`
 or the build toolchain.
 

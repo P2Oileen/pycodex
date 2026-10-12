@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from .events import (
+from pycodex.events import (
     DEFAULT_MAIN_PROMPT,
     CommandCompletedEvent,
     CommandFailedEvent,
@@ -20,7 +20,7 @@ from .events import (
     TurnFailedEvent,
     TurnStartedEvent,
 )
-from .utils.event_helpers import completed_history
+from pycodex.utils.event_helpers import completed_history
 
 FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
 FEISHU_DOMAIN = "https://open.feishu.cn"

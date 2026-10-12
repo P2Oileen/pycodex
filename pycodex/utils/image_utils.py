@@ -8,6 +8,7 @@ Expected behavior:
   attached to a model request, matching upstream `PromptImageMode::ResizeToFit`.
 - Keep the original bytes when the caller asks for `original` detail or the
   image already fits.
+- Import Pillow only when resizing is requested.
 """
 
 import base64
@@ -15,8 +16,6 @@ import io
 import mimetypes
 import typing
 from pathlib import Path
-
-from PIL import Image
 
 MAX_DIMENSION = 2048
 
@@ -48,6 +47,8 @@ def _resize_to_fit(
     mime_type: "str",
     image_bytes: "bytes",
 ) -> "typing.Tuple[str, bytes]":
+    from PIL import Image
+
     with Image.open(io.BytesIO(image_bytes)) as image:
         width, height = image.size
         if width <= MAX_DIMENSION and height <= MAX_DIMENSION:

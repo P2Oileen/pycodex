@@ -9,8 +9,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
-from pycodex.feishu_card import _refresh_token_path, _write_refresh_token
 from pycodex.utils import load_codex_dotenv
+from pycodex_ws.feishu_card import _refresh_token_path, _write_refresh_token
 
 AUTHORIZE_URL = "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
 FEISHU_API_BASE = "https://open.feishu.cn/open-apis"

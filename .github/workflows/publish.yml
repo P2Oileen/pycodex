@@ -93,7 +93,7 @@ jobs:
 
       - name: Run Python 3.6 pytest
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/packages/pycodex-ws
         run: python -m pytest -c /dev/null
 
   build:
@@ -121,12 +121,39 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/pycodex-wheel"
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip install \
-            dist/python-codex/*.whl dist/pycodex-ws/*.whl
+            dist/python-codex/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/pycodex-wheel/bin/pycodex" --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" \
+            "$GITHUB_WORKSPACE/tests/smoke_core_wheel.py"
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip install \
+            "$GITHUB_WORKSPACE"/dist/pycodex-ws/*.whl
           "$RUNNER_TEMP/pycodex-wheel/bin/pycodex-ws" --help
-          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pycodex --help
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m workspace_server --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -c \
+            "import lark_oapi, IPython; from pycodex_ws.ipython import ipython_agent"
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip check
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip uninstall -y pycodex-ws
+          "$RUNNER_TEMP/pycodex-wheel/bin/pycodex" --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" - <<'PY'
+          from importlib.util import find_spec
+          assert find_spec("workspace_server") is None
+          assert find_spec("pycodex_ws") is None
+          import pycodex.portable
+          PY
+
+      - name: Rebuild core from source distribution
+        run: |
+          python -m pip wheel --no-deps dist/python-codex/*.tar.gz \
+            --wheel-dir "$RUNNER_TEMP/pycodex-sdist-wheel"
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip install \
+            --no-deps --force-reinstall "$RUNNER_TEMP"/pycodex-sdist-wheel/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" - <<'PY'
+          from pycodex.portable import _decrypt_bundle, _encrypt_bundle
+          payload = b"source distribution fixture"
+          assert _decrypt_bundle(_encrypt_bundle(payload, "public fixture"), "public fixture") == payload
+          PY
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4

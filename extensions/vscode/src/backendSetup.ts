@@ -10,7 +10,6 @@ interface PythonEnvironment {
   python: string;
   sitePackages: string;
   version: string | null;
-  workspaceAlias: boolean;
 }
 
 export interface BackendOptions {
@@ -31,7 +30,7 @@ export class BackendSetup {
     const key = environment.sitePackages;
     let installation = this.installations.get(key);
     if (!installation && !meetsMinimumVersion(environment.version, this.minimumVersion)) {
-      report(`${environment.version ? "Upgrading" : "Installing"} python-codex >= ${this.minimumVersion}…`);
+      report(`${environment.version ? "Upgrading" : "Installing"} pycodex-ws >= ${this.minimumVersion}…`);
       installation = this.install(environment);
       this.installations.set(key, installation);
     } else if (installation) {
@@ -80,12 +79,10 @@ export class BackendSetup {
   }
 
   private async install(environment: PythonEnvironment): Promise<PythonEnvironment> {
-    const requirements = [`python-codex>=${this.minimumVersion}`];
-    // The optional alias pins the core to an exact version and must advance with it.
-    if (environment.workspaceAlias) requirements.push(`pycodex-ws>=${this.minimumVersion}`);
     try {
       await runPython(environment.python, [
-        "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input", ...requirements,
+        "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input",
+        `pycodex-ws>=${this.minimumVersion}`,
       ]);
     } catch (error) {
       throw new Error(
@@ -96,7 +93,7 @@ export class BackendSetup {
     const updated = await inspectPython(environment.python, []);
     if (!meetsMinimumVersion(updated.version, this.minimumVersion)) {
       throw new Error(
-        `pip finished, but this Python still reports python-codex ${updated.version || "not installed"}; ` +
+        `pip finished, but this Python still reports pycodex-ws ${updated.version || "not installed"}; ` +
         `version ${this.minimumVersion} or newer is required.`,
       );
     }
@@ -174,7 +171,7 @@ export function pythonFromLauncher(contents: Buffer): string {
 export function meetsMinimumVersion(version: string | null, minimum: string): boolean {
   if (version === null) return false;
   const match = /^(?:(\d+)!)?(\d+(?:\.\d+)*)(?:(a|b|rc)\d+)?(?:\.post(\d+))?(?:\.dev(\d+))?(?:\+[a-z0-9]+(?:[._-][a-z0-9]+)*)?$/i.exec(version);
-  if (!match) throw new Error(`Invalid python-codex package version: ${redactDiagnostic(version)}`);
+  if (!match) throw new Error(`Invalid pycodex-ws package version: ${redactDiagnostic(version)}`);
   if (Number(match[1] || 0) > 0) return true;
   const release = match[2].split(".").map(Number);
   const required = minimum.split(".").map(Number);
@@ -189,8 +186,8 @@ async function inspectPython(command: string, args: string[]): Promise<PythonEnv
   // Metadata inspection must also work before the package (or its backport) is installed.
   const code = `
 import sys
-if sys.version_info < (3, 6, 2):
-    raise RuntimeError("Pycodex requires Python 3.6.2 or newer")
+if sys.version_info < (3, 7):
+    raise RuntimeError("Pycodex workspace requires Python 3.7 or newer")
 import importlib.util
 import json
 import sysconfig
@@ -212,8 +209,7 @@ def version(name):
 print(json.dumps({
     "python": sys.executable,
     "sitePackages": sysconfig.get_path("purelib"),
-    "version": version("python-codex"),
-    "workspaceAlias": version("pycodex-ws") is not None,
+    "version": version("pycodex-ws"),
 }))
 `;
   const output = await runPython(command, [...args, "-c", code], true);
@@ -225,8 +221,7 @@ print(json.dumps({
   }
   if (!environment || typeof environment.python !== "string" || !isAbsolute(environment.python) ||
       typeof environment.sitePackages !== "string" || !isAbsolute(environment.sitePackages) ||
-      (environment.version !== null && typeof environment.version !== "string") ||
-      typeof environment.workspaceAlias !== "boolean") {
+      (environment.version !== null && typeof environment.version !== "string")) {
     throw new Error("Python returned invalid backend installation metadata.");
   }
   return environment;

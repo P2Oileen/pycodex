@@ -928,7 +928,9 @@ def test_content_tab_controller():
 
 
 def test_page_imports_match_shipped_module():
-    workspace = Path(__file__).parents[1] / "workspace_server"
+    workspace = (
+        Path(__file__).parents[1] / "packages" / "pycodex-ws" / "workspace_server"
+    )
     # Canvas must not load Monaco's multi-megabyte code or stylesheet.
     assert (workspace / "content_views.mjs").stat().st_size < 30000
     assert (workspace / "content_views.css").stat().st_size < 5000
