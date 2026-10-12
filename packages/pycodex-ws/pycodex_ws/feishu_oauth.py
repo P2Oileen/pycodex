@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+"""Authorize Feishu and store the refresh token for workspace sessions."""
+
+import argparse
 import json
 import os
 from pathlib import Path
@@ -10,7 +12,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import requests
 
 from pycodex.utils import load_codex_dotenv
-from pycodex_ws.feishu_card import _refresh_token_path, _write_refresh_token
+
+from .feishu_card import _refresh_token_path, _write_refresh_token
 
 AUTHORIZE_URL = "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
 FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
@@ -125,7 +128,11 @@ def print_token_result(payload: "typing.Dict[str, object]") -> None:
 
 
 def main(argv: "typing.Union[typing.Sequence[str], None]" = None) -> int:
-    args = list(argv) if argv is not None else sys.argv[1:]
+    parser = argparse.ArgumentParser(
+        prog="python -m pycodex_ws.feishu_oauth",
+        description="Authorize Feishu and store the refresh token for workspace sessions.",
+    )
+    parser.parse_args(argv)
     load_codex_dotenv(Path.home() / ".codex" / "config.toml")
     app_id = os.environ.get("FEISHU_APP_ID") or os.environ.get("LARK_APP_ID")
     app_secret = os.environ.get("FEISHU_APP_SECRET") or os.environ.get(
@@ -137,9 +144,6 @@ def main(argv: "typing.Union[typing.Sequence[str], None]" = None) -> int:
 
     if not app_id:
         print("FEISHU_APP_ID is required", file=sys.stderr)
-        return 2
-    if args:
-        print("usage: uv run python tools/feishu_oauth.py", file=sys.stderr)
         return 2
 
     print("Feishu OAuth refresh token setup")

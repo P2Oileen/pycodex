@@ -390,8 +390,9 @@ Current behavior:
   one Feishu long-connection listener and route card actions by message id
 - Feishu user OAuth stores its refresh token only in
   `~/.codex/.feishu_refresh_token` (mode `0600`). Run
-  `env -u VIRTUAL_ENV uv run python tools/feishu_oauth.py` from this repository
-  to authorize; app credentials can stay in `~/.codex/.env`. Each refresh reads
+  `python3 -m pycodex_ws.feishu_oauth` after installing `pycodex-ws` to authorize.
+  From this repository, use `env -u VIRTUAL_ENV uv run --dev python -m pycodex_ws.feishu_oauth`.
+  App credentials can stay in `~/.codex/.env`. Each refresh reads
   the latest token from the dedicated file and saves its replacement there.
   `FEISHU_REFRESH_TOKEN` in `.env` or the environment is no longer used and
   can be removed. Refresh is triggered by API calls, with no idle keepalive.

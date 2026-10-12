@@ -158,6 +158,12 @@ IPython 是明确的例外：`pycodex_ws.ipython.ipython_agent()` 返回裸 Agen
 Workspace 使用 `pycodex_ws.build_runtime()` 装配 `/link`、`/unlink`；
 `pycodex.bootstrap.build_runtime()` 仅装配核心会话命令。
 
+飞书首次授权可在安装 `pycodex-ws` 后运行
+`python3 -m pycodex_ws.feishu_oauth`；仓库开发环境使用
+`env -u VIRTUAL_ENV uv run --dev python -m pycodex_ws.feishu_oauth`。
+命令从 `~/.codex/.env` 读取应用配置，并将 refresh token 保存到
+`~/.codex/.feishu_refresh_token`，权限为 `0600`。使用 `--help` 查看入口说明。
+
 VS Code 前端为每个项目在项目所在机器上启动独立的 workspace 后端，通过稳定
 WebviewView 在左侧活动栏的 Pycodex 入口显示聊天。首次使用优先复用已有
 `pycodex-ws>=0.3.1`，版本足够时不联网；缺失或版本太旧时，在对应的 Python

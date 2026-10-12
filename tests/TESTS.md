@@ -73,6 +73,9 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
   安装 core 后再安装同批 workspace，检查两个 console script、
   workspace 模块入口和依赖，卸载 workspace 后检查 core 仍可用；另从 sdist
   重新构建并验证 portable。全部成功后才上传发布产物，发布顺序保持 core 在前。
+  PyPI 和 TestPyPI 均先上传 core，再上传 workspace；core 上传失败时
+  workspace 发布 job 不执行。workspace wheel smoke 还从源码目录外运行
+  `python -m pycodex_ws.feishu_oauth --help`，确认授权入口随包分发。
   core 的 `test_packaging.py` 覆盖模块入口的帮助、doctor 分发及参数错误退出码；
   workspace 的同名测试检查双包版本、依赖、模块和命令的归属。
 
@@ -110,7 +113,8 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
 
 - `extensions/vscode` 属于 workspace 前端，独立构建 VSIX。它使用 Node 22+，运行
   `npm ci --omit=optional --ignore-scripts && npm test`；与 Python 3.6
-  测试环境独立，不给 Python runtime 增加 Node 依赖。
+  测试环境独立，不给 Python runtime 增加 Node 依赖。按项目约定手动运行，
+  不加入 CI。
 - 前端测试覆盖项目后端启动、临时配置文件权限与退出/启动失败清理、stdin 关闭、
   停用等待（含已移除目录的后端）、
   远程工作目录、venv 选择/校验、远端文件选择、项目级设置、
@@ -272,7 +276,9 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
 ### `packages/pycodex-ws/tests/test_feishu_oauth.py`
 
 - 首次授权只写 `~/.codex/.feishu_refresh_token`，权限为 `0600`，不创建或
-  更新 `.env`，不打印凭证；脚本从 `.env` 读取应用配置并写入共享 token 文件。
+  更新 `.env`，不打印凭证；`pycodex_ws.feishu_oauth` 从 `.env` 读取应用配置
+  并写入共享 token 文件。
+- 子进程在源码目录外运行模块的 `--help`，不需要应用凭据。
 
 ### `tests/test_session_backend.py`
 

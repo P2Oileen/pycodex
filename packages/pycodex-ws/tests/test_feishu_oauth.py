@@ -1,10 +1,28 @@
 """Feishu OAuth helper integration."""
 
 import os
+import subprocess
+import sys
 
 import pytest
 
-from tools import feishu_oauth
+from pycodex_ws import feishu_oauth
+
+
+def test_oauth_module_help_without_credentials(tmp_path, monkeypatch):
+    for name in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "LARK_APP_ID", "LARK_APP_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    result = subprocess.run(
+        [sys.executable, "-m", "pycodex_ws.feishu_oauth", "--help"],
+        cwd=str(tmp_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
 
 
 @pytest.mark.parametrize("existing_dotenv", [False, True])

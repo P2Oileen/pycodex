@@ -2,7 +2,8 @@
 
 Version **0.4.0** separates the core and workspace distributions and reduces
 runtime dependencies. Both packages use the same version; `pycodex-ws` depends
-on exactly `python-codex==0.4.0`. Publish `python-codex` first, then `pycodex-ws`.
+on exactly `python-codex==0.4.0`. Both PyPI and TestPyPI publish `python-codex`
+first, then `pycodex-ws` after the core upload succeeds.
 
 ## Core and workspace packages
 
@@ -20,6 +21,10 @@ Python integrations use `pycodex_ws.build_runtime()` for workspace assembly
 and `from pycodex_ws.ipython import ipython_agent` for IPython. Feishu adapters
 also live under `pycodex_ws`. Core callers continue to use
 `pycodex.bootstrap.build_runtime()`.
+
+The Feishu authorization helper is included in the workspace wheel and source
+distribution. Run `python3 -m pycodex_ws.feishu_oauth` after installation;
+the old repository-only `tools/feishu_oauth.py` path is removed.
 
 ## Smaller runtime dependencies
 

@@ -173,6 +173,7 @@ jobs:
             "$GITHUB_WORKSPACE"/dist/pycodex-ws/*.whl
           "$RUNNER_TEMP/pycodex-wheel/bin/pycodex-ws" --help
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m workspace_server --help
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pycodex_ws.feishu_oauth --help
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -c \
             "import lark_oapi, IPython; from pycodex_ws.ipython import ipython_agent"
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip check
@@ -224,6 +225,30 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/python-codex/
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pycodex-ws-testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.repository == 'testpypi'
+    needs:
+      - build
+      - publish-testpypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/pycodex-ws/
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish pycodex-ws to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/pycodex-ws/
           repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:

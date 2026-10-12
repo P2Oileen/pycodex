@@ -36,6 +36,17 @@ Workspace sessions include `/link` and `/unlink` for Feishu. Python callers use
 `pycodex_ws.build_runtime(agent)` for the same assembly, or
 `from pycodex_ws.ipython import ipython_agent` inside an IPython session.
 
+For initial Feishu user authorization, run the module included in this package:
+
+```bash
+python3 -m pycodex_ws.feishu_oauth
+```
+
+It reads app credentials from `~/.codex/.env` and stores the refresh token in
+`~/.codex/.feishu_refresh_token` with mode `0600`. `--help` works without
+credentials. In a development checkout, use
+`uv run --dev python -m pycodex_ws.feishu_oauth`.
+
 With `--workspace-config`, a workspace whose `board` is `false` saves its session
 index beside that configuration as `<config-stem>.<workspace-id>.pycodex-ws.json`.
 Reusing the configuration restores the saved titles and conversation rollouts.
