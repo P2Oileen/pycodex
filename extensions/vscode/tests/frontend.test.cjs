@@ -219,6 +219,7 @@ function state(view) { return view.messages.filter(message => message.type === "
 
 async function frontend(t, options = {}) {
   const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "pycodex-frontend-")));
+  const storage = await fs.mkdtemp(path.join(os.tmpdir(), "pycodex-frontend-storage-"));
   const launches = [];
   const inspections = [];
   const sessions = new Map();
@@ -258,6 +259,11 @@ async function frontend(t, options = {}) {
         const id = create();
         payload = { session_id: id, snapshot: sessions.get(id) };
       } else {
+        if (options.listError) {
+          response.writeHead(503, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ error: options.listError }));
+          return;
+        }
         payload = { sessions: [...sessions].map(([id, snapshot]) => ({ id, ...snapshot, turn_count: snapshot.turns.length })) };
       }
     } else if (url.pathname.endsWith("/message")) {
@@ -295,7 +301,8 @@ async function frontend(t, options = {}) {
   const origin = `http://127.0.0.1:${server.address().port}`;
   const fixture = vscodeFixture(directory);
   class WorkspaceProcess {
-    constructor(launch) {
+    constructor(launch, configPath) {
+      this.configPath = configPath;
       this.lifetime = new AbortController();
       this.closed = new Promise(resolve => { this.finishClose = resolve; });
       this.ready = Promise.resolve(launch).then(async resolved => {
@@ -342,12 +349,14 @@ async function frontend(t, options = {}) {
     Module._load = originalLoad;
   }
   const extensionUri = fixture.api.Uri.parse(pathToFileURL(path.join(__dirname, "..")).href);
-  const instance = new Frontend(extensionUri);
+  const storageUri = fixture.api.Uri.parse(pathToFileURL(storage).href);
+  const instance = new Frontend(extensionUri, storageUri);
   t.after(async () => {
     await instance.close();
     await deactivate();
     await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
     await fs.rm(directory, { recursive: true, force: true });
+    await fs.rm(storage, { recursive: true, force: true });
   });
   async function ready(view) {
     view.show();
@@ -366,7 +375,17 @@ async function frontend(t, options = {}) {
     await view.receive({ type: "activate-session", targetSessionKey: chat.sessionKey });
     await ready(view);
   }
-  return { ...fixture, instance, activate, deactivate, extensionUri, sessions, requests, closedSessions, ready, send, select, launches, inspections, directory };
+  async function restart() {
+    const configPath = launches[0].configPath;
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, "{}");
+    for (const view of fixture.api.views) view.dispose();
+    await instance.close();
+    const restarted = new Frontend(extensionUri, storageUri);
+    t.after(() => restarted.close());
+    return fixture.api.showSidebar();
+  }
+  return { ...fixture, instance, activate, deactivate, extensionUri, storageUri, sessions, requests, closedSessions, ready, send, select, launches, inspections, directory, restart };
 }
 
 test("frontend close waits for backends already closing after folder removal", async t => {
@@ -394,13 +413,13 @@ test("frontend close waits for backends already closing after folder removal", a
 test("VS Code deactivation waits for the owned backend to finish", async t => {
   let finish;
   const processCloseGate = new Promise(resolve => { finish = resolve; });
-  const { api, instance, activate, deactivate, extensionUri, invoke, launches } =
+  const { api, instance, activate, deactivate, extensionUri, storageUri, invoke, launches } =
     await frontend(t, { processCloseGate });
   instance.dispose();
   const subscriptions = [];
   activate({
     extension: { extensionKind: api.ExtensionKind.Workspace, id: "randomizez.pycodex" },
-    extensionUri, subscriptions,
+    extensionUri, globalStorageUri: storageUri, subscriptions,
   });
   try {
     await invoke("pycodex.newSession");
@@ -480,6 +499,7 @@ test("a multi-root workspace without an editor lets the user choose the new sess
 test("context is captured once and held until the webview is ready, with no automatic send", async t => {
   const { api, invoke, requests, ready, send } = await frontend(t);
   const editor = api.editor("/workspace/first.ts", 2);
+  editor.selection = new api.Selection(new api.Position(2, 0), new api.Position(2, 12));
   api.window.activeTextEditor = editor;
   await invoke("pycodex.insertContext");
   const panel = api.views[0];
@@ -493,8 +513,9 @@ test("context is captured once and held until the webview is ready, with no auto
   const inserted = panel.messages.filter(message => message.type === "insert-context");
   assert.equal(inserted.length, 1);
   assert.equal(inserted[0].sessionKey, state(panel).sessionKey);
-  assert.equal(inserted[0].blocks[0].label, "first.ts:3");
-  assert.match(inserted[0].blocks[0].text, /Cursor: line 3,/);
+  assert.equal(inserted[0].blocks[0].label, "first.ts:3–3");
+  assert.match(inserted[0].blocks[0].text, /Selection: 3:1–3:13/);
+  assert.doesNotMatch(inserted[0].blocks[0].text, /Cursor:|Language:/);
   assert.match(inserted[0].blocks[0].text, /Document version: 1/);
   assert.match(inserted[0].blocks[0].text, /const a = 1;/);
   assert.match(inserted[0].blocks[0].text, /vscode-remote:\/\/ssh-remote/);
@@ -526,6 +547,7 @@ test("inserting context targets the selected session instead of creating or rebi
   assert.equal(inserted.sessionKey, first);
   assert.match(inserted.blocks[0].text, /other.ts/);
   assert.match(inserted.blocks[0].text, /Cursor: line 16,/);
+  assert.doesNotMatch(inserted.blocks[0].text, /const a = 1;/);
   assert.equal(sessions.size, 2);
   assert.equal(requests.length, 0);
 });
@@ -558,21 +580,23 @@ test("read-only Git diff context keeps the original revision and resolves the re
     scheme: "git", authority: "", query: JSON.stringify({ path: working.document.fileName, ref: "HEAD" }),
   }), 4);
   original.document.lineAt = () => ({ text: "original revision text" });
+  original.selection = new api.Selection(new api.Position(4, 0), new api.Position(4, 22));
   api.window.activeTextEditor = original;
   assert.equal(api.workspace.getWorkspaceFolder(original.document.uri), undefined);
   await invoke("pycodex.insertContext", original.document.uri);
   await ready(api.views[0]);
   const block = api.views[0].messages.find(message => message.type === "insert-context").blocks[0];
-  assert.equal(block.label, "changed.ts:5 (Git)");
+  assert.equal(block.label, "changed.ts:5–5 (Git)");
   assert.match(block.text, /original revision text/);
-  assert.match(block.text, /Cursor: line 5,/);
+  assert.match(block.text, /Selection: 5:1–5:23/);
+  assert.doesNotMatch(block.text, /Cursor:|Language:/);
   assert.doesNotMatch(block.text, /working tree text/);
   assert.equal(launches[0].launch.directory, directory);
   assert.equal(requests.length, 0);
   api.window.activeTextEditor = working;
   api.window.visibleTextEditors = [original, working];
   await invoke("pycodex.insertContext", original.document.uri);
-  assert.equal(api.views[0].messages.at(-1).blocks[0].label, "changed.ts:5 (Git)");
+  assert.equal(api.views[0].messages.at(-1).blocks[0].label, "changed.ts:5–5 (Git)");
   const keybinding = require("../package.json").contributes.keybindings[0];
   assert.equal(keybinding.when, "editorTextFocus");
 });
@@ -682,6 +706,55 @@ test("each ordinary chat creates a new session while sharing remote project star
   assert.equal(launches.length, 1);
   assert.deepEqual(launches[0].launch, { directory, pythonPath: "", profile: "" });
   assert.equal(api.views.length, 1);
+});
+
+test("reopening the sidebar restores conversations from the same project config without creating chats", async t => {
+  const { api, invoke, ready, send, select, restart, launches, sessions, requests, storageUri } =
+    await frontend(t, { existingSession: true });
+  await invoke("pycodex.newSession");
+  const previous = api.views[0];
+  await send(previous, "first saved conversation");
+  await invoke("pycodex.newSession");
+  await send(previous, "second saved conversation");
+  const savedConfig = launches[0].configPath;
+  assert.ok(savedConfig.startsWith(storageUri.fsPath + path.sep));
+
+  const reopened = await restart();
+  await ready(reopened);
+  assert.equal(launches.length, 2);
+  assert.equal(launches[1].configPath, savedConfig);
+  assert.deepEqual(state(reopened).chats.map(chat => chat.sessionId), ["2", "3"]);
+  assert.equal(state(reopened).state.snapshot.turns[0].prompt, "second saved conversation");
+  await select(reopened, "2");
+  assert.equal(state(reopened).state.snapshot.turns[0].prompt, "first saved conversation");
+  assert.equal(sessions.size, 3);
+  assert.equal(requests.length, 2);
+  await ready(reopened);
+  assert.equal(state(reopened).sessionId, "2");
+  assert.equal(launches.length, 2);
+  await invoke("pycodex.newSession");
+  await ready(reopened);
+  assert.deepEqual(state(reopened).chats.map(chat => chat.sessionId), ["2", "3", "4"]);
+});
+
+test("a failed session restore stays visible and can retry without creating a replacement conversation", async t => {
+  const options = {};
+  const { api, invoke, ready, send, restart, sessions, requests } = await frontend(t, options);
+  await invoke("pycodex.newSession");
+  await send(api.views[0], "saved conversation");
+  options.listError = "Cannot read the saved sessions";
+  const reopened = await restart();
+  await reopened.receive({ type: "ready" });
+  const failure = reopened.messages.find(message => message.type === "action-error");
+  assert.match(failure.error, /Cannot read the saved sessions/);
+  assert.equal(failure.retry, "ready");
+  assert.equal(sessions.size, 1);
+  assert.equal(requests.length, 1);
+  options.listError = "";
+  await ready(reopened);
+  assert.equal(state(reopened).state.snapshot.turns[0].prompt, "saved conversation");
+  assert.equal(sessions.size, 1);
+  assert.equal(requests.length, 1);
 });
 
 test("editing the profile keeps existing sessions running and applies to the next backend", async t => {

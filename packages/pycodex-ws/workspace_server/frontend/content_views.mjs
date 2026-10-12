@@ -1,4 +1,7 @@
 // Workspace content tabs, live updates and editor lifecycle.
+import {tabLabels} from "./view_labels.mjs";
+export {Composer} from "./composer.mjs";
+
 export function isWorkspaceLink(href, filePaths = true) {
   if (typeof href !== "string" || !href || href !== href.trim() || /[\x00-\x1f\x7f]/.test(href)) {
     return false;
@@ -15,12 +18,13 @@ export function isWorkspaceLink(href, filePaths = true) {
 }
 
 export class ContentTabs {
-  constructor({request, onChange, onSelect, selected = null}) {
+  constructor({request, onChange, onSelect, selected = null, enableBoard = true}) {
     this.request = request;
     this.onChange = onChange;
     this.onSelect = onSelect;
+    this.enableBoard = enableBoard;
     this.views = [];
-    this.activeId = "board";
+    this.activeId = enableBoard ? "board" : null;
     this.snapshot = null;
     this.selection = null;
     this.displayMode = null;
@@ -67,14 +71,15 @@ export class ContentTabs {
       this.error = "";
       let next = this.activeId;
       if (!this.initialized) {
-        next = this.initialSelection || "board";
+        next = this.initialSelection || this.defaultId();
         this.initialized = true;
       }
-      if (next !== "board" && !remaining.has(next)) next = "board";
-      if (next !== this.activeId || (!this.snapshot && next !== "board" && !this.loading)) {
+      if ((next === "board" && !this.enableBoard) ||
+          (next !== null && next !== "board" && !remaining.has(next))) next = this.defaultId();
+      if (next !== this.activeId || (next !== null && next !== "board" && !this.snapshot && !this.loading)) {
         this.select(next);
       } else {
-        if (next !== "board" && !this.cache.has(next) && !this.contentRequest) this.load(next);
+        if (next !== null && next !== "board" && !this.cache.has(next) && !this.contentRequest) this.load(next);
         this.onChange(this);
       }
     } catch (error) {
@@ -85,6 +90,10 @@ export class ContentTabs {
     } finally {
       if (this.pollRequest === request) this.pollRequest = null;
     }
+  }
+
+  defaultId() {
+    return this.enableBoard ? "board" : this.views.length ? this.views[0].id : null;
   }
 
   updateViews(views) {
@@ -103,6 +112,7 @@ export class ContentTabs {
   async open(href) {
     this.cancelOpen();
     if (/^workspace:\/\/canvas\/?$/i.test(href)) {
+      if (!this.enableBoard) throw new Error("Canvas is disabled for this workspace.");
       await this.select("board");
       return;
     }
@@ -141,7 +151,8 @@ export class ContentTabs {
   }
 
   async select(id, selection = null, displayMode = null) {
-    if (id !== "board" && !this.views.some(view => view.id === id)) return;
+    if (id === "board" && !this.enableBoard) return;
+    if (id !== null && id !== "board" && !this.views.some(view => view.id === id)) return;
     this.cancelOpen();
     const current = id === this.activeId ? this.snapshot : null;
     if (this.contentRequest) this.contentRequest.abort();
@@ -151,11 +162,11 @@ export class ContentTabs {
     this.displayMode = displayMode;
     if (!this.initialized) this.initialSelection = id;
     this.snapshot = this.cache.get(id) || current;
-    this.loading = id !== "board" && !this.snapshot;
+    this.loading = id !== null && id !== "board" && !this.snapshot;
     this.error = "";
     this.onSelect(id);
     this.onChange(this);
-    if (id === "board" || this.cache.has(id)) return;
+    if (id === null || id === "board" || this.cache.has(id)) return;
     await this.load(id);
   }
 
@@ -185,7 +196,7 @@ export class ContentTabs {
   }
 
   async close(id) {
-    if (id === "board" || this.closing.has(id)) return;
+    if (id === null || id === "board" || this.closing.has(id)) return;
     this.cancelOpen();
     this.closing.add(id);
     this.mutation += 1;
@@ -197,7 +208,7 @@ export class ContentTabs {
       this.views = this.views.filter(view => view.id !== id);
       this.cache.delete(id);
       if (this.activeId === id) {
-        await this.select(index > 0 ? this.views[index - 1].id : "board");
+        await this.select(index > 0 ? this.views[index - 1].id : this.defaultId());
       }
     } catch (error) {
       this.error = "Unable to close tab: " + error.message;
@@ -213,57 +224,6 @@ function element(document, tag, className, text) {
   node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
-}
-
-function tabLabels(views) {
-  function directory(path) {
-    const separator = path.lastIndexOf("/");
-    return separator < 0 ? "." : path.slice(0, separator) || "/";
-  }
-
-  const pathsByName = new Map();
-  const entries = views.map(view => {
-    const labels = view.kind === "diff" ? view.title.split(" <-> ") : [view.title];
-    const sources = labels.map(label => {
-      // Canonical Git labels are SHA:path or reference (SHA):path.
-      const git = /^(?:([0-9a-f]{40}|[0-9a-f]{64})|.+ \(([0-9a-f]{40}|[0-9a-f]{64})\)):(.+)$/i.exec(label);
-      const path = git ? git[3] : label;
-      const name = path.slice(path.lastIndexOf("/") + 1);
-      if (!pathsByName.has(name)) pathsByName.set(name, new Set());
-      pathsByName.get(name).add(path);
-      return {path, name, revision: git ? (git[1] || git[2]).slice(0, 7) : null};
-    });
-    return {view, sources};
-  });
-
-  const directories = new Map();
-  for (const paths of pathsByName.values()) {
-    if (paths.size < 2) continue;
-    const names = Array.from(paths);
-    const parts = names.map(path => directory(path).split("/"));
-    names.forEach((path, index) => {
-      let length = 1;
-      while (length < parts[index].length && parts.some((other, otherIndex) =>
-        otherIndex !== index &&
-        other.slice(-length).join("/") === parts[index].slice(-length).join("/"))) length += 1;
-      directories.set(path, parts[index].slice(-length).join("/") || "/");
-    });
-  }
-
-  return new Map(entries.map(({view, sources}) => {
-    const samePath = sources.every(source => source.path === sources[0].path);
-    const name = samePath ? sources[0].name : sources.map(source => source.name).join(" ↔ ");
-    let location = "";
-    if (samePath) {
-      location = directories.get(sources[0].path) || "";
-    } else if (sources.some(source => directories.has(source.path))) {
-      location = sources.map(source => directories.get(source.path) || directory(source.path)).join(" ↔ ");
-    }
-    const versions = sources.some(source => source.revision) ?
-      sources.map(source => source.revision || "working tree").join(" ↔ ") :
-      view.kind === "diff" && samePath ? "diff" : "";
-    return [view.id, {name, description: [location, versions].filter(Boolean).join(" · ")}];
-  }));
 }
 
 class HtmlPreview {
@@ -336,11 +296,12 @@ class HtmlPreview {
 }
 
 export class SnapshotDisplay {
-  constructor({content, renderMarkdown, loadEditor = null,
+  constructor({content, renderMarkdown, loadEditor = null, onInsertContext = null,
     createHtmlPreview = (parent, position) => new HtmlPreview(parent, position)}) {
     this.content = content;
     this.document = content.ownerDocument;
     this.renderMarkdown = renderMarkdown;
+    this.onInsertContext = onInsertContext;
     this.loadEditor = loadEditor || (() => this.loadEditorAssets());
     this.editorAssets = null;
     this.createHtmlPreview = createHtmlPreview;
@@ -448,7 +409,12 @@ export class SnapshotDisplay {
         this.content.textContent = "";
         const parent = element(this.document, "div", "workspace-editor");
         this.content.appendChild(parent);
-        const editor = await module.createSnapshotEditor(parent, snapshot, this.editorStates.get(id));
+        const onInsertContext = this.onInsertContext && (context => {
+          if (generation === this.generation && this.activeId === id) this.onInsertContext(context);
+        });
+        const editor = await module.createSnapshotEditor(
+          parent, snapshot, this.editorStates.get(id), onInsertContext,
+        );
         if (generation !== this.generation) {
           editor.destroy();
           return;
@@ -509,10 +475,13 @@ export class SnapshotDisplay {
   }
 }
 
-export function mountContentViews({tabs, frame, content, status, request, storage, storageKey, renderMarkdown}) {
+export function mountContentViews({
+  tabs, frame, content, status, request, storage, storageKey, renderMarkdown, onInsertContext,
+  enableBoard = true,
+}) {
   const document = tabs.ownerDocument;
-  const display = new SnapshotDisplay({content, renderMarkdown});
-  let displayedId = "board";
+  const display = new SnapshotDisplay({content, renderMarkdown, onInsertContext});
+  let displayedId;
   let displayedSnapshot = null;
   let displayedLoading = false;
   let displayedSelection = null;
@@ -534,7 +503,7 @@ export function mountContentViews({tabs, frame, content, status, request, storag
     status.title = status.textContent;
     status.hidden = !status.textContent;
     const existing = new Map(Array.from(tabs.children, tab => [tab.dataset.viewId, tab]));
-    const descriptors = [{id: "board", title: "Canvas", kind: "board"}].concat(state.views);
+    const descriptors = (enableBoard ? [{id: "board", title: "Canvas", kind: "board"}] : []).concat(state.views);
     const labels = tabLabels(state.views);
     labels.set("board", {name: "Canvas", description: ""});
     descriptors.forEach((view, index) => {
@@ -552,7 +521,7 @@ export function mountContentViews({tabs, frame, content, status, request, storag
         tab.addEventListener("click", () => controller.select(view.id));
         tab.addEventListener("keydown", event => {
           if (event.target !== tab) return;
-          const order = ["board"].concat(controller.views.map(item => item.id));
+          const order = (enableBoard ? ["board"] : []).concat(controller.views.map(item => item.id));
           const current = order.indexOf(view.id);
           let target = null;
           if (event.key === "ArrowRight") target = order[(current + 1) % order.length];
@@ -622,7 +591,8 @@ export function mountContentViews({tabs, frame, content, status, request, storag
     displayedLoading = state.loading;
     displayedSelection = state.selection;
     displayedMode = state.displayMode;
-    content.setAttribute("aria-labelledby", "content-tab-" + state.activeId);
+    if (state.activeId) content.setAttribute("aria-labelledby", "content-tab-" + state.activeId);
+    else content.removeAttribute("aria-labelledby");
     content.setAttribute("aria-busy", String(state.loading));
     if (isBoard) return;
     if (state.snapshot) {
@@ -636,16 +606,19 @@ export function mountContentViews({tabs, frame, content, status, request, storag
         status.hidden = false;
       });
     } else {
-      display.clear(state.loading ? "Loading view…" : "View unavailable.");
+      display.clear(state.loading ? "Loading view…" :
+        state.activeId ? "View unavailable." : "Open a file link to view it here.");
     }
     if (switched) focusTab(state.activeId);
   }
 
   controller = new ContentTabs({
     request,
+    enableBoard,
     onChange: render,
     onSelect: id => {
-      storage.setItem(storageKey, id);
+      if (id) storage.setItem(storageKey, id);
+      else storage.removeItem(storageKey);
       content.closest(".workspace").dataset.mobilePane = "board";
       focusTab(id);
     },

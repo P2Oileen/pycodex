@@ -7,6 +7,7 @@ import { SessionConnection } from "./session";
 
 export interface ChatActions {
   open(folder?: vscode.WorkspaceFolder): Promise<Chat | undefined>;
+  restore(): Promise<void>;
   settings(folder?: vscode.WorkspaceFolder): Promise<void>;
   captureContext(): Promise<CapturedContext>;
   closed(chat: Chat): void;
@@ -171,8 +172,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!message || typeof message.type !== "string") throw new Error("Invalid chat message.");
       if (message.type === "ready") {
         this.ready = true;
-        this.publish();
-        this.flushContext();
+        try {
+          await this.actions.restore();
+        } finally {
+          this.chat ||= [...this.chats.values()].at(-1);
+          this.observe();
+          this.publish();
+          this.flushContext();
+        }
         return;
       }
       if (message.type === "activate-session" || message.type === "close-session") {
@@ -224,9 +231,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       }
     } catch (error) {
       void this.view?.webview.postMessage({
-        type: "action-error", sessionKey: message?.sessionKey,
+        type: "action-error",
+        sessionKey: message?.type === "ready" ? this.chat?.key || null : message?.sessionKey,
         requestId: message?.requestId, error: errorMessage(error),
-        retry: message?.type === "new-session" || message?.type === "insert-context" || message?.type === "settings"
+        retry: message?.type === "ready" || message?.type === "new-session" ||
+          message?.type === "insert-context" || message?.type === "settings"
           ? message.type : "refresh",
       });
     }

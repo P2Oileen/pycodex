@@ -32,6 +32,13 @@ The repository's [VS Code extension](../../extensions/vscode/README.md) is also
 a workspace frontend: it starts this package's server and uses its HTTP API.
 It is built and distributed separately as a VSIX, outside the Python wheel.
 
+In the browser's code and diff viewer, right-click **Insert into chat**, or
+select text and click the toolbar button, to insert context into the current
+conversation's draft. Context uses the full view label, including both revisions
+of a diff, and identifies the selected side. It includes either selected text and
+its range, or only the cursor position. Context appears as a separate block among the message
+text; click a block to edit or remove it before sending.
+
 Workspace sessions include `/link` and `/unlink` for Feishu. Python callers use
 `pycodex_ws.build_runtime(agent)` for the same assembly, or
 `from pycodex_ws.ipython import ipython_agent` inside an IPython session.
@@ -47,10 +54,38 @@ It reads app credentials from `~/.codex/.env` and stores the refresh token in
 credentials. In a development checkout, use
 `uv run --dev python -m pycodex_ws.feishu_oauth`.
 
-With `--workspace-config`, a workspace whose `board` is `false` saves its session
-index beside that configuration as `<config-stem>.<workspace-id>.pycodex-ws.json`.
-Reusing the configuration restores the saved titles and conversation rollouts.
-Workspaces with a Canvas continue using the Canvas's `.pycodex-ws.json` sidecar.
+Use a filename prefix and a separate Canvas switch in `workspaces.json`:
+
+```json
+{
+  "workspaces": [
+    {"id": "demo", "work_dir": ".", "state_path": "demo", "enable_board": true}
+  ]
+}
+```
+
+Start it with `pycodex-ws --workspace-config workspaces.json`.
+Relative paths resolve from the configuration directory. This example uses
+`demo.pycodex-ws.json` for session titles and rollout references,
+`demo.pycodex-views.json` for file views, and `demo.html` for Canvas.
+All suffixes are appended to the complete prefix, including any dots.
+The resolved `state_path` identifies the workspace; two entries cannot share it.
+Creating a workspace through the management page or API without a prefix
+generates a `/tmp/pcws-*` prefix and saves it in the configuration.
+
+`enable_board` defaults to `true`. Setting it to `false` disables the Canvas
+tab, HTML/image/status routes, polling and Canvas context injection. Sessions
+and file views still save and restore from the same prefix, so changing this
+switch preserves their state.
+
+Existing `board: "demo.html"` configurations load as `state_path: "demo"`.
+Existing `board: false` entries use `<config-stem>.<workspace-id>` as their
+prefix, preserving their session index. Loading leaves files in place; later
+configuration saves write only `state_path` and `enable_board`.
+Do not mix the old and new fields. For an old Canvas path with an extension
+other than `.html`, rename it to `<prefix>.html` and set `state_path` explicitly.
+Conversation contents remain in their original rollout files.
+Malformed session state stops restoration and leaves the saved file intact.
 
 Both packages are developed in the same repository. Run `uv sync --dev` at its
 root to install both, then `uv run pycodex-ws --help`. Build this package with

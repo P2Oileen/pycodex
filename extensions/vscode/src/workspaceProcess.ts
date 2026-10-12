@@ -1,8 +1,7 @@
 import { ChildProcess, spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, parse } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { BackendClient, BackendError, errorMessage, redactDiagnostic } from "./backend";
@@ -22,12 +21,13 @@ export class WorkspaceProcess {
   private finishClose!: () => void;
   private failure?: Error;
   private diagnostics = "";
-  private configDirectory?: string;
 
-  constructor(options: WorkspaceLaunch | Promise<WorkspaceLaunch>, startupTimeoutMs = 30_000) {
-    this.closed = new Promise<void>(resolve => { this.finishClose = resolve; }).then(async () => {
-      if (this.configDirectory) await rm(this.configDirectory, { recursive: true, force: true });
-    });
+  constructor(
+    options: WorkspaceLaunch | Promise<WorkspaceLaunch>,
+    private readonly configPath: string,
+    startupTimeoutMs = 30_000,
+  ) {
+    this.closed = new Promise<void>(resolve => { this.finishClose = resolve; });
     this.ready = this.start(options, startupTimeoutMs);
   }
 
@@ -47,16 +47,24 @@ export class WorkspaceProcess {
       const options = await prepared;
       if (!this.active) throw new Error("The VS Code project has closed.");
       const port = await availablePort();
-      this.configDirectory = await mkdtemp(join(tmpdir(), "pycodex-vscode-"));
-      const configPath = join(this.configDirectory, "workspaces.json");
-      await writeFile(configPath, JSON.stringify({
-        workspaces: [{ id: "vscode", work_dir: options.directory, board: false }],
-      }) + "\n", { encoding: "utf8", mode: 0o600 });
+      await mkdir(dirname(this.configPath), { recursive: true, mode: 0o700 });
+      try {
+        await writeFile(this.configPath, JSON.stringify({
+          workspaces: [{
+            id: "vscode",
+            work_dir: options.directory,
+            state_path: parse(this.configPath).name + ".vscode",
+            enable_board: false,
+          }],
+        }) + "\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
       if (!this.active) throw new Error("The VS Code project has closed.");
       const child = spawn(options.command, [
         ...options.args,
         "--listen", `127.0.0.1:${port}`,
-        "--workspace-config", configPath,
+        "--workspace-config", this.configPath,
       ], { cwd: options.directory, shell: false, windowsHide: true, stdio: ["pipe", "ignore", "pipe"] });
       this.child = child;
       const errors = createInterface({ input: child.stderr! });

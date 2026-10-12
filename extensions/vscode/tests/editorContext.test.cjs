@@ -31,21 +31,33 @@ function document(lines, dirty = true) {
 test("captures a one-based location and the unsaved source buffer as an immutable message", () => {
   const lines = Array.from({ length: 100 }, (_, index) => `line_${index + 1}`);
   const source = document(lines);
-  const captured = editorContext(source, selection(39, 2));
+  const captured = editorContext(source, selection(39, 0, 39, 7));
   lines[39] = "changed_after_sending";
-  assert.equal(captured.label, "示例.py:40");
+  assert.equal(captured.label, "示例.py:40–40");
   assert.match(captured.text, /File: "\/workspace\/示例.py"/);
-  assert.match(captured.text, /Cursor: line 40, column 3 \(1-based\)/);
+  assert.match(captured.text, /Selection: 40:1–40:8 \(end exclusive\)/);
+  assert.doesNotMatch(captured.text, /Cursor:|Language:|Label:/);
   assert.match(captured.text, /Unsaved changes: true/);
   assert.match(captured.text, /40: line_40/);
   assert.doesNotMatch(captured.text, /changed_after_sending|29: line_29|51: line_51/);
 });
 
-test("reversed selections use the active caret and preserve the selected columns", () => {
+test("cursor context records its location without reading surrounding text", () => {
+  const source = document(Array.from({ length: 100 }, (_, index) => `line_${index + 1}`));
+  source.lineAt = () => { throw new Error("Unselected text must not be read."); };
+  const captured = editorContext(source, selection(39, 2));
+  assert.equal(captured.label, "示例.py:40");
+  assert.match(captured.text, /Cursor: line 40, column 3 \(1-based\)/);
+  assert.doesNotMatch(captured.text, /Selection:|Language:|Label:/);
+  assert.match(captured.text, /Source: editor buffer; cursor location/);
+  assert.doesNotMatch(captured.text, /line_\d+|^\d+: /m);
+});
+
+test("reversed selections preserve the selected columns", () => {
   const source = document(["abcdef", "ghijkl", "mnopqr"], false);
   const context = editorContext(source, selection(2, 3, 0, 2));
   assert.equal(context.label, "示例.py:1–3");
-  assert.match(context.text, /Cursor: line 1, column 3/);
+  assert.doesNotMatch(context.text, /Cursor:/);
   assert.match(context.text, /Selection: 1:3–3:4/);
   assert.match(context.text, /1: cdef\n2: ghijkl\n3: mno/);
   assert.match(context.text, /Unsaved changes: false/);

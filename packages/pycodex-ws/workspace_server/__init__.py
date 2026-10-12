@@ -15,7 +15,7 @@ from .workspaces import (
     WorkspaceRegistry,
     WorkspaceSessionManager,
     WorkspaceStateStore,
-    default_board_path,
+    default_state_path,
     load_workspace_definitions,
 )
 
@@ -31,7 +31,7 @@ __all__ = [
     "build_parser",
     "create_app",
     "create_multi_workspace_app",
-    "default_board_path",
+    "default_state_path",
     "load_workspace_definitions",
     "main",
     "parse_listen",

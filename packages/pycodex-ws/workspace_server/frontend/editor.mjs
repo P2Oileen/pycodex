@@ -24,6 +24,7 @@ import {CommonFindController} from "monaco-editor/editor/contrib/find/browser/fi
 import {IEditorWorkerService} from "monaco-editor/editor/common/services/editorWorker.js";
 import {StandaloneServices} from "monaco-editor/editor/standalone/browser/standaloneServices.js";
 import workerSource from "workspace-editor-worker";
+import {editorContext} from "./editor_context.mjs";
 import "./editor.css";
 
 function editorWorkerFactory() {
@@ -63,10 +64,12 @@ function element(document, tag, className, text) {
 }
 
 class SnapshotEditor {
-  constructor(parent, snapshot, saved = {}) {
+  constructor(parent, snapshot, saved = {}, onInsertContext = null) {
     this.parent = parent;
     this.document = parent.ownerDocument;
     this.snapshot = snapshot;
+    this.onInsertContext = onInsertContext;
+    this.contextKeys = [];
     this.isDiff = snapshot.kind === "diff";
     this.activeSide = saved.activeSide || (this.isDiff ? "modified" : "file");
     this.revealOriginal = saved.revealOriginal || false;
@@ -133,7 +136,24 @@ class SnapshotEditor {
           this.revealOriginal = false;
           this.layout();
         }
+        this.updateContextActions();
       }));
+      if (this.onInsertContext) {
+        this.contextKeys.push([
+          editor, editor.createContextKey("pycodexContextAvailable", this.hasContext(editor)),
+        ]);
+        this.disposables.push(
+          editor.addAction({
+            id: "pycodex.insertContext",
+            label: "Insert into chat",
+            precondition: "pycodexContextAvailable",
+            contextMenuGroupId: "navigation",
+            contextMenuOrder: 1,
+            run: () => this.insertContext(editor),
+          }),
+          editor.onDidChangeCursorSelection(() => this.updateContextActions()),
+        );
+      }
       if (this.isDiff) {
         editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.UpArrow, () => this.jump("previous"));
         editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.DownArrow, () => this.jump("next"));
@@ -163,6 +183,15 @@ class SnapshotEditor {
     });
     this.toolbar.appendChild(titles);
     const actions = element(this.document, "div", "editor-actions");
+    if (this.onInsertContext) {
+      this.insertButton = this.button(actions, "Insert selection into current chat",
+        "M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5M16 3h5v5m0-5-8 8",
+        () => this.insertContext());
+      this.insertButton.classList.add("editor-context-action");
+      this.insertButton.appendChild(element(this.document, "span", "", "Insert into chat"));
+      this.insertButton.hidden = true;
+      this.insertButton.addEventListener("pointerdown", event => event.preventDefault());
+    }
     if (this.isDiff) {
       this.changeCount = element(this.document, "span", "editor-change-count");
       this.toolbar.appendChild(this.changeCount);
@@ -200,6 +229,25 @@ class SnapshotEditor {
   activeEditor() {
     return this.isDiff && this.parent.dataset.layout === "unified" ?
       this.codeEditors.modified : this.codeEditors[this.activeSide];
+  }
+
+  hasContext(editor) {
+    const index = this.isDiff && editor === this.codeEditors.modified ? 1 : 0;
+    const source = this.snapshot.documents[index];
+    return !source.missing && !source.error;
+  }
+
+  updateContextActions() {
+    if (this.destroyed || !this.onInsertContext) return;
+    for (const [editor, key] of this.contextKeys) key.set(this.hasContext(editor));
+    const editor = this.activeEditor();
+    this.insertButton.hidden = !this.hasContext(editor) || editor.getSelection().isEmpty();
+  }
+
+  insertContext(editor = this.activeEditor()) {
+    if (this.destroyed || !this.hasContext(editor)) return;
+    const index = this.isDiff && editor === this.codeEditors.modified ? 1 : 0;
+    this.onInsertContext(editorContext(this.snapshot, index, editor.getModel(), editor.getSelection()));
   }
 
   jump(direction) {
@@ -243,6 +291,7 @@ class SnapshotEditor {
       this.titles[index].textContent = source.label + (source.missing ? " (missing)" : "");
     });
     this.snapshot = snapshot;
+    this.updateContextActions();
   }
 
   async revealLine(document, line, isCurrent) {
@@ -276,6 +325,7 @@ class SnapshotEditor {
     }
     this.parent.dataset.layout = mode;
     this.editor.layout({width, height});
+    this.updateContextActions();
   }
 
   async restore(saved) {
@@ -330,8 +380,8 @@ class SnapshotEditor {
   }
 }
 
-export async function createSnapshotEditor(parent, snapshot, savedState) {
-  const editor = new SnapshotEditor(parent, snapshot, savedState);
+export async function createSnapshotEditor(parent, snapshot, savedState, onInsertContext) {
+  const editor = new SnapshotEditor(parent, snapshot, savedState, onInsertContext);
   try {
     await editor.restore(savedState);
   } catch (error) {

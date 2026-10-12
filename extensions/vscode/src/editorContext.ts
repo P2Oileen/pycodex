@@ -14,12 +14,12 @@ export interface CapturedContext {
 /** Capture an editable text block once, before any asynchronous operation. */
 export function editorContext(document: TextDocument, selection?: Selection): ContextBlock {
   const selected = selection && !selection.isEmpty;
-  const first = !selection ? 0 : selected ? selection.start.line : Math.max(0, selection.active.line - 10);
+  const first = selection ? selection.start.line : 0;
   const last = !selection ? document.lineCount - 1 : selected
     ? selection.end.line - (
       selection.end.character === 0 && selection.end.line > first ? 1 : 0
     )
-    : Math.min(document.lineCount - 1, selection.active.line + 10);
+    : first - 1;
   const excerpt: string[] = [];
   let remaining = 12_000;
   let truncated = false;
@@ -42,16 +42,14 @@ export function editorContext(document: TextDocument, selection?: Selection): Co
     "<editor_context>",
     `File: ${JSON.stringify(document.uri.fsPath)}`,
     `URI: ${JSON.stringify(document.uri.toString())}`,
-    `Language: ${document.languageId}`,
     ...(selection ? [
-      `Cursor: line ${selection.active.line + 1}, column ${selection.active.character + 1} (1-based)`,
       selected
         ? `Selection: ${selection.start.line + 1}:${selection.start.character + 1}–${selection.end.line + 1}:${selection.end.character + 1} (end exclusive)`
-        : "Selection: none",
+        : `Cursor: line ${selection.active.line + 1}, column ${selection.active.character + 1} (1-based)`,
     ] : []),
     `Document version: ${document.version}`,
     `Unsaved changes: ${document.isDirty}`,
-    `Source: editor buffer; ${!selection ? "file contents" : selected ? "selected text" : "nearby lines"}${truncated ? " (excerpt truncated)" : ""}`,
+    `Source: editor buffer; ${!selection ? "file contents" : selected ? "selected text" : "cursor location"}${truncated ? " (excerpt truncated)" : ""}`,
     ...excerpt,
     "</editor_context>",
   ].join("\n");

@@ -45,6 +45,7 @@
       --space-7: 14px;
       --radius-sm: 6px;
       --radius-md: 10px;
+      --tab-max-width: 180px;
       --chat-width: min(42vw, 760px);
       --splitter-width: 8px;
     }
@@ -255,7 +256,7 @@
       align-items: center;
       gap: var(--space-2);
       min-width: 88px;
-      max-width: 180px;
+      max-width: var(--tab-max-width);
       height: 30px;
       border: 0;
       border-radius: var(--radius-md);
@@ -703,9 +704,8 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    textarea {
+    .prompt-input {
       min-width: 0;
-      resize: none;
       max-height: 35vh;
       width: 100%;
       min-height: 28px;
@@ -716,15 +716,89 @@
       color: var(--ink);
       font: inherit;
       line-height: 22px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
       overflow-y: auto;
       scrollbar-width: none;
     }
-    textarea::-webkit-scrollbar {
+    .prompt-input.empty::before {
+      position: absolute;
+      content: attr(data-placeholder);
+      color: var(--muted);
+      pointer-events: none;
+    }
+    .prompt-input::-webkit-scrollbar {
       display: none;
     }
-    textarea:focus {
+    .prompt-input:focus {
       outline: 0;
     }
+    .context-token {
+      display: inline-block;
+      max-width: min(100%, var(--tab-max-width));
+      vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      padding: 0 6px;
+      margin: 0 2px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font: 12px/1.8 ui-monospace, monospace;
+      cursor: pointer;
+    }
+    .context-token:hover { border-color: var(--accent); }
+    .context-block-detail {
+      margin: 0 10px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+    .context-block-detail[hidden] { display: none; }
+    .context-block-heading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+      background: var(--panel-deep);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .context-block-heading span {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .context-block-heading button {
+      flex: 0 0 auto;
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 3px 6px;
+      color: var(--ink);
+      background: transparent;
+      cursor: pointer;
+    }
+    .context-block-heading button:hover { background: var(--accent-soft); }
+    .context-block-editor {
+      display: block;
+      width: 100%;
+      height: 150px;
+      max-height: 30vh;
+      resize: vertical;
+      border: 0;
+      border-top: 1px solid var(--line);
+      padding: 8px;
+      background: var(--panel-raised);
+      color: var(--ink);
+      font: 12px/1.6 ui-monospace, monospace;
+      white-space: pre;
+      overflow: auto;
+    }
+    .context-block-editor:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
     .actions {
       display: flex;
       justify-content: flex-end;
@@ -881,13 +955,14 @@
       .topbar { height: 44px; padding: 6px 16px; }
       .log { padding: 14px 16px; gap: 14px; }
       .composer { padding: 8px 16px max(10px, env(safe-area-inset-bottom)); }
-      textarea { font-size: 16px; line-height: 24px; padding: 2px 0; }
+      .prompt-input { font-size: 16px; line-height: 24px; padding: 2px 0; }
+      .context-block-editor { font-size: 16px; }
       .tab-title-input { font-size: 16px; }
       .empty-chat h1 { font-size: 26px; }
     }
   </style>
 </head>
-<body>
+<body data-enable-board="__ENABLE_BOARD__">
   <div class="workspace" data-mobile-pane="chat">
     <section class="board-pane" aria-label="workspace board">
       <div class="boardbar">
@@ -908,7 +983,7 @@
         </button>
       </div>
       <div class="content-area">
-        <iframe id="boardFrame" class="board" src="board" title="Canvas"></iframe>
+        <iframe id="boardFrame" class="board" src="__BOARD_URL__" title="Canvas"></iframe>
         <div id="contentView" class="content-view" role="tabpanel" hidden></div>
       </div>
     </section>
@@ -973,7 +1048,17 @@
                 </div>
               </div>
             </div>
-            <textarea id="prompt" rows="1" aria-label="Message" title="Enter to send · Shift + Enter for a new line" placeholder="Message…"></textarea>
+            <div id="prompt" class="prompt-input empty" contenteditable="true" role="textbox"
+                 aria-multiline="true" aria-label="Message" spellcheck="false"
+                 title="Enter to send · Shift + Enter for a new line" data-placeholder="Message…"></div>
+          </div>
+          <div id="contextBlockDetail" class="context-block-detail" hidden>
+            <div class="context-block-heading">
+              <span id="contextBlockLabel"></span>
+              <button id="contextBlockRemove" type="button">Remove</button>
+              <button id="contextBlockDone" type="button">Done</button>
+            </div>
+            <textarea id="contextBlockEditor" class="context-block-editor" spellcheck="false"></textarea>
           </div>
         </div>
       </form>
@@ -991,7 +1076,7 @@
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"></script>
   <script type="module">
-    import {isWorkspaceLink, mountContentViews} from "./assets/content_views.mjs";
+    import {Composer, isWorkspaceLink, mountContentViews} from "./assets/content_views.mjs";
 
     const log = document.getElementById("log");
     const spinner = document.getElementById("spinner");
@@ -1001,7 +1086,11 @@
     const toast = document.getElementById("toast");
     const prompt = document.getElementById("prompt");
     const form = document.getElementById("composer");
+    const contextBlockDetail = document.getElementById("contextBlockDetail");
+    const contextBlockLabel = document.getElementById("contextBlockLabel");
+    const contextBlockEditor = document.getElementById("contextBlockEditor");
     const boardFrame = document.getElementById("boardFrame");
+    const enableBoard = document.body.dataset.enableBoard === "true";
     const workspace = document.querySelector(".workspace");
     const splitter = document.getElementById("splitter");
     const tabsEl = document.getElementById("tabs");
@@ -1020,10 +1109,15 @@
     let toastTimer = null;
     let activeSessionId = "";
     let sessions = [];
-    let isComposing = false;
+    let editingContextId = null;
     const sessionState = new Map();
     let restoreScrollTop = null;
     let suppressScrollSave = false;
+    const composer = new Composer(prompt, () => {
+      stateForSession(activeSessionId).draft = composer.read();
+      resizePrompt();
+    }, () => form.requestSubmit(), editContextBlock, showToast);
+    composer.set({parts: []});
     const markdownRenderer = window.markdownit
       ? window.markdownit({html: false, linkify: true, breaks: false})
       : null;
@@ -1632,7 +1726,7 @@
         sessionState.set(key, {
           lastRenderedSignature: "",
           scrollTop: null,
-          draft: "",
+          draft: {parts: []},
           notifyWhenDone: false,
           wasRunning: false,
           inputRequest: null,
@@ -1647,7 +1741,7 @@
       if (log.scrollHeight > log.clientHeight) {
         state.scrollTop = log.scrollTop;
       }
-      state.draft = prompt.value;
+      state.draft = composer.read();
       state.lastRenderedSignature = lastRenderedSignature;
     }
 
@@ -1801,7 +1895,7 @@
     function updatePromptPlaceholder(snapshot = null) {
       const session = snapshot || sessionById(activeSessionId);
       const label = session && session.model ? `Message to ${session.model}` : "Message";
-      prompt.placeholder = `${label}…`;
+      prompt.dataset.placeholder = `${label}…`;
       prompt.setAttribute("aria-label", label);
     }
 
@@ -1954,7 +2048,7 @@
     }
 
     function startBoardPolling() {
-      if (boardPollTimer) return;
+      if (!enableBoard || boardPollTimer) return;
       pollBoard();
       boardPollTimer = setInterval(pollBoard, 2000);
     }
@@ -2074,7 +2168,8 @@
       const state = stateForSession(sessionId);
       state.lastRenderedSignature = "";
       lastRenderedSignature = "";
-      prompt.value = state.draft || "";
+      closeContextBlock();
+      composer.set(state.draft);
       resizePrompt();
       suppressScrollSave = true;
       log.textContent = "";
@@ -2096,11 +2191,12 @@
       }
       activeSessionId = payload.session_id || "";
       const state = stateForSession(activeSessionId);
-      state.draft = "";
+      state.draft = {parts: []};
       state.scrollTop = null;
       state.lastRenderedSignature = "";
       lastRenderedSignature = "";
-      prompt.value = "";
+      closeContextBlock();
+      composer.set(state.draft);
       resizePrompt();
       restoreScrollTop = null;
       updateSessions(payload.sessions || []);
@@ -2124,41 +2220,65 @@
       sessionState.delete(sessionId);
     }
 
+    function insertEditorContext(context) {
+      if (!activeSessionId) {
+        showToast("Select a conversation before inserting context.");
+        return;
+      }
+      workspace.dataset.mobilePane = "chat";
+      closeContextBlock();
+      composer.insert([context]);
+      showToast(context.label + " added to draft");
+    }
+
+    function editContextBlock(block) {
+      editingContextId = block.id;
+      contextBlockLabel.textContent = block.label;
+      contextBlockLabel.title = block.label;
+      contextBlockEditor.value = block.text;
+      contextBlockEditor.setAttribute("aria-label", block.label + " context");
+      contextBlockDetail.hidden = false;
+      contextBlockEditor.focus({preventScroll: true});
+    }
+
+    function closeContextBlock() {
+      editingContextId = null;
+      contextBlockDetail.hidden = true;
+    }
+
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const text = prompt.value.trim();
+      const text = Composer.text(composer.parts()).trim();
       if (!text && !stateForSession(activeSessionId).inputRequest) return;
-      prompt.value = "";
+      closeContextBlock();
+      composer.set({parts: []});
       resizePrompt();
-      stateForSession(activeSessionId).draft = "";
+      stateForSession(activeSessionId).draft = composer.read();
       submitPrompt(text);
     });
 
-    prompt.addEventListener("input", () => {
-      stateForSession(activeSessionId).draft = prompt.value;
-      resizePrompt();
+    contextBlockEditor.addEventListener("input", () => {
+      composer.updateContext(editingContextId, contextBlockEditor.value);
     });
-
-    prompt.addEventListener("compositionstart", () => {
-      isComposing = true;
+    contextBlockEditor.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        closeContextBlock();
+        composer.focus();
+      }
     });
-
-    prompt.addEventListener("compositionend", () => {
-      isComposing = false;
+    document.getElementById("contextBlockDone").addEventListener("click", () => {
+      closeContextBlock();
+      composer.focus();
+    });
+    document.getElementById("contextBlockRemove").addEventListener("click", () => {
+      composer.removeContext(editingContextId);
+      closeContextBlock();
     });
 
     log.addEventListener("scroll", () => {
       if (suppressScrollSave) return;
       if (!activeSessionId) return;
       stateForSession(activeSessionId).scrollTop = log.scrollTop;
-    });
-
-    prompt.addEventListener("keydown", (event) => {
-      if (event.isComposing || isComposing || event.keyCode === 229) return;
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        form.requestSubmit();
-      }
     });
 
     splitter.addEventListener("pointerdown", startResize);
@@ -2208,6 +2328,8 @@
       storage: window.localStorage,
       storageKey: "pycodex.workspace.contentTab:" + window.location.pathname,
       renderMarkdown: renderMarkdownInto,
+      onInsertContext: insertEditorContext,
+      enableBoard,
       request: async (path, options = {}) => {
         const response = await fetch(new URL(path, window.location.href), options);
         const payload = await response.json();
@@ -2243,8 +2365,10 @@
 
     function startContentViews() {
       document.addEventListener("click", followMarkdownLink);
-      boardFrame.addEventListener("load", bindCanvasLinks);
-      bindCanvasLinks();
+      if (enableBoard) {
+        boardFrame.addEventListener("load", bindCanvasLinks);
+        bindCanvasLinks();
+      }
       contentTabs.start();
     }
 

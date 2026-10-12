@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import tempfile
 import typing
 from dataclasses import dataclass
@@ -14,58 +13,39 @@ from .workspace_views import WorkspaceViewStore
 SessionFactory = typing.Callable[[], object]
 
 
-def default_board_path() -> Path:
-    return Path(tempfile.gettempdir()) / "pcws-{0}.html".format(uuid4().hex[:8])
+def default_state_path() -> Path:
+    return Path(tempfile.gettempdir()) / "pcws-{0}".format(uuid4().hex[:8])
+
+
+def workspace_file_path(
+    state_path: "typing.Union[Path, None]", suffix: str
+) -> "typing.Union[Path, None]":
+    if state_path is None:
+        return None
+    path = Path(state_path)
+    return path.with_name(path.name + suffix)
 
 
 class WorkspaceStateStore:
-    def __init__(self, board_path: "typing.Union[Path, None]") -> None:
-        self.path = (
-            None if board_path is None else board_path.with_suffix(".pycodex-ws.json")
-        )
+    def __init__(self, path: "typing.Union[Path, None]") -> None:
+        self.path = None if path is None else Path(path)
 
     def load_tabs(self) -> "typing.List[typing.Dict[str, object]]":
-        if self.path is None or not self.path.is_file():
+        if self.path is None or not self.path.exists():
             return []
 
-        try:
-            payload = json.loads(
-                self.path.read_text(encoding="utf-8", errors="replace") or "{}"
-            )
-        except (OSError, ValueError):
-            return []
-
-        tabs = payload.get("tabs") if isinstance(payload, dict) else None
+        tabs = json.loads(self.path.read_text(encoding="utf-8", errors="replace"))["tabs"]
         if not isinstance(tabs, list):
-            return []
-
-        result = []
-        for tab in tabs:
-            if not isinstance(tab, dict):
-                continue
-            title = str(tab.get("title") or "").strip()
-            rollout_path = str(tab.get("rollout_path") or "").strip()
-            restored = {"title": title, "rollout_path": rollout_path}
-            if tab.get("fork") is True:
-                restored["fork"] = True
-            result.append(restored)
-        return result
+            raise ValueError("workspace state `tabs` must be a list")
+        return tabs
 
     def save_tabs(self, tabs: "typing.Iterable[typing.Dict[str, object]]") -> None:
         if self.path is None:
             return
 
-        state_tabs = [
-            {
-                "title": str(tab.get("title") or ""),
-                "rollout_path": str(tab.get("rollout_path") or ""),
-                **({"fork": True} if tab.get("fork") is True else {}),
-            }
-            for tab in tabs
-        ]
         payload = (
             json.dumps(
-                {"version": 1, "tabs": state_tabs},
+                {"version": 1, "tabs": list(tabs)},
                 ensure_ascii=False,
                 indent=2,
             )
@@ -78,8 +58,13 @@ class WorkspaceStateStore:
 @dataclass(frozen=True)
 class WorkspaceDefinition:
     workspace_id: "str"
-    board_path: "typing.Union[Path, None]"
+    state_path: "Path"
     work_dir: "Path"
+    enable_board: "bool" = True
+
+    @property
+    def board_path(self) -> "typing.Union[Path, None]":
+        return workspace_file_path(self.state_path, ".html") if self.enable_board else None
 
 
 def load_workspace_definitions(
@@ -88,12 +73,7 @@ def load_workspace_definitions(
     path = Path(config_path).expanduser().resolve()
     if not path.exists():
         return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except OSError as exc:
-        raise ValueError("unable to read workspace config: {0}".format(exc)) from exc
-    except ValueError as exc:
-        raise ValueError("workspace config must be valid JSON") from exc
+    payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
 
     if isinstance(payload, dict):
         workspaces = payload.get("workspaces")
@@ -104,11 +84,11 @@ def load_workspace_definitions(
 
     result = []
     seen_ids = set()
-    seen_boards = set()
+    seen_states = set()
     for index, item in enumerate(workspaces, start=1):
         if not isinstance(item, dict):
             raise ValueError("workspace entry {0} must be an object".format(index))
-        workspace_id = normalize_workspace_id(str(item.get("id") or "").strip())
+        workspace_id = normalize_workspace_id(item.get("id"))
         if not workspace_id:
             workspace_id = _next_workspace_id(seen_ids)
         if workspace_id in seen_ids:
@@ -131,32 +111,41 @@ def load_workspace_definitions(
                 )
             )
 
-        board_value = item.get("board")
-        board_path = None
-        if board_value is not False:
-            if not isinstance(board_value, str) or not board_value.strip():
+        state_value = item.get("state_path")
+        enable_board = item.get("enable_board", True)
+        if "board" in item:
+            if "state_path" in item or "enable_board" in item:
                 raise ValueError(
-                    "workspace `{0}` requires a board path or false".format(
-                        workspace_id
-                    )
+                    "workspace config cannot mix `board` with `state_path` or `enable_board`"
                 )
-            board_path = _resolve_workspace_path(board_value, path.parent)
-            if board_path in seen_boards:
-                raise ValueError("duplicate workspace board: {0}".format(board_path))
-            seen_boards.add(board_path)
-            if not board_path.parent.is_dir():
-                raise ValueError(
-                    "workspace `{0}` board parent directory does not exist: {1}".format(
-                        workspace_id,
-                        board_path.parent,
+            board_value = item["board"]
+            enable_board = board_value is not False
+            if board_value is False:
+                state_value = "{0}.{1}".format(path.stem, workspace_id)
+            elif isinstance(board_value, str) and board_value.strip():
+                board_path = _resolve_workspace_path(board_value, path.parent)
+                if board_path.suffix != ".html":
+                    raise ValueError(
+                        "legacy workspace board must end in .html to preserve its path"
                     )
-                )
+                state_value = str(board_path.with_suffix(""))
+            else:
+                raise ValueError("legacy workspace board must be an HTML path or false")
+        if not isinstance(state_value, str) or not state_value.strip():
+            raise ValueError("workspace `{0}` requires a state_path".format(workspace_id))
+        if not isinstance(enable_board, bool):
+            raise ValueError("enable_board must be a boolean")
+        state_path = _resolve_workspace_path(state_value, path.parent)
+        if state_path in seen_states:
+            raise ValueError("duplicate workspace state_path: {0}".format(state_path))
+        seen_states.add(state_path)
 
         result.append(
             WorkspaceDefinition(
                 workspace_id=workspace_id,
-                board_path=board_path,
+                state_path=state_path,
                 work_dir=work_dir,
+                enable_board=enable_board,
             )
         )
     return result
@@ -185,35 +174,24 @@ def _workspace_definition_to_json(
     definition: "WorkspaceDefinition",
     base_dir: "Path",
 ) -> "typing.Dict[str, object]":
-    result = {
+    return {
         "id": definition.workspace_id,
+        "state_path": _format_path_for_workspace_config(definition.state_path, base_dir),
         "work_dir": _format_path_for_workspace_config(definition.work_dir, base_dir),
+        "enable_board": definition.enable_board,
     }
-    if definition.board_path is not None:
-        result["board"] = _format_path_for_workspace_config(
-            definition.board_path,
-            base_dir,
-        )
-    else:
-        result["board"] = False
-    return result
 
 
 def _format_path_for_workspace_config(path: "Path", base_dir: "Path") -> "str":
     resolved = path.resolve()
     try:
-        relative = os.path.relpath(str(resolved), str(base_dir.resolve()))
+        return str(resolved.relative_to(base_dir.resolve()))
     except ValueError:
         return str(resolved)
-    if relative == ".":
-        return "."
-    if relative.startswith("..") or os.path.isabs(relative):
-        return str(resolved)
-    return relative
 
 
 def _resolve_workspace_path(value: str, base_dir: "Path") -> "Path":
-    path = Path(str(value)).expanduser()
+    path = Path(value).expanduser()
     if not path.is_absolute():
         path = base_dir / path
     return path.resolve()
@@ -246,7 +224,7 @@ class WorkspaceSessionManager:
     def __init__(
         self,
         session_factory: "SessionFactory",
-        board_path: "typing.Union[Path, None]" = None,
+        state_path: "typing.Union[Path, None]" = None,
         persist_callback: "typing.Union[typing.Callable[[], None], None]" = None,
         views=None,
     ) -> None:
@@ -256,9 +234,13 @@ class WorkspaceSessionManager:
         self._state_watchers: "typing.Dict[str, asyncio.Task]" = {}
         self._tab_states: "typing.Dict[str, typing.Dict[str, object]]" = {}
         self._lock = None
-        self._state_store = WorkspaceStateStore(board_path)
+        self._state_store = WorkspaceStateStore(
+            workspace_file_path(state_path, ".pycodex-ws.json")
+        )
         self._persist_callback = persist_callback
-        self.views = views if views is not None else WorkspaceViewStore(board_path)
+        self.views = views if views is not None else WorkspaceViewStore(
+            workspace_file_path(state_path, ".pycodex-views.json")
+        )
 
     def _get_lock(self):
         if self._lock is None:
@@ -278,8 +260,8 @@ class WorkspaceSessionManager:
             return
         for tab in state_tabs:
             await self._create_session(
-                title=str(tab.get("title") or ""),
-                rollout_path=str(tab.get("rollout_path") or ""),
+                title=tab["title"],
+                rollout_path=tab["rollout_path"],
                 fork=tab.get("fork") is True,
             )
         for session_id in self._session_order:
@@ -400,23 +382,14 @@ class WorkspaceSessionManager:
             session.unsubscribe(subscriber)
 
     def persist_workspace_state(self) -> None:
-        tabs = []
-        for session_id in self._session_order:
-            session = self._sessions.get(session_id)
-            if session is None:
-                continue
-            state = self._tab_states[session_id]
-            tabs.append(state)
-        self._state_store.save_tabs(tabs)
+        self._state_store.save_tabs(
+            self._tab_states[session_id] for session_id in self._session_order
+        )
         if self._persist_callback is not None:
             self._persist_callback()
 
     def get(self, session_id: "typing.Union[str, None]" = None) -> object:
-        resolved_id = self.resolve_session_id(session_id)
-        try:
-            return self._sessions[resolved_id]
-        except KeyError:
-            raise KeyError(resolved_id)
+        return self._sessions[self.resolve_session_id(session_id)]
 
     def resolve_session_id(self, session_id: "typing.Union[str, None]" = None) -> str:
         if session_id:
@@ -454,6 +427,8 @@ class WorkspaceEntry:
     def to_dict(self) -> "typing.Dict[str, object]":
         return {
             "id": self.definition.workspace_id,
+            "state_path": str(self.definition.state_path),
+            "enable_board": self.definition.enable_board,
             "board_path": (
                 ""
                 if self.definition.board_path is None
@@ -495,7 +470,7 @@ class WorkspaceRegistry:
         key = self._key_for_definition(entry.definition)
         if key in self._entries:
             raise ValueError(
-                "duplicate workspace board: {0}".format(entry.definition.board_path)
+                "duplicate workspace state_path: {0}".format(entry.definition.state_path)
             )
         if workspace_id in self._name_to_key:
             raise ValueError("duplicate workspace name: {0}".format(workspace_id))
@@ -505,9 +480,7 @@ class WorkspaceRegistry:
         entry.manager.set_persist_callback(self.persist_definitions)
 
     def _key_for_definition(self, definition: "WorkspaceDefinition") -> str:
-        if definition.board_path is None:
-            return "workspace:{0}".format(definition.workspace_id)
-        return str(definition.board_path.resolve())
+        return str(definition.state_path.resolve())
 
     async def start(self) -> None:
         self._started = True
@@ -521,18 +494,14 @@ class WorkspaceRegistry:
 
     def get(self, workspace_id: str) -> "WorkspaceEntry":
         workspace_id = normalize_workspace_id(workspace_id)
-        if not workspace_id:
-            raise KeyError(workspace_id)
-        try:
-            return self._entries[self._name_to_key[workspace_id]]
-        except KeyError:
-            raise KeyError(workspace_id)
+        return self._entries[self._name_to_key[workspace_id]]
 
     async def add_workspace(
         self,
         name: str,
         work_dir: str = "./",
-        board: "typing.Union[str, bool, None]" = None,
+        state_path: "typing.Union[str, None]" = None,
+        enable_board: bool = True,
     ) -> "WorkspaceEntry":
         if self._entry_factory is None:
             raise ValueError("workspace creation is unavailable")
@@ -543,21 +512,22 @@ class WorkspaceRegistry:
         resolved_work_dir = _resolve_workspace_path(str(work_dir or "./"), base_dir)
         resolved_work_dir.mkdir(parents=True, exist_ok=True)
 
-        board_path = None
-        if board is not False:
-            if board is not None and not isinstance(board, str):
-                raise ValueError("board must be a path string or false")
-            board_path = (
-                _resolve_workspace_path(board, base_dir)
-                if board and board.strip()
-                else default_board_path()
+        if state_path is not None and (
+            not isinstance(state_path, str) or not state_path.strip()
+        ):
+            raise ValueError("state_path must be a non-empty path string")
+        if not isinstance(enable_board, bool):
+            raise ValueError("enable_board must be a boolean")
+        resolved_state_path = (
+            _resolve_workspace_path(state_path, base_dir)
+            if state_path is not None
+            else default_state_path()
+        )
+        state_key = str(resolved_state_path.resolve())
+        if state_key in self._entries:
+            raise ValueError(
+                "workspace state_path already exists: {0}".format(resolved_state_path)
             )
-            board_path.parent.mkdir(parents=True, exist_ok=True)
-            board_key = str(board_path.resolve())
-            if board_key in self._entries:
-                raise ValueError(
-                    "workspace board already exists: {0}".format(board_path)
-                )
 
         workspace_id = normalize_workspace_id(name)
         if not workspace_id:
@@ -567,8 +537,9 @@ class WorkspaceRegistry:
 
         definition = WorkspaceDefinition(
             workspace_id=workspace_id,
-            board_path=board_path,
+            state_path=resolved_state_path,
             work_dir=resolved_work_dir,
+            enable_board=enable_board,
         )
         entry = self._entry_factory(definition, self.persist_definitions)
         self._register(entry)
@@ -579,13 +550,8 @@ class WorkspaceRegistry:
 
     async def delete_workspace(self, name: str) -> "WorkspaceDefinition":
         workspace_id = normalize_workspace_id(name)
-        if not workspace_id:
-            raise KeyError(workspace_id)
-        try:
-            key = self._name_to_key.pop(workspace_id)
-            entry = self._entries.pop(key)
-        except KeyError:
-            raise KeyError(workspace_id)
+        key = self._name_to_key.pop(workspace_id)
+        entry = self._entries.pop(key)
         self._order = [item for item in self._order if item != key]
         await entry.manager.close()
         self.persist_definitions()

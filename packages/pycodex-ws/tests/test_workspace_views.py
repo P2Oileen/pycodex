@@ -103,7 +103,7 @@ def test_file_links_reuse_tabs_and_restore_sources(tmp_path):
     source.write_text("old ≤ value\n", encoding="utf-8")
     board = tmp_path / "board.html"
     board.write_text("live board", encoding="utf-8")
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opener = WorkspaceViewOpener(views, work_dir)
     opened = opener.open("../A%20file.py")
     source.write_text("new value\n", encoding="utf-8")
@@ -116,7 +116,7 @@ def test_file_links_reuse_tabs_and_restore_sources(tmp_path):
     assert "documents" not in views.list_views()[0]
     assert views.list_views()[0]["live"]
     source.write_text("updated while closed\n", encoding="utf-8")
-    restored = WorkspaceViewStore(board)
+    restored = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     assert restored.get(opened["id"])["documents"][0]["text"] == "updated while closed\n"
     source.unlink()
     missing = WorkspaceViewOpener(restored, work_dir).open(quote(str(source)))
@@ -128,7 +128,7 @@ def test_file_links_reuse_tabs_and_restore_sources(tmp_path):
     assert restored.get(opened["id"])["documents"][0]["text"] == "recreated\n"
     assert "error" not in restored.get(opened["id"])["documents"][0]
     restored.close(opened["id"])
-    assert WorkspaceViewStore(board).list_views() == []
+    assert WorkspaceViewStore(board.with_suffix(".pycodex-views.json")).list_views() == []
     assert board.read_text(encoding="utf-8") == "live board"
     if os.name != "nt":
         assert restored.path.stat().st_mode & 0o077 == 0
@@ -215,7 +215,7 @@ def test_file_line_selection_reuses_tabs_and_reads_current_contents(tmp_path):
     source = tmp_path / "A file.py"
     source.write_bytes(b"first\r\nsecond\rthird\n")
     board = tmp_path / "board.html"
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opener = WorkspaceViewOpener(views, tmp_path)
     opened = opener.open("A%20file.py:2")
     assert opened["selection"] == {"document": 0, "line": 2}
@@ -224,7 +224,7 @@ def test_file_line_selection_reuses_tabs_and_reads_current_contents(tmp_path):
     assert selected["revision"] == opened["revision"]
     assert selected["reveal_revision"] > opened["reveal_revision"]
     assert selected["selection"] == {"document": 0, "line": 3}
-    restored = WorkspaceViewStore(board)
+    restored = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     assert restored.list_views()[0]["selection"] == selected["selection"]
     source.write_text("first\nsecond\nthird\nfourth\nfifth", encoding="utf-8")
     opener = WorkspaceViewOpener(restored, tmp_path)
@@ -271,14 +271,14 @@ def test_reveal_counter_survives_close_and_restart(tmp_path):
     for name in ("A.py", "B.py"):
         (tmp_path / name).write_text(name, encoding="utf-8")
     board = tmp_path / "board.html"
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opener = WorkspaceViewOpener(views, tmp_path)
     for href in ("A.py", "B.py", "A.py"):
         opener.open(href)
     first, second = views.list_views()
     assert first["reveal_revision"] > second["reveal_revision"]
     views.close(first["id"])
-    restored = WorkspaceViewStore(board)
+    restored = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     remaining = WorkspaceViewOpener(restored, tmp_path).open("B.py")
     assert remaining["id"] == second["id"]
     assert remaining["reveal_revision"] > first["reveal_revision"]
@@ -327,12 +327,12 @@ def test_open_tabs_keep_their_order_after_close_and_restore(tmp_path):
     for name in ("A.py", "B.py"):
         (tmp_path / name).write_text("content\n", encoding="utf-8")
     board = tmp_path / "board.html"
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opener = WorkspaceViewOpener(views, tmp_path)
     file_id = opener.open("A.py")["id"]
     opener.open(view_link("diff", left="A.py", right="B.py"))
     views.close(file_id)
-    restored = WorkspaceViewStore(board)
+    restored = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     WorkspaceViewOpener(restored, tmp_path).open("B.py")
     assert [view["title"] for view in restored.list_views()] == ["A.py <-> B.py", "B.py"]
 
@@ -356,7 +356,7 @@ def test_images_update_without_serving_the_path(tmp_path):
 def test_view_refresh_detects_atomic_saves_and_skips_unchanged_reads(tmp_path, monkeypatch):
     source = tmp_path / "A.py"
     source.write_text("old\n", encoding="utf-8")
-    views = WorkspaceViewStore(tmp_path / "board.html")
+    views = WorkspaceViewStore(tmp_path / "board.pycodex-views.json")
     first = WorkspaceViewOpener(views, tmp_path).open("A.py")
     read_document = views.read_document
     reads = []
@@ -416,7 +416,7 @@ def test_earlier_snapshots_without_sources_remain_fixed(tmp_path):
     board.with_suffix(".pycodex-views.json").write_text(
         json.dumps({"version": 1, "views": [snapshot]}), encoding="utf-8"
     )
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     assert not views.list_views()[0]["live"]
     assert views.get("earlier")["documents"][0]["text"] == "previous snapshot\n"
 
@@ -432,7 +432,7 @@ def test_earlier_snapshots_without_sources_remain_fixed(tmp_path):
     "git:HEAD:%00", "A%00.py", "A.py\n", "A%xx.py", "A%FF.py",
 ])
 def test_invalid_links_do_not_create_tabs(tmp_path, href):
-    views = WorkspaceViewStore(tmp_path / "board.html")
+    views = WorkspaceViewStore(tmp_path / "board.pycodex-views.json")
     with pytest.raises(ValueError):
         WorkspaceViewOpener(views, tmp_path).open(href)
     assert views.list_views() == []
@@ -468,7 +468,7 @@ def test_unsupported_or_oversized_files_are_rejected(tmp_path, kind):
 
 def test_snapshot_storage_failure_keeps_the_previous_state(tmp_path):
     (tmp_path / "A.py").write_text("first\n", encoding="utf-8")
-    views = WorkspaceViewStore(tmp_path / "board.html")
+    views = WorkspaceViewStore(tmp_path / "board.pycodex-views.json")
     opener = WorkspaceViewOpener(views, tmp_path)
     opener.open("A.py")
     previous = views.list_views()
@@ -484,7 +484,7 @@ def test_snapshot_storage_failure_keeps_the_previous_state(tmp_path):
 
 def test_failed_reveal_preserves_selection_and_storage(tmp_path, monkeypatch):
     (tmp_path / "A.py").write_text("body\n", encoding="utf-8")
-    views = WorkspaceViewStore(tmp_path / "board.html")
+    views = WorkspaceViewStore(tmp_path / "board.pycodex-views.json")
     opener = WorkspaceViewOpener(views, tmp_path)
     opener.open("A.py:1")
     previous = views.list_views()
@@ -509,7 +509,7 @@ def test_live_update_storage_failure_is_reported_and_can_recover(tmp_path):
     source = tmp_path / "A.py"
     source.write_text("first\n", encoding="utf-8")
     (tmp_path / "B.py").write_text("other\n", encoding="utf-8")
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opener = WorkspaceViewOpener(views, tmp_path)
     opener.open("A.py")
     opener.open("B.py")
@@ -517,8 +517,8 @@ def test_live_update_storage_failure_is_reported_and_can_recover(tmp_path):
     previous_file = views.path.read_bytes()
     views.max_storage_bytes = len(previous_file)
     source.write_text("updated\n" * 25, encoding="utf-8")
-    manager = WorkspaceSessionManager(make_session, board, views=views)
-    with TestClient(create_app(manager, board, work_dir=tmp_path)) as browser:
+    manager = WorkspaceSessionManager(make_session, board.with_suffix(""), views=views)
+    with TestClient(create_app(manager, board.with_suffix(""), work_dir=tmp_path)) as browser:
         for path in ("/api/views", "/api/views/" + first["id"]):
             response = browser.get(path)
             assert response.status_code == 400
@@ -581,7 +581,7 @@ def test_git_diff_compares_different_paths(git_repository):
 def test_git_tabs_keep_full_revisions_and_reuse_equivalent_forms(git_repository):
     repo, first, second = git_repository
     board = repo / "board.html"
-    views = WorkspaceViewStore(board)
+    views = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opened = WorkspaceViewOpener(views, repo).open(view_link(
         "git-diff", left=first + ":data/A.py", right=second + ":data/A.py"
     ))
@@ -595,7 +595,7 @@ def test_git_tabs_keep_full_revisions_and_reuse_equivalent_forms(git_repository)
         selected = opener.open(href)
         assert selected["id"] == opened["id"]
         assert selected["title"] == title
-    restored = WorkspaceViewStore(board)
+    restored = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     opener = WorkspaceViewOpener(restored, repo)
     assert opener.open(view_link(
         "git-diff", path="data/A.py", base=first, head=second
@@ -664,7 +664,7 @@ def test_saved_titles_retain_paths_and_git_references(tmp_path):
     board.with_suffix(".pycodex-views.json").write_text(
         json.dumps({"version": 1, "views": views}), encoding="utf-8"
     )
-    restored = WorkspaceViewStore(board)
+    restored = WorkspaceViewStore(board.with_suffix(".pycodex-views.json"))
     assert restored.list_views()[0]["title"] == "commita:one/A.py <-> commitb:two/A.py"
     assert not restored.list_views()[0]["live"]
 
@@ -745,20 +745,20 @@ def test_view_routes_are_authenticated_and_workspace_scoped(tmp_path, multi):
     project = tmp_path / "project"
     project.mkdir()
     (project / "A.py").write_text("private source\n", encoding="utf-8")
-    manager = WorkspaceSessionManager(make_session, board)
+    manager = WorkspaceSessionManager(make_session, board.with_suffix(""))
     if multi:
         other_dir = tmp_path / "other"
         other_dir.mkdir()
         (other_dir / "A.py").write_text("other source\n", encoding="utf-8")
-        other = WorkspaceSessionManager(make_session, tmp_path / "other.html")
+        other = WorkspaceSessionManager(make_session, tmp_path / "other")
         registry = WorkspaceRegistry([
-            WorkspaceEntry(WorkspaceDefinition("first", board, project), manager),
-            WorkspaceEntry(WorkspaceDefinition("second", tmp_path / "other.html", other_dir), other),
+            WorkspaceEntry(WorkspaceDefinition("first", board.with_suffix(""), project), manager),
+            WorkspaceEntry(WorkspaceDefinition("second", tmp_path / "other", other_dir), other),
         ])
         app = create_multi_workspace_app(registry, password="test-password")
         prefix = "/w/first"
     else:
-        app = create_app(manager, board, password="test-password", work_dir=project)
+        app = create_app(manager, board.with_suffix(""), password="test-password", work_dir=project)
         prefix = ""
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "plot.png").write_bytes(b"image")
@@ -817,7 +817,7 @@ def test_opening_view_does_not_block_session_polling(tmp_path, monkeypatch, mult
     manager = WorkspaceSessionManager(make_session, None)
     if multi:
         app = create_multi_workspace_app(WorkspaceRegistry([
-            WorkspaceEntry(WorkspaceDefinition("first", None, tmp_path), manager),
+            WorkspaceEntry(WorkspaceDefinition("first", tmp_path / "state", tmp_path, False), manager),
         ]))
         prefix = "/w/first"
     else:
@@ -932,7 +932,7 @@ def test_model_links_open_only_on_click_without_tools_or_new_messages(tmp_path, 
     monkeypatch.setattr("workspace_server.app.build_model", lambda **kwargs: model)
     args = build_parser().parse_args(["--config", str(config), "--toolset"] + toolset)
     entry = _build_workspace_entry(
-        WorkspaceDefinition("first", tmp_path / "board.html", tmp_path), args
+        WorkspaceDefinition("first", tmp_path / "board", tmp_path), args
     )
     with TestClient(create_multi_workspace_app(WorkspaceRegistry([entry]))) as browser:
         browser.post("/w/first/api/session/message", json={"prompt": "show A.py"})
@@ -952,7 +952,7 @@ def test_model_links_open_only_on_click_without_tools_or_new_messages(tmp_path, 
         assert browser.get("/w/first/api/session").json()["snapshot"] == before
         assert len(model.prompts) == 1
     assert "workspace_display" not in get_tools(toolset=["apply_patch"])
-    assert len(WorkspaceViewStore(tmp_path / "board.html").list_views()) == 1
+    assert len(WorkspaceViewStore(tmp_path / "board.pycodex-views.json").list_views()) == 1
 
 
 def test_content_tab_controller():

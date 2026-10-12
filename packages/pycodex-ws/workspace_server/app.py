@@ -73,7 +73,7 @@ from pycodex.utils.event_helpers import (
 )
 from pycodex_ws import build_runtime
 
-from .workspace_views import WorkspaceViewOpener, WorkspaceViewStore
+from .workspace_views import WorkspaceViewOpener
 from .workspaces import (
     WorkspaceDefinition,
     WorkspaceEntry,
@@ -81,6 +81,7 @@ from .workspaces import (
     WorkspaceSessionManager,
     load_workspace_definitions,
     session_snapshot,
+    workspace_file_path,
 )
 
 JSONValue = typing.Union[
@@ -109,8 +110,9 @@ def build_parser() -> "argparse.ArgumentParser":
         "--workspace-config",
         default="./workspaces.json",
         help=(
-            "Optional JSON file listing workspaces. Each entry needs `id`, "
-            "`board`, and `work_dir`; routes are served under /w/<id>/."
+            "Optional JSON file listing workspaces. Each entry needs `state_path` "
+            "and `work_dir`; `id` is optional and `enable_board` defaults to true. "
+            "Routes are served under /w/<id>/."
         ),
     )
     parser.add_argument(
@@ -824,15 +826,17 @@ class ThreadedWorkspaceInteractiveSession:
 
 def create_app(
     session_source: "typing.Union[WorkspaceSessionManager, SessionFactory]",
-    board_path: "typing.Union[Path, None]",
+    state_path: "typing.Union[Path, None]",
     password: "typing.Union[str, None]" = None,
     work_dir: "typing.Union[Path, None]" = None,
+    enable_board: bool = True,
 ) -> Starlette:
     manager = (
         session_source
         if isinstance(session_source, WorkspaceSessionManager)
-        else WorkspaceSessionManager(session_source, board_path)
+        else WorkspaceSessionManager(session_source, state_path)
     )
+    board_path = workspace_file_path(state_path, ".html") if enable_board else None
     app = _create_lifespan_app(manager.start, manager.close)
     auth_token = _install_auth(app, password)
     _install_workspace_routes(app, manager, board_path, Path(work_dir or Path.cwd()).resolve())
@@ -860,10 +864,13 @@ def create_multi_workspace_app(
     async def add_workspace(request: Request) -> JSONResponse:
         payload = await _json_object_body(request)
         try:
+            if "board" in payload:
+                raise ValueError("use `state_path` and `enable_board` instead of `board`")
             entry = await registry.add_workspace(
                 str(payload.get("name") or ""),
                 work_dir=str(payload.get("dir") or "./"),
-                board=payload.get("board"),
+                state_path=payload.get("state_path"),
+                enable_board=payload.get("enable_board", True),
             )
         except ValueError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
@@ -1433,7 +1440,9 @@ def _view_asset_response(asset_name: str, request: Request, cache: dict) -> Resp
 
 
 def _board_status_response(board_path: "typing.Union[Path, None]") -> JSONResponse:
-    if board_path is None or not board_path.is_file():
+    if board_path is None:
+        raise HTTPException(status_code=404, detail="Canvas is disabled")
+    if not board_path.is_file():
         return JSONResponse({"exists": False})
     stat = board_path.stat()
     return JSONResponse(
@@ -1698,7 +1707,7 @@ async def _send_ws_events(websocket: WebSocket, subscriber: "asyncio.Queue") -> 
 
 def _board_response(board_path: "typing.Union[Path, None]") -> Response:
     if board_path is None:
-        return _html_response(_render_empty_board())
+        raise HTTPException(status_code=404, detail="Canvas is disabled")
     if not board_path.is_file():
         return _html_response(_render_missing_board(board_path))
     return _html_response(board_path.read_text(encoding="utf-8", errors="replace"))
@@ -1775,9 +1784,9 @@ def run_serve_cli(args: "argparse.Namespace") -> int:
     )
     for definition in definitions:
         print(
-            "workspace {0}: board={1} work_dir={2} url=http://{3}:{4}/w/{0}/".format(
+            "workspace {0}: state_path={1} work_dir={2} url=http://{3}:{4}/w/{0}/".format(
                 definition.workspace_id,
-                definition.board_path or "",
+                definition.state_path,
                 definition.work_dir,
                 host,
                 port,
@@ -1793,8 +1802,6 @@ def _build_workspace_entry(
     args: "argparse.Namespace",
     persist_callback: "typing.Union[typing.Callable[[], None], None]" = None,
 ) -> "WorkspaceEntry":
-    views = WorkspaceViewStore(definition.board_path)
-
     def build_session() -> "WorkspaceInteractiveSession":
         model = build_model(
             config_path=args.config,
@@ -1831,9 +1838,8 @@ def _build_workspace_entry(
         definition=definition,
         manager=WorkspaceSessionManager(
             session_factory,
-            definition.board_path,
+            definition.state_path,
             persist_callback=persist_callback,
-            views=views,
         ),
     )
 
@@ -1886,19 +1892,13 @@ def _render_workspace_shell(
         template.replace("__WORKSPACE_TITLE__", html.escape(page_title))
         .replace("__BOARD_LABEL__", html.escape(board_label))
         .replace("__CWD_LABEL__", html.escape(cwd_label))
+        .replace("__ENABLE_BOARD__", "true" if board_path is not None else "false")
+        .replace("__BOARD_URL__", "board" if board_path is not None else "about:blank")
     )
 
 
 def _render_workspaces_manager_shell() -> str:
     return (Path(__file__).with_name("workspaces.html")).read_text(encoding="utf-8")
-
-
-def _render_empty_board() -> str:
-    return _render_board_placeholder(
-        "No board",
-        "No board connected",
-        "Add a board from the workspaces page to see your work here.",
-    )
 
 
 def _render_missing_board(board_path: Path) -> str:

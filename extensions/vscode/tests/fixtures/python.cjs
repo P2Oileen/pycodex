@@ -21,7 +21,7 @@ if (checking) {
       process.stderr.write(state.installError + "\n");
       process.exitCode = 1;
     } else {
-      state.version = state.nextVersion || "0.3.1";
+      state.version = state.nextVersion || "0.4.0";
       fs.writeFileSync(statePath, JSON.stringify(state));
       process.stdout.write("Successfully installed pycodex-ws\n");
     }

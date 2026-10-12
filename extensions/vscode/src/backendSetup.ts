@@ -22,7 +22,7 @@ export interface BackendOptions {
 export class BackendSetup {
   private readonly installations = new Map<string, Promise<PythonEnvironment>>();
 
-  constructor(private readonly minimumVersion = "0.3.1") {}
+  constructor(private readonly minimumVersion = "0.4.0") {}
 
   async prepare(options: BackendOptions, report: (message: string) => void): Promise<WorkspaceLaunch> {
     report("Checking the installed Python backend…");

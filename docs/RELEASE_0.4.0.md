@@ -75,6 +75,25 @@ CLI and Web use `understood` for the initial turn status. Feishu cards keep
 streaming replies separate from command results, questions and errors, and clear
 the failed attempt's streaming text when a model request retries.
 
+## Workspace state and Canvas
+
+Workspace configuration uses a `state_path` filename prefix and `enable_board`
+(default `true`). For `state_path: "demo"`, sessions use `demo.pycodex-ws.json`,
+file views use `demo.pycodex-views.json`, and Canvas uses `demo.html`. Suffixes
+are appended even when the prefix contains dots. The resolved prefix identifies
+the workspace independently of Canvas.
+
+Disabling Canvas removes its tab, routes, polling and context injection while
+preserving session and file-view persistence. Existing `board: "demo.html"` and
+`board: false` configurations normalize to the new fields at load time and keep
+their original state files and rollout references. Subsequent config saves use
+only the new format; mixed fields and non-`.html` legacy paths are rejected.
+
+The VS Code extension now keeps one private configuration per project and
+restores saved conversations on reopening the sidebar. It requires backend
+0.4.0 and creates workspaces with Canvas disabled. Browser code/diff views can
+insert selected text, or just the file/cursor location, into the chat draft.
+
 ## Upgrade
 
 For the CLI and core API:

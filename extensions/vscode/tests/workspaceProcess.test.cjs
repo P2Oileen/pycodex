@@ -8,20 +8,24 @@ const { WorkspaceProcess } = require("../out/workspaceProcess");
 
 async function launch(t, mode = "ready", timeout = 3_000, missing = false) {
   const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "pycodex project-测试-")));
-  const workspace = new WorkspaceProcess({
+  const storage = await fs.mkdtemp(path.join(os.tmpdir(), "pycodex-storage-"));
+  const configPath = path.join(storage, "project", "workspaces.json");
+  const options = {
     directory,
     command: missing ? path.join(directory, "missing-command") : process.execPath,
     args: [path.join(__dirname, "fixtures", "workspace-server.cjs"), "--fixture-mode", mode],
-  }, timeout);
+  };
+  const workspace = new WorkspaceProcess(options, configPath, timeout);
   t.after(async () => {
     workspace.dispose();
     await workspace.closed;
     await fs.rm(directory, { recursive: true, force: true });
+    await fs.rm(storage, { recursive: true, force: true });
   });
-  return { workspace, directory };
+  return { workspace, directory, configPath, options };
 }
 
-test("project processes use separate ports and private config files and clean up only their own backend", async t => {
+test("project processes use separate ports and retain private config files after shutdown", async t => {
   const first = await launch(t);
   const second = await launch(t);
   const [a, b] = await Promise.all([first.workspace.ready, second.workspace.ready]);
@@ -30,9 +34,16 @@ test("project processes use separate ports and private config files and clean up
   assert.equal(info.cwd, first.directory);
   assert.notEqual(info.pid, process.pid);
   assert.deepEqual(info.config, {
-    workspaces: [{ id: "vscode", work_dir: first.directory, board: false }],
+    workspaces: [{
+      id: "vscode",
+      work_dir: first.directory,
+      state_path: "workspaces.vscode",
+      enable_board: false,
+    }],
   });
   const configPath = info.args[info.args.indexOf("--workspace-config") + 1];
+  assert.equal(configPath, first.configPath);
+  assert.notEqual(configPath, second.configPath);
   assert.notEqual(configPath, "-");
   assert.ok(path.isAbsolute(configPath));
   assert.ok(!configPath.startsWith(first.directory + path.sep));
@@ -48,23 +59,55 @@ test("project processes use separate ports and private config files and clean up
   assert.equal((await a.createSession()).session_id, "2");
   first.workspace.dispose();
   await first.workspace.closed;
-  await assert.rejects(fs.stat(path.dirname(configPath)), { code: "ENOENT" });
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, "utf8")), info.config);
   await assert.rejects(a.submit("1", "stale request"), /backend has stopped/);
   assert.deepEqual(await fs.readdir(first.directory), []);
   assert.equal(second.workspace.active, true);
   assert.deepEqual(await b.listSessions(), []);
 });
 
+test("restarting a project reuses its config without overwriting it", async t => {
+  const { workspace, configPath, options } = await launch(t);
+  await workspace.ready;
+  workspace.dispose();
+  await workspace.closed;
+  const saved = JSON.stringify(JSON.parse(await fs.readFile(configPath, "utf8")), null, 2) + "\n";
+  await fs.writeFile(configPath, saved);
+  const restarted = new WorkspaceProcess(options, configPath, 3_000);
+  try {
+    const backend = await restarted.ready;
+    const info = await (await fetch(`${backend.url}/fixture`)).json();
+    assert.equal(info.args[info.args.indexOf("--workspace-config") + 1], configPath);
+    assert.equal(await fs.readFile(configPath, "utf8"), saved);
+  } finally {
+    restarted.dispose();
+    await restarted.closed;
+  }
+  assert.equal(await fs.readFile(configPath, "utf8"), saved);
+});
+
+test("an invalid saved config fails visibly and remains intact", async t => {
+  const { workspace, configPath, options } = await launch(t);
+  await workspace.ready;
+  workspace.dispose();
+  await workspace.closed;
+  await fs.writeFile(configPath, "{unfinished");
+  const restarted = new WorkspaceProcess(options, configPath, 3_000);
+  await assert.rejects(restarted.ready, /SyntaxError|JSON/);
+  await restarted.closed;
+  assert.equal(await fs.readFile(configPath, "utf8"), "{unfinished");
+});
+
 test("missing executables report the remote host setting", async t => {
-  const { workspace } = await launch(t, "ready", 3_000, true);
+  const { workspace, configPath } = await launch(t, "ready", 3_000, true);
   await assert.rejects(workspace.ready, /Python environment.*remote server/s);
   await workspace.closed;
   assert.equal(workspace.active, false);
-  await assert.rejects(fs.stat(workspace.configDirectory), { code: "ENOENT" });
+  assert.ok((await fs.stat(configPath)).isFile());
 });
 
 test("startup failure surfaces diagnostics with credentials redacted", async t => {
-  const { workspace } = await launch(t, "fail");
+  const { workspace, configPath } = await launch(t, "fail");
   await assert.rejects(workspace.ready, error => {
     assert.match(error.message, /fixture startup failed/);
     assert.match(error.message, /api_key=\[redacted\]/);
@@ -72,7 +115,7 @@ test("startup failure surfaces diagnostics with credentials redacted", async t =
     return true;
   });
   await workspace.closed;
-  await assert.rejects(fs.stat(workspace.configDirectory), { code: "ENOENT" });
+  assert.ok((await fs.stat(configPath)).isFile());
 });
 
 test("HTTP authentication failures stop startup", async t => {
@@ -103,7 +146,7 @@ test("package preparation has its own lifetime before the backend startup timeou
     directory, command: process.execPath,
     args: [path.join(__dirname, "fixtures", "workspace-server.cjs"), "--fixture-mode", "ready"],
   }));
-  const workspace = new WorkspaceProcess(prepared, 300);
+  const workspace = new WorkspaceProcess(prepared, path.join(directory, "workspaces.json"), 300);
   t.after(async () => {
     workspace.dispose();
     await workspace.closed;
@@ -116,7 +159,7 @@ test("package preparation has its own lifetime before the backend startup timeou
 test("closing during installation waits for it and prevents a backend from starting", async () => {
   let finish;
   const preparation = new Promise(resolve => { finish = resolve; });
-  const workspace = new WorkspaceProcess(preparation);
+  const workspace = new WorkspaceProcess(preparation, path.join(os.tmpdir(), "must-not-create.json"));
   let closed = false;
   void workspace.closed.then(() => { closed = true; });
   workspace.dispose();
@@ -129,7 +172,10 @@ test("closing during installation waits for it and prevents a backend from start
 });
 
 test("a preparation error closes the workspace and remains visible", async () => {
-  const workspace = new WorkspaceProcess(Promise.reject(new Error("pip cannot write to this environment")));
+  const workspace = new WorkspaceProcess(
+    Promise.reject(new Error("pip cannot write to this environment")),
+    path.join(os.tmpdir(), "must-not-create.json"),
+  );
   await assert.rejects(workspace.ready, /pip cannot write/);
   await workspace.closed;
   assert.equal(workspace.active, false);

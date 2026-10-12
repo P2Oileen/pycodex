@@ -14,18 +14,21 @@ from workspace_server.app import build_parser, run_serve_cli
 from workspace_server.owned_process import run_owned_server
 
 
+@pytest.mark.parametrize("legacy", [False, True])
 def test_cli_reads_config_from_a_file_and_uses_stdin_ownership_by_default(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, legacy
 ):
     project = tmp_path / "项目"
     project.mkdir()
     model_config = tmp_path / "model.toml"
     model_config.write_text('model = "scripted"\n', encoding="utf-8")
     monkeypatch.setattr("workspace_server.app.build_model", lambda **kwargs: ScriptedModelClient([]))
-    payload = json.dumps(
-        {"workspaces": [{"id": "vscode", "work_dir": "项目", "board": False}]},
-        ensure_ascii=False,
+    workspace = {"id": "vscode", "work_dir": "项目"}
+    workspace.update(
+        {"board": False} if legacy else
+        {"state_path": "workspaces.vscode", "enable_board": False}
     )
+    payload = json.dumps({"workspaces": [workspace]}, ensure_ascii=False)
     config_path = tmp_path / "workspaces.json"
     config_path.write_text(payload, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -45,6 +48,8 @@ def test_cli_reads_config_from_a_file_and_uses_stdin_ownership_by_default(
                 assert len(workspaces) == 1
                 assert workspaces[0]["work_dir"] == str(project)
                 assert workspaces[0]["id"] == "vscode"
+                assert workspaces[0]["state_path"] == str(tmp_path / "workspaces.vscode")
+                assert workspaces[0]["enable_board"] is False
                 assert len(client.get("/w/vscode/api/sessions").json()["sessions"]) == 1
 
         monkeypatch.setattr("workspace_server.owned_process.run_owned_server", serve)
@@ -54,7 +59,15 @@ def test_cli_reads_config_from_a_file_and_uses_stdin_ownership_by_default(
         )
         assert run_serve_cli(args) == 0
     assert calls == [("127.0.0.1", 0)]
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["model.toml", "workspaces.json", "项目"]
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {
+        "workspaces": [{
+            "id": "vscode", "work_dir": "项目",
+            "state_path": "workspaces.vscode", "enable_board": False,
+        }]
+    }
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "model.toml", "workspaces.json", "workspaces.vscode.pycodex-ws.json", "项目"
+    ]
 
 
 def test_cli_exits_cleanly_when_stdin_is_closed_at_startup(tmp_path):

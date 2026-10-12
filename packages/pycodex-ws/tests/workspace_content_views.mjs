@@ -1,5 +1,6 @@
 import assert from "assert";
 import {ContentTabs, SnapshotDisplay, isWorkspaceLink} from "../workspace_server/frontend/content_views.mjs";
+import {editorContext} from "../workspace_server/frontend/editor_context.mjs";
 
 // The browser supplies this API; provide it explicitly in the Node harness.
 global.AbortController = class {
@@ -14,7 +15,7 @@ function deferred() {
   return {promise, resolve, reject};
 }
 
-function fixture(selected = null) {
+function fixture(selected = null, enableBoard = true) {
   let serverViews = [];
   const pending = new Map();
   const signals = new Map();
@@ -24,6 +25,7 @@ function fixture(selected = null) {
   const selections = [];
   const tabs = new ContentTabs({
     selected,
+    enableBoard,
     onSelect: id => selections.push(id),
     onChange: state => changes.push({
       id: state.activeId, snapshot: state.snapshot, selection: state.selection,
@@ -104,6 +106,42 @@ async function newTabsAndRestore() {
   await flush();
   assert.equal(restored.tabs.activeId, "a");
   assert.equal(restored.tabs.snapshot.id, "a");
+}
+
+async function disabledCanvasKeepsFileViewsAndAnEmptyState() {
+  for (const selected of [null, "board", "missing", "b"]) {
+    const state = fixture(selected, false);
+    assert.equal(state.tabs.activeId, null);
+    state.setViews(["a", "b"]);
+    await state.tabs.poll();
+    await flush();
+    const expected = selected === "b" ? "b" : "a";
+    assert.equal(state.tabs.activeId, expected);
+    assert.equal(state.tabs.snapshot.id, expected);
+    await state.tabs.select("board");
+    assert.equal(state.tabs.activeId, expected);
+    await assert.rejects(state.tabs.open("workspace://canvas"), /Canvas is disabled/);
+    assert.equal(state.tabs.activeId, expected);
+    await state.tabs.close(expected);
+    assert.equal(state.tabs.activeId, expected === "a" ? "b" : "a");
+    await state.tabs.close(state.tabs.activeId);
+    assert.equal(state.tabs.activeId, null);
+    assert.equal(state.tabs.snapshot, null);
+    assert.equal(state.tabs.loading, false);
+    assert.equal(state.selections[state.selections.length - 1], null);
+    await state.tabs.poll();
+    state.setViews(["other-client"]);
+    await state.tabs.poll();
+    assert.equal(state.tabs.activeId, null);
+    assert.equal(state.requests.includes("GET api/views/null"), false);
+    assert.equal(state.requests.includes("GET api/views/board"), false);
+  }
+  const empty = fixture(null, false);
+  await empty.tabs.poll();
+  await empty.tabs.poll();
+  assert.equal(empty.tabs.activeId, null);
+  assert.equal(empty.tabs.error, "");
+  assert.deepEqual(empty.requests, ["GET api/views", "GET api/views"]);
 }
 
 async function pollingNeverFollowsOtherClients() {
@@ -868,9 +906,120 @@ async function previewsKeepScrollAndClosedTabsReleaseCaches() {
   }
 }
 
+function contextModel(text) {
+  const lines = text.split(/\r\n|\r|\n/);
+  return {
+    getLineCount: () => lines.length,
+    getLineContent: line => lines[line - 1],
+  };
+}
+
+function contextSelection(startLineNumber, startColumn, endLineNumber, endColumn) {
+  return {startLineNumber, startColumn, endLineNumber, endColumn,
+    positionLineNumber: endLineNumber, positionColumn: endColumn};
+}
+
+function contextCapturesSelectionAndCursorWithoutChangingSource() {
+  const source = {label: '文件"name.py', source: {path: '/repo/文件"name.py'}, text: "unchanged"};
+  const snapshot = {kind: "file", title: source.label, documents: [source]};
+  const model = contextModel("before\r\n  alpha()\r\n  beta()\r\nafter\r\n");
+  const selection = contextSelection(2, 3, 4, 1);
+  selection.positionLineNumber = 2;
+  selection.positionColumn = 3;
+  const context = editorContext(snapshot, 0, model, selection);
+  assert.equal(context.label, '文件"name.py · L2–3');
+  assert.ok(context.text.includes('View: "文件\\"name.py"'));
+  assert.ok(!/Cursor:|Language:|Label:|File:/.test(context.text));
+  assert.ok(context.text.includes("Selection: 2:3–4:1 (end exclusive)"));
+  assert.ok(context.text.includes("\n2: alpha()\n3:   beta()\n"));
+  assert.ok(!context.text.includes("before") && !context.text.includes("after"));
+  assert.equal(source.text, "unchanged");
+  snapshot.title = "renamed view";
+  assert.ok(context.text.includes('View: "文件\\"name.py"'));
+
+  const unselected = contextModel("unselected text");
+  unselected.getLineContent = () => { throw new Error("Unselected text must not be read."); };
+  const reference = editorContext(snapshot, 0, unselected, contextSelection(15, 4, 15, 4));
+  assert.ok(!/Selection:|Language:|Label:/.test(reference.text));
+  assert.ok(reference.text.includes("Cursor: line 15, column 4"));
+  assert.ok(reference.text.includes("cursor location"));
+  assert.ok(!reference.text.includes("unselected text") && !/^\d+: /m.test(reference.text));
+}
+
+function contextPreservesGitRevisionAndDiffSide() {
+  const revision = "a".repeat(40);
+  const snapshot = {kind: "diff", documents: [
+    {label: `HEAD~1 (${revision}):old.py`, git_source: {repository: "/repo", revision, path: "old.py"}},
+    {label: "/repo/new.py", source: {path: "/repo/new.py", working_tree: true}},
+  ]};
+  snapshot.title = snapshot.documents.map(source => source.label).join(" <-> ");
+  const left = editorContext(snapshot, 0, contextModel("old value"), contextSelection(1, 1, 1, 4));
+  const right = editorContext(snapshot, 1, contextModel("new value"), contextSelection(1, 1, 1, 4));
+  assert.ok(left.text.includes('View: ' + JSON.stringify(snapshot.title)));
+  assert.ok(left.text.includes('Git repository: "/repo"'));
+  assert.ok(left.text.includes("Diff side: left (original)\n"));
+  assert.ok(left.text.includes("\n1: old\n"));
+  assert.ok(right.text.includes('View: ' + JSON.stringify(snapshot.title)));
+  assert.ok(right.text.includes("Diff side: right (modified)\n"));
+  assert.ok(right.text.includes("\n1: new\n"));
+  assert.ok(!right.text.includes("Git revision:"));
+  assert.ok(left.label.endsWith(" · left L1–1") && right.label.endsWith(" · right L1–1"));
+  const newer = "b".repeat(40);
+  const versions = {
+    ...snapshot, title: `HEAD~1 (${revision}):old.py <-> HEAD (${newer}):new.py`,
+  };
+  const compared = editorContext(versions, 0, contextModel("old value"), contextSelection(1, 1, 1, 4));
+  assert.ok(compared.label.includes(revision.slice(0, 7) + " ↔ " + newer.slice(0, 7)));
+  assert.ok(compared.text.includes('View: ' + JSON.stringify(versions.title)));
+  const legacy = editorContext({kind: "file", title: "old snapshot", documents: [{label: "old snapshot"}]}, 0,
+    contextModel("saved text"), contextSelection(1, 1, 1, 6));
+  assert.ok(legacy.text.includes('View: "old snapshot"'));
+  assert.ok(!legacy.text.includes("File:"));
+}
+
+function contextBoundsLongSelections() {
+  const snapshot = {kind: "file", title: "long.py", documents: [{label: "long.py"}]};
+  const lines = editorContext(snapshot, 0, contextModel("line\n".repeat(220)),
+    contextSelection(1, 1, 221, 1));
+  assert.ok(lines.text.includes("(excerpt truncated)"));
+  assert.ok(lines.text.includes("\n200: line\n"));
+  assert.ok(!lines.text.includes("\n201:"));
+  const characters = editorContext(snapshot, 0, contextModel("a".repeat(12000) + "truncated tail"),
+    contextSelection(1, 1, 1, 12015));
+  assert.ok(characters.text.includes("(excerpt truncated)"));
+  assert.ok(!characters.text.includes("truncated tail"));
+  assert.equal(characters.text.split("\n").find(line => line.startsWith("1: ")).length, 12003);
+}
+
+async function onlyTheCurrentEditorCanInsertContext() {
+  const actions = [];
+  const inserted = [];
+  const state = displayFixture(async () => ({
+    createSnapshotEditor: async (parent, snapshot, saved, onInsertContext) => {
+      actions.push(onInsertContext);
+      return {capture: () => ({}), destroy() {}};
+    },
+  }));
+  state.display.onInsertContext = context => inserted.push(context);
+  state.display.retain(["a", "b"]);
+  await state.display.show("a", state.snapshot("a"));
+  actions[0]({text: "from a"});
+  await state.display.show("b", state.snapshot("b"));
+  actions[0]({text: "stale a"});
+  actions[1]({text: "from b"});
+  state.display.clear();
+  actions[1]({text: "closed b"});
+  assert.deepEqual(inserted, [{text: "from a"}, {text: "from b"}]);
+}
+
 async function main() {
+  contextCapturesSelectionAndCursorWithoutChangingSource();
+  contextPreservesGitRevisionAndDiffSide();
+  contextBoundsLongSelections();
+  await onlyTheCurrentEditorCanInsertContext();
   fileAndUriLinksPreserveBrowserDestinations();
   await newTabsAndRestore();
+  await disabledCanvasKeepsFileViewsAndAnEmptyState();
   await pollingNeverFollowsOtherClients();
   await revealingDuringRefreshKeepsVisibleContent();
   await clickedLinesDoNotReplayOnPollOrManualSelection();

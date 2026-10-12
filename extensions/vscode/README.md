@@ -19,14 +19,14 @@ configuration. The welcome screen explains this before a backend is started.
 
 ## Python backend
 
-The extension requires **`pycodex-ws>=0.3.1`** and Python 3.7 or newer.
+The extension requires **`pycodex-ws>=0.4.0`** and Python 3.7 or newer.
 On the first chat in a project,
 it checks the installation on the machine that holds the project:
 
 - Use the Python interpreter selected in **设置 → Python 环境**. If its installed
   version meets the minimum, reuse it without checking the network.
 - Upgrade an older installation with its own
-  `python -m pip install --upgrade "pycodex-ws>=0.3.1"`, then check again.
+  `python -m pip install --upgrade "pycodex-ws>=0.4.0"`, then check again.
   Its exact core dependency is resolved in the same operation.
 - With **自动检测**, reuse the interpreter behind `pycodex-ws` or `pycodex` on
   `PATH`, or find `python3` / `python` (`py -3` first on Windows).
@@ -50,13 +50,17 @@ Closing a project during installation waits for pip to finish and prevents the
 server from starting afterward.
 
 The first chat in a project starts a dedicated `pycodex-ws` process automatically.
-The extension writes the folder's workspace config to a private temporary
-`workspaces.json` and passes its path through the existing `--workspace-config`
-option. It disables the board and selects an available `127.0.0.1` port.
+The extension keeps a fixed `workspaces.json` for each project's canonical path
+under its `globalStorageUri/workspaces/<project-hash>/` directory on that host,
+and passes it through `--workspace-config`. It sets
+`state_path: "workspaces.vscode"` and `enable_board: false`, and selects an
+available `127.0.0.1` port.
 No server URL, workspace registration, or server password is needed.
-The temporary directory is removed after the backend exits, including failed
-startup. An abrupt extension-host crash can leave it in the host's temporary
-directory. Version 0.3.1 is required for default stdin EOF shutdown.
+The configuration and adjacent `workspaces.vscode.pycodex-ws.json` session index
+remain after shutdown. Backend 0.4.0 adds this index for workspaces without a
+Canvas. Opening the sidebar again starts the saved workspaces and loads their
+conversations with history; a project used for the first time still starts from
+the welcome screen.
 
 ## Python environment and Profile
 
@@ -99,8 +103,8 @@ extension host; HTTP requests to Python also run on the workspace host.
 For backend development from this checkout, run `env -u VIRTUAL_ENV uv sync --dev`
 at the repository root and select its `.venv` in **Python 环境**, or set
 `pycodex.pythonPath` to `.venv/bin/python` (`.venv/Scripts/python.exe` on Windows).
-The backend packages must be published before distributing this extension to
-users who depend on automatic pip installation. Publish
+The required backend versions must be available on the package index used by
+your users. If a release requires a new backend version, publish
 `python-codex` first, then `pycodex-ws`, then the extension.
 Python source distributions exclude the VS Code project; build the VSIX from
 the repository checkout.
@@ -119,13 +123,14 @@ through the package script.
 ### Publish to Visual Studio Marketplace
 
 The publisher is `randomizez` and the extension ID is `randomizez.pycodex`.
-Publish the required Python backend packages first and confirm they can be
-installed from the package index used by your users.
+Confirm the required Python backend versions can be installed from the package
+index used by your users. Existing compatible releases satisfy this requirement.
 
-Run `npm test` and `npm run package`, then upload `pycodex-0.0.1.vsix` through
+Run `npm test` and `npm run package`, then upload `pycodex-0.0.4.vsix` through
 the [publisher management page](https://marketplace.visualstudio.com/manage/publishers/randomizez)
-using **New extension → Visual Studio Code**. Later releases need a new version
-in `package.json` and `package-lock.json`; keep the publisher and extension name
+as an update to the existing extension. For a first publication, use
+**New extension → Visual Studio Code**. Later releases need a new version in
+`package.json` and `package-lock.json`; keep the publisher and extension name
 stable so existing installations receive updates.
 
 The package includes its Apache-2.0 license, a PNG Marketplace icon, the changelog
@@ -140,11 +145,11 @@ uninstall it before installing `randomizez.pycodex` to avoid duplicate commands
 and sidebar views.
 
 In VS Code, run **Extensions: Install from VSIX...** and select the generated
-`pycodex-0.0.1.vsix`. To replace an earlier local build with a higher version
+`pycodex-0.0.4.vsix`. To replace an earlier local build with a higher version
 number, explicitly install this VSIX with:
 
 ```bash
-code --install-extension ./pycodex-0.0.1.vsix --force
+code --install-extension ./pycodex-0.0.4.vsix --force
 ```
 
 For an Extension Development Host instead:
@@ -213,8 +218,11 @@ code --extensionDevelopmentPath="$PWD" /absolute/path/to/your/project
   are cleared when unchanged; new or edited blocks stay in the draft. Drafts,
   context blocks and collapsed state survive hiding and switching the sidebar.
 
-The excerpt contains the selection, or up to ten lines on each side of the
-cursor. File-tree selections capture file contents. Each block is limited to
+The excerpt contains only selected text. Without a selection, context records
+the file and cursor location without including nearby code.
+Each block records either the selection range or the cursor position, and omits
+the language field.
+Explicit Explorer/SCM file selections capture file contents. Each excerpt is limited to
 200 lines and 12,000 source characters, with an explicit truncation marker.
 Unsaved changes and the document version are included. Tools
 still read and edit files on disk; save the document before asking the Agent to
@@ -227,9 +235,10 @@ the processes it started,
 including any already closing after a folder was removed. If the extension host
 crashes, the operating system closes the pipe and triggers the same cleanup.
 A temporary Remote SSH disconnection keeps sessions running while the remote
-extension host is still alive. Conversation rollouts remain available through
-`/resume` in a new session; the selected conversation is not restored after a
-backend restart.
+extension host is still alive. On restart, the backend reloads the saved
+session index and rollouts, and the sidebar restores conversations with history
+when opened. Empty sessions are not shown in the restored list. Rollouts from
+older extension versions remain available through `/resume` in a new session.
 When starting the CLI independently, keep stdin open for the server's lifetime.
 Closed stdin, including a `/dev/null` redirect, causes a graceful exit.
 
@@ -263,6 +272,11 @@ the Queue button adds `/queue`. There is no per-session source metadata or
 automatic context appending. Commands and pending question answers use the
 same message path, with no extra Runtime context handling.
 
+The text/token composer is shared with the Web workspace frontend.
+`npm run compile` copies its source from
+`packages/pycodex-ws/workspace_server/frontend/composer.mjs` into the extension's
+`out/` directory, so the installed VSIX contains everything it needs.
+
 Closing uses `DELETE /api/sessions/<session_id>`. Polling and new sends stop for
 that connection while deletion waits for backend shutdown; the ordinary HTTP
 request deadline does not apply to this wait. The entry is removed only after
@@ -283,7 +297,8 @@ npm test
 
 These tests exercise project process startup, stdin ownership and deactivation
 waiting, remote hosting, venv selection and validation, scoped settings,
-profile arguments and reload feedback,
+profile arguments and reload feedback, persistent project configuration,
+conversation restoration and retry after a failed restore,
 explicit session routing, stale polls, detach during a send, questions,
 plain prompts, optional editor text, read-only Git diffs, Explorer/SCM selections,
 asynchronous context capture, webview readiness, project selection,

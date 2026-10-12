@@ -46,7 +46,7 @@ async function fixture(t, state = {}) {
   await fs.writeFile(python, `#!${process.execPath}\n${body}`, { mode: 0o755 });
   await fs.writeFile(command, `#!${python}\n`, { mode: 0o755 });
   const statePath = path.join(bin, "environment.json");
-  await fs.writeFile(statePath, JSON.stringify({ version: "0.3.1", ...state }));
+  await fs.writeFile(statePath, JSON.stringify({ version: "0.4.0", ...state }));
   const previousPath = process.env.PATH;
   process.env.PATH = bin;
   t.after(async () => {
@@ -74,13 +74,13 @@ processTest("compatible PATH installations are reused without invoking pip", asy
 });
 
 processTest("an old backend upgrades the selected interpreter and preserves the profile", async t => {
-  const f = await fixture(t, { version: "0.3.0" });
+  const f = await fixture(t, { version: "0.3.3" });
   process.env.PATH = "";
   assert.deepEqual(await f.prepare({ ...f.options, pythonPath: f.python }), f.expectedLaunch);
   assert.deepEqual(await f.calls(), [
     { kind: "check" },
     { kind: "pip", args: [
-      "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input", "pycodex-ws>=0.3.1",
+      "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input", "pycodex-ws>=0.4.0",
     ] },
     { kind: "check" },
   ]);
@@ -91,7 +91,7 @@ processTest("workspace upgrades resolve the matching core through its dependency
   const f = await fixture(t, { version: "0.3.0" });
   await f.prepare();
   const installing = (await f.calls()).find(call => call.kind === "pip");
-  assert.deepEqual(installing.args.slice(-2), ["--no-input", "pycodex-ws>=0.3.1"]);
+  assert.deepEqual(installing.args.slice(-2), ["--no-input", "pycodex-ws>=0.4.0"]);
 });
 
 processTest("an existing pycodex CLI selects its environment when pycodex-ws is absent", async t => {
@@ -183,7 +183,7 @@ processTest("pip failures stay visible with credentials removed and no fallback 
   assert.equal((await f.calls()).length, 2);
 });
 
-for (const requirement of ["python-codex==0.3.3", "pycodex-ws>=0.3.1", "some-dependency>=1.0"]) {
+for (const requirement of ["python-codex==0.4.0", "pycodex-ws>=0.4.0", "some-dependency>=1.0"]) {
   processTest(`missing ${requirement} keeps pip diagnostics behind an actionable installation error`, async t => {
     const details = [
       "Looking in indexes: https://packages.example.test/simple/",
@@ -207,7 +207,7 @@ for (const requirement of ["python-codex==0.3.3", "pycodex-ws>=0.3.1", "some-dep
 
 processTest("pip success is checked against the actual installed version before startup", async t => {
   const f = await fixture(t, { version: "0.2.0", nextVersion: "0.3.0" });
-  await assert.rejects(f.prepare(), /pip finished.*0\.3\.0.*0\.3\.1/s);
+  await assert.rejects(f.prepare(), /pip finished.*0\.3\.0.*0\.4\.0/s);
   assert.ok(!f.messages.includes("Starting the Python backend…"));
 });
 

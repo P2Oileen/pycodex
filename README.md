@@ -111,7 +111,7 @@ See [test environments and coverage](tests/TESTS.md). Core tests support Python
 
 A VS Code frontend is available in [`extensions/vscode`](extensions/vscode/README.md).
 It belongs to the workspace frontend and is packaged separately as a VSIX.
-It reuses an existing `pycodex-ws>=0.3.1` installation. On first use, missing
+It reuses an existing `pycodex-ws>=0.4.0` installation. On first use, missing
 or older backends are installed/upgraded with pip in the selected Python
 environment on the workspace host; compatible versions need no network check.
 It starts a dedicated `pycodex-ws` workspace on the project's host and opens a
@@ -298,7 +298,7 @@ Current behavior:
 - with an argv prompt or piped stdin, run a single turn
 - `pycodex-ws` starts the standalone browser workspace manager and serves each
   workspace with a board pane and a pycodex session pane
-- the left pane is the board, containing a live HTML Canvas tab and closable read-only file/diff tabs that
+- the left pane is the board, containing an optional live HTML Canvas tab and closable read-only file/diff tabs that
   scroll together in one toolbar; a mouse wheel scrolls overflowing tab strips
   horizontally.
   Click Markdown file links such as `[source](src/app.py:42)` or
@@ -317,6 +317,14 @@ Current behavior:
   hover titles retain the complete paths and revisions. Text,
   Markdown, HTML, common raster images and text diffs are supported. Monaco
   provides syntax highlighting, find, folding and character-level diffs.
+  Right-click code and choose **Insert into chat**, or select text and use the
+  toolbar button, to insert context at the current chat draft's cursor.
+  Context appears as a separate block among your words. Click it to edit or
+  remove it; Backspace and Delete also remove a block as one element.
+  Context identifies the full view label, including both revisions of a diff.
+  Selections include only the selected text and range; otherwise it records the
+  cursor location. Diff context also identifies the selected side.
+  The draft stays editable until you send it.
   Its code and styles load only when a code or diff view opens, so Canvas,
   Markdown and HTML previews do not load the editor. Viewer assets use gzip
   when supported and revalidate cached content with ETags.
@@ -398,16 +406,24 @@ Current behavior:
   can be removed. Refresh is triggered by API calls, with no idle keepalive.
 - `pycodex-ws --workspace-config workspaces.json` serves workspace boards from
   one process. The JSON file can be either a list or
-  `{"workspaces": [...]}`; each entry uses `board` and `work_dir`, with optional
-  display/URL `id`, and is exposed at `/w/<id>/`. Internally the resolved
-  `board` path is the workspace identity, so adding the same board path twice is
-  rejected even with a different name. Relative `board` and `work_dir` paths
+  `{"workspaces": [...]}`; each entry uses `state_path` and `work_dir`, with optional
+  display/URL `id` and `enable_board` (default `true`), and is exposed at `/w/<id>/`.
+  `state_path` is a filename prefix: `/data/demo` uses
+  `/data/demo.pycodex-ws.json` for the session index,
+  `/data/demo.pycodex-views.json` for file views and `/data/demo.html` for Canvas.
+  Suffixes are appended, so prefixes containing dots remain distinct.
+  The resolved `state_path` is the workspace identity; duplicates are rejected
+  regardless of name or Canvas setting. Relative `state_path` and `work_dir` paths
   resolve from the config file directory. The root path `/` shows a workspaces
-  management page with `add_workspace(name=None, dir="./", board=None)` and
-  `delete(name)` controls; omitted names become `workspace-1`, `workspace-2`,
-  etc. If `board` is omitted when adding a workspace, pycodex assigns a random
-  writable `/tmp/pcws-*.html` board path. Add/delete actions and later
-  session-state saves refresh the JSON file. Board HTML can reference local
+  management page with create/delete controls; omitted names become `workspace-1`,
+  `workspace-2`, etc. Omitted `state_path` when creating a workspace generates a
+  writable `/tmp/pcws-*` prefix. `enable_board: false` hides Canvas and disables its
+  routes, polling and context injection; sessions and file views still persist.
+  Existing `board: "demo.html"` and `board: false` configurations load with their
+  original state paths and are saved in the new format. See the
+  [workspace configuration example](packages/pycodex-ws/README.md).
+  Add/delete actions and later session-state saves refresh the JSON file.
+  Board HTML can reference local
   images beside the board (including nested paths) with relative URLs; only
   `image/*` files contained by the board directory are served.
   Assistant Markdown supports KaTeX formulas with `$...$`, `$$...$$`,

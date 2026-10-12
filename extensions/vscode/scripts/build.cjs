@@ -4,6 +4,10 @@ const { execFileSync } = require("node:child_process");
 
 fs.rmSync("out", { recursive: true, force: true });
 execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "."], { stdio: "inherit" });
+fs.copyFileSync(
+  path.resolve(__dirname, "../../../packages/pycodex-ws/workspace_server/frontend/composer.mjs"),
+  "out/composer.mjs",
+);
 const markdownRoot = path.dirname(require.resolve("markdown-it/package.json"));
 fs.copyFileSync(path.join(markdownRoot, "dist/markdown-it.min.js"), "out/markdown-it.min.js");
 const bundledLicenses = {

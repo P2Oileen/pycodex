@@ -57,6 +57,7 @@ from workspace_server import (
     parse_listen,
 )
 from workspace_server.app import _build_workspace_entry, _event_data
+from workspace_server.workspaces import save_workspace_definitions
 
 
 def make_session(model=None, tools=None):
@@ -87,7 +88,7 @@ def make_entry(definition, persist_callback=None):
         definition,
         WorkspaceSessionManager(
             make_session,
-            definition.board_path,
+            definition.state_path,
             persist_callback=persist_callback,
         ),
     )
@@ -128,7 +129,13 @@ class AbortController {
   abort() { this.signal.aborted = true; }
 }
 const log = {textContent: "", scrollTop: 0, scrollHeight: 1000, clientHeight: 100};
-const prompt = {value: ""};
+const prompt = {};
+const contextBlockDetail = {hidden: true};
+const showToast = () => {};
+class Composer {
+  read() { return this.value; }
+  set(value) { this.value = value; }
+}
 const document = {title: "Workspace"};
 const workspaceTitle = document.title;
 const relativeUrl = path => path;
@@ -187,19 +194,23 @@ const fetch = async (path, options = {}) => {
   updateSessions([{id: "a", running: false}, {id: "b", running: true}]);
   assert.equal(document.title, "● Workspace");
   renderSnapshot(snapshot("a"));
-  prompt.value = "draft a";
+  const draftA = {parts: [
+    {type: "text", text: "draft a"},
+    {type: "context", id: "a-code", label: "sample.py:1", text: "captured code"},
+  ], selection: {start: 7, end: 7}};
+  composer.set(draftA);
   log.scrollTop = 123;
   await switchSession("b");
   assert.equal(log.textContent, "answer b");
   assert.equal(document.title, "Workspace");
-  prompt.value = "draft b";
+  composer.set({parts: [{type: "text", text: "draft b"}]});
   log.scrollTop = 9;
   delayOldPoll = process.argv[2] !== "none";
   const oldPoll = delayOldPoll ? pollSession() : null;
   await closeSession("b");
   assert.equal(activeSessionId, "a");
   assert.equal(log.textContent, "answer a");
-  assert.equal(prompt.value, "draft a");
+  assert.deepEqual(composer.read(), draftA);
   assert.equal(log.scrollTop, 123);
   assert.equal(sessionState.has("b"), false);
   assert.equal(document.title, "Workspace");
@@ -355,8 +366,8 @@ def test_workspace_configuration_and_entrypoint(tmp_path):
         json.dumps(
             {
                 "workspaces": [
-                    {"id": "first", "work_dir": "first", "board": "first/board.html"},
-                    {"work_dir": "second", "board": "second/board.html"},
+                    {"id": "first", "work_dir": "first", "state_path": "first/board"},
+                    {"work_dir": "second", "state_path": "second/board"},
                 ]
             }
         ),
@@ -383,6 +394,132 @@ def test_workspace_configuration_and_entrypoint(tmp_path):
         parse_listen("not-a-port")
 
 
+@pytest.mark.parametrize("board", ["saved.board.html", False])
+def test_legacy_workspace_config_restores_original_state(tmp_path, board):
+    config = tmp_path / "workspaces.json"
+    legacy = {"id": "saved", "work_dir": ".", "board": board}
+    config.write_text(json.dumps({"workspaces": [legacy]}), encoding="utf-8")
+    state_path = tmp_path / ("saved.board" if board else "workspaces.saved")
+    saved_file = tmp_path / "saved.txt"
+    saved_file.write_text("saved view", encoding="utf-8")
+    with TestClient(create_app(make_session, state_path, enable_board=bool(board))) as browser:
+        browser.post("/api/session/message", json={"prompt": "saved conversation"})
+        original = wait_snapshot(
+            browser,
+            lambda state: state["turns"] and state["turns"][-1]["response"] == "done",
+        )
+        opened = browser.post("/api/views/open", json={"href": str(saved_file)}).json()
+    rollout = Path(original["rollout_path"])
+    original_bytes = rollout.read_bytes()
+    definition = load_workspace_definitions(config)[0]
+    assert definition.state_path == state_path
+    assert definition.enable_board is bool(board)
+    assert definition.board_path == (tmp_path / board if board else None)
+    with TestClient(create_multi_workspace_app(WorkspaceRegistry([make_entry(definition)]))) as browser:
+        restored = browser.get("/w/saved/api/session").json()["snapshot"]
+        assert restored["rollout_path"] == original["rollout_path"]
+        assert [(turn["prompt"], turn["response"]) for turn in restored["turns"]] == [
+            ("saved conversation", "done")
+        ]
+        assert browser.get("/w/saved/api/views").json()["views"][0]["id"] == opened["view"]["id"]
+    assert rollout.read_bytes() == original_bytes
+    assert json.loads(config.read_text(encoding="utf-8"))["workspaces"] == [legacy]
+    save_workspace_definitions(config, [definition])
+    saved = json.loads(config.read_text(encoding="utf-8"))["workspaces"][0]
+    assert saved == {
+        "id": "saved",
+        "work_dir": ".",
+        "state_path": state_path.name,
+        "enable_board": bool(board),
+    }
+    assert load_workspace_definitions(config) == [definition]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"board": "saved.html", "state_path": "saved"},
+        {"board": False, "enable_board": False},
+        {"board": "saved.htm"},
+        {"board": True},
+        {"state_path": "saved", "enable_board": "false"},
+        {"state_path": ""},
+        {"state_path": False},
+    ],
+)
+def test_workspace_config_rejects_invalid_or_ambiguous_paths(tmp_path, fields):
+    config = tmp_path / "workspaces.json"
+    config.write_text(
+        json.dumps({"workspaces": [{"id": "saved", "work_dir": ".", **fields}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        load_workspace_definitions(config)
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_canvas_toggle_preserves_sessions_and_file_views(tmp_path, multi):
+    state_path = tmp_path / "saved.workspace"
+    board = tmp_path / "saved.workspace.html"
+    board.write_text("saved Canvas", encoding="utf-8")
+    source = tmp_path / "saved.txt"
+    source.write_text("saved file view", encoding="utf-8")
+    (tmp_path / "image.png").write_bytes(b"image")
+    prefix = "/w/saved" if multi else ""
+    original = None
+    for enable_board in (True, False, True):
+        if multi:
+            definition = WorkspaceDefinition("saved", state_path, tmp_path, enable_board)
+            app = create_multi_workspace_app(WorkspaceRegistry([make_entry(definition)]))
+        else:
+            app = create_app(make_session, state_path, work_dir=tmp_path, enable_board=enable_board)
+        with TestClient(app) as browser:
+            shell = browser.get(prefix + "/").text
+            assert 'data-enable-board="{}"'.format(str(enable_board).lower()) in shell
+            assert 'src="{}" title="Canvas"'.format("board" if enable_board else "about:blank") in shell
+            for route in ("/board", "/api/board", "/image.png"):
+                assert browser.get(prefix + route).status_code == (200 if enable_board else 404)
+            if original is None:
+                browser.post(prefix + "/api/session/message", json={"prompt": "keep this conversation"})
+                original = wait_snapshot(
+                    browser,
+                    lambda state: state["turns"] and state["turns"][-1]["response"] == "done",
+                    prefix + "/api/session",
+                )
+                opened = browser.post(
+                    prefix + "/api/views/open", json={"href": str(source)}
+                ).json()["view"]
+            else:
+                restored = browser.get(prefix + "/api/session").json()["snapshot"]
+                assert restored["rollout_path"] == original["rollout_path"]
+                assert [(turn["prompt"], turn["response"]) for turn in restored["turns"]] == [
+                    ("keep this conversation", "done")
+                ]
+                assert browser.get(prefix + "/api/views").json()["views"][0]["id"] == opened["id"]
+                view = browser.get(prefix + "/api/views/" + opened["id"]).json()
+                assert view["documents"][0]["text"] == "saved file view"
+    assert board.read_text(encoding="utf-8") == "saved Canvas"
+    assert (tmp_path / "saved.workspace.pycodex-ws.json").is_file()
+    assert (tmp_path / "saved.workspace.pycodex-views.json").is_file()
+
+
+def test_dotted_state_prefixes_keep_independent_histories(tmp_path):
+    for name in ("saved.one", "saved.two"):
+        with TestClient(create_app(make_session, tmp_path / name, enable_board=False)) as browser:
+            browser.post("/api/session/message", json={"prompt": name})
+            wait_snapshot(
+                browser,
+                lambda state: state["turns"] and state["turns"][-1]["response"] == "done",
+            )
+    for name in ("saved.one", "saved.two"):
+        with TestClient(create_app(make_session, tmp_path / name, enable_board=False)) as browser:
+            snapshot = browser.get("/api/session").json()["snapshot"]
+            assert [(turn["prompt"], turn["response"]) for turn in snapshot["turns"]] == [
+                (name, "done")
+            ]
+    assert not (tmp_path / "saved.pycodex-ws.json").exists()
+
+
 @pytest.mark.parametrize("multi", [False, True])
 def test_board_routes_enforce_image_boundaries(tmp_path, multi):
     board_dir = tmp_path / "board"
@@ -396,11 +533,11 @@ def test_board_routes_enforce_image_boundaries(tmp_path, multi):
     outside.write_bytes(b"outside")
     (board_dir / "linked.png").symlink_to(outside)
     if multi:
-        definition = WorkspaceDefinition("first", board, board_dir)
+        definition = WorkspaceDefinition("first", board.with_suffix(""), board_dir)
         app = create_multi_workspace_app(WorkspaceRegistry([make_entry(definition)]))
         prefix = "/w/first"
     else:
-        app = create_app(make_session, board)
+        app = create_app(make_session, board.with_suffix(""))
         prefix = ""
     with TestClient(app) as browser:
         assert browser.get(prefix + "/board").text == board.read_text(encoding="utf-8")
@@ -425,14 +562,14 @@ def test_password_protects_http_and_websocket(tmp_path, multi):
         app = create_multi_workspace_app(
             WorkspaceRegistry(
                 [
-                    make_entry(WorkspaceDefinition("first", board, tmp_path)),
+                    make_entry(WorkspaceDefinition("first", board.with_suffix(""), tmp_path)),
                 ]
             ),
             password="test-password",
         )
         prefix = "/w/first"
     else:
-        app = create_app(make_session, board, password="test-password")
+        app = create_app(make_session, board.with_suffix(""), password="test-password")
         prefix = ""
     with TestClient(app) as browser:
         target = prefix + "/?session=saved&view=chat"
@@ -462,7 +599,7 @@ def test_password_protects_http_and_websocket(tmp_path, multi):
 def test_workspace_json_body_validation(tmp_path, multi):
     if multi:
         registry = WorkspaceRegistry([
-            make_entry(WorkspaceDefinition("first", None, tmp_path)),
+            make_entry(WorkspaceDefinition("first", tmp_path / "state", tmp_path, False)),
         ])
         app = create_multi_workspace_app(registry, password="test-password")
         prefix = "/w/first"
@@ -509,7 +646,7 @@ def test_workspace_json_body_validation(tmp_path, multi):
 def test_workspace_http_errors_remain_json(tmp_path, multi):
     if multi:
         app = create_multi_workspace_app(WorkspaceRegistry([
-            make_entry(WorkspaceDefinition("first", None, tmp_path)),
+            make_entry(WorkspaceDefinition("first", tmp_path / "state", tmp_path, False)),
         ]))
         prefix = "/w/first"
     else:
@@ -552,7 +689,7 @@ def test_login_redirect_stays_on_server(target):
         assert response.json()["redirect"] == "/"
 
 
-def test_workspace_registry_crud_and_duplicate_board(tmp_path):
+def test_workspace_registry_crud_and_duplicate_state_path(tmp_path):
     config = tmp_path / "workspaces.json"
     registry = WorkspaceRegistry([], config_path=config, entry_factory=make_entry)
     with TestClient(create_multi_workspace_app(registry)) as browser:
@@ -561,7 +698,7 @@ def test_workspace_registry_crud_and_duplicate_board(tmp_path):
             json={
                 "name": "alpha",
                 "dir": "repos/alpha",
-                "board": "boards/alpha.html",
+                "state_path": "boards/alpha",
             },
         )
         assert added.status_code == 200
@@ -571,16 +708,19 @@ def test_workspace_registry_crud_and_duplicate_board(tmp_path):
             json={
                 "name": "beta",
                 "dir": "repos/beta",
-                "board": "boards/alpha.html",
+                "state_path": "boards/alpha",
+                "enable_board": False,
             },
         )
         assert duplicate.status_code == 400
-        assert "board already exists" in duplicate.json()["error"]
+        assert "state_path already exists" in duplicate.json()["error"]
         generated = browser.post("/api/workspaces", json={"dir": "repos/generated"})
         assert generated.status_code == 200
         workspace = generated.json()["workspace"]
         assert workspace["id"]
-        assert workspace["board_path"].startswith("/tmp/pcws-")
+        assert workspace["state_path"].startswith("/tmp/pcws-")
+        assert workspace["board_path"] == workspace["state_path"] + ".html"
+        assert workspace["enable_board"] is True
         assert (
             "Canvas pending" in browser.get("/w/{}/board".format(workspace["id"])).text
         )
@@ -593,8 +733,9 @@ def test_workspace_registry_crud_and_duplicate_board(tmp_path):
 
 
 @pytest.mark.parametrize("toolset", [["exec_command", "apply_patch"], []])
+@pytest.mark.parametrize("state_path", [None, "workspaces.alpha"])
 def test_boardless_workspace_preserves_context_and_tools(
-    tmp_path, monkeypatch, toolset
+    tmp_path, monkeypatch, toolset, state_path
 ):
     config = tmp_path / "workspaces.json"
     model_config = tmp_path / "model.toml"
@@ -603,6 +744,8 @@ def test_boardless_workspace_preserves_context_and_tools(
     monkeypatch.setattr("workspace_server.app.build_model", lambda **kwargs: model)
     args = build_parser().parse_args(
         [
+            "--workspace-config",
+            str(config),
             "--config",
             str(model_config),
             "--system-prompt",
@@ -626,13 +769,15 @@ def test_boardless_workspace_preserves_context_and_tools(
             json={
                 "name": "alpha",
                 "dir": "repo",
-                "board": False,
+                "state_path": state_path,
+                "enable_board": False,
             },
         )
         assert response.status_code == 200
         assert response.json()["workspace"]["board_path"] == ""
+        saved_prefix = response.json()["workspace"]["state_path"]
         browser.post("/w/alpha/api/session/message", json={"prompt": "fix"})
-        wait_snapshot(
+        state = wait_snapshot(
             browser,
             lambda state: state["turns"] and state["turns"][-1]["response"] == "done",
             "/w/alpha/api/session",
@@ -643,6 +788,24 @@ def test_boardless_workspace_preserves_context_and_tools(
     assert "Current workspace Canvas file:" not in repr(prompt.input)
     assert [tool.name for tool in prompt.tools] == toolset
     assert load_workspace_definitions(config)[0].board_path is None
+    store = WorkspaceStateStore(Path(saved_prefix + ".pycodex-ws.json"))
+    assert store.load_tabs() == [
+        {"title": "fix", "rollout_path": state["rollout_path"]}
+    ]
+    restored_registry = WorkspaceRegistry(
+        [
+            _build_workspace_entry(definition, args)
+            for definition in load_workspace_definitions(config)
+        ],
+        config_path=config,
+    )
+    with TestClient(create_multi_workspace_app(restored_registry)) as browser:
+        restored = browser.get("/w/alpha/api/session").json()["snapshot"]
+        assert restored["title"] == "fix"
+        assert [
+            (turn["prompt"], turn["response"]) for turn in restored["turns"]
+        ] == [("fix", "done")]
+    assert len(model.prompts) == 1
 
 
 @pytest.mark.parametrize("explicit_title", [False, True])
@@ -652,7 +815,7 @@ def test_sessions_persist_titles_and_restore_history(
 ):
     board = tmp_path / "board.html"
     board.write_text("unchanged board", encoding="utf-8")
-    store = WorkspaceStateStore(board)
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
 
     def session_factory():
         if threaded:
@@ -661,7 +824,7 @@ def test_sessions_persist_titles_and_restore_history(
             )
         return make_session()
 
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         first_id = browser.get("/api/sessions").json()["sessions"][0]["id"]
         browser.post(
             "/api/session/message",
@@ -689,7 +852,7 @@ def test_sessions_persist_titles_and_restore_history(
     assert store.load_tabs() == [
         {"title": title, "rollout_path": state["rollout_path"]}
     ]
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         restored = browser.get("/api/session").json()["snapshot"]
         assert restored["title"] == title
         assert [(turn["prompt"], turn["response"]) for turn in restored["turns"]] == [
@@ -708,7 +871,7 @@ def test_sessions_persist_titles_and_restore_history(
 @pytest.mark.parametrize("continue_after_fork", [False, True])
 def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork):
     board = tmp_path / "board.html"
-    store = WorkspaceStateStore(board)
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
 
     def session_factory():
         if threaded:
@@ -738,7 +901,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
             if turn["kind"] != "control"
         ]
 
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         send(browser, "before fork")
         state = wait_reply(browser, "before fork")
         original_path = Path(state["rollout_path"])
@@ -768,7 +931,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
             {"title": "forked", "rollout_path": str(original_path), "fork": True}
         ]
 
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         state = browser.get("/api/session").json()["snapshot"]
         assert state["title"] == "forked"
         assert conversation(state) == expected
@@ -792,7 +955,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
 @pytest.mark.parametrize("threaded", [False, True])
 def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
     board = tmp_path / "board.html"
-    store = WorkspaceStateStore(board)
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
     empty_tab = {"title": "", "rollout_path": ""}
 
     def session_factory():
@@ -802,7 +965,7 @@ def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
             )
         return make_session()
 
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         assert store.load_tabs() == [empty_tab]
         first_id = browser.get("/api/sessions").json()["sessions"][0]["id"]
         second_id = browser.post("/api/sessions").json()["session_id"]
@@ -815,7 +978,7 @@ def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
         ).json()["snapshot"]
         assert not Path(snapshot["rollout_path"]).exists()
 
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         tabs = browser.get("/api/sessions").json()["sessions"]
         assert len(tabs) == 2
         assert store.load_tabs() == [empty_tab] * 2
@@ -830,15 +993,15 @@ def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
 
 def test_titled_empty_workspace_tab_survives_restart(tmp_path):
     board = tmp_path / "board.html"
-    store = WorkspaceStateStore(board)
-    with TestClient(create_app(make_session, board)) as browser:
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
+    with TestClient(create_app(make_session, board.with_suffix(""))) as browser:
         response = browser.post("/api/session/message", json={"prompt": "/title empty"})
         assert response.status_code == 200
         path = Path(response.json()["snapshot"]["rollout_path"])
         assert not path.exists()
     assert store.load_tabs() == [{"title": "empty", "rollout_path": ""}]
 
-    with TestClient(create_app(make_session, board)) as browser:
+    with TestClient(create_app(make_session, board.with_suffix(""))) as browser:
         state = browser.get("/api/session").json()["snapshot"]
         assert state["title"] == "empty"
         assert not state["turns"]
@@ -855,8 +1018,8 @@ def test_titled_empty_workspace_tab_survives_restart(tmp_path):
 @pytest.mark.parametrize("command", ["/title saved prompt", "/resume 1"])
 def test_workspace_explicit_save_keeps_unchanged_state(tmp_path, command):
     board = tmp_path / "board.html"
-    store = WorkspaceStateStore(board)
-    with TestClient(create_app(make_session, board)) as browser:
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
+    with TestClient(create_app(make_session, board.with_suffix(""))) as browser:
         browser.post("/api/session/message", json={"prompt": "saved prompt"})
         state = wait_snapshot(
             browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done"
@@ -874,7 +1037,7 @@ def test_workspace_explicit_save_keeps_unchanged_state(tmp_path, command):
 @pytest.mark.parametrize("next_input", ["/compact", "failed turn"])
 def test_workspace_fork_saves_new_target_after_compact_or_failure(tmp_path, next_input):
     board = tmp_path / "board.html"
-    store = WorkspaceStateStore(board)
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
 
     def respond(prompt, count):
         if count == 2 and next_input == "failed turn":
@@ -884,7 +1047,7 @@ def test_workspace_fork_saves_new_target_after_compact_or_failure(tmp_path, next
     def session_factory():
         return make_session(ScriptedModelClient(response_factory=respond))
 
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         browser.post("/api/session/message", json={"prompt": "before fork"})
         state = wait_snapshot(
             browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done"
@@ -900,7 +1063,7 @@ def test_workspace_fork_saves_new_target_after_compact_or_failure(tmp_path, next
     assert fork_path.is_file()
     assert store.load_tabs() == [{"title": "saved", "rollout_path": str(fork_path)}]
     assert original_path.read_bytes() == original_bytes
-    with TestClient(create_app(session_factory, board)) as browser:
+    with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         assert browser.get("/api/session").json()["snapshot"]["rollout_path"] == str(
             fork_path
         )
@@ -919,7 +1082,7 @@ async def test_workspace_close_persists_fork_after_draining_turn(tmp_path):
 
     session = make_session(ScriptedModelClient(response_factory=respond))
     board = tmp_path / "board.html"
-    manager = WorkspaceSessionManager(lambda: session, board)
+    manager = WorkspaceSessionManager(lambda: session, board.with_suffix(""))
     await manager.start()
     first = await session.runtime.submit_input("before fork")
     await first.future
@@ -936,9 +1099,24 @@ async def test_workspace_close_persists_fork_after_draining_turn(tmp_path):
         release.set()
         await closing
     await second.future
-    assert WorkspaceStateStore(board).load_tabs() == [
+    assert WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).load_tabs() == [
         {"title": "saved", "rollout_path": str(fork_path)}
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "contents",
+    ["", "{}", '{"tabs": {}}', '{"tabs": [{"title": "saved"}]}'],
+)
+async def test_invalid_workspace_state_fails_without_replacing_history(tmp_path, contents):
+    path = tmp_path / "saved.pycodex-ws.json"
+    path.write_text(contents, encoding="utf-8")
+    manager = WorkspaceSessionManager(make_session, tmp_path / "saved")
+    with pytest.raises((ValueError, KeyError)):
+        await manager.start()
+    assert not manager.list_sessions()
+    assert path.read_text(encoding="utf-8") == contents
 
 
 @pytest.mark.asyncio
@@ -946,10 +1124,10 @@ async def test_workspace_missing_restore_path_still_fails_and_closes_session(tmp
     session = make_session()
     board = tmp_path / "board.html"
     missing_path = str(tmp_path / "missing-rollout.jsonl")
-    WorkspaceStateStore(board).save_tabs(
+    WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).save_tabs(
         [{"title": "saved", "rollout_path": missing_path, "fork": True}]
     )
-    manager = WorkspaceSessionManager(lambda: session, board)
+    manager = WorkspaceSessionManager(lambda: session, board.with_suffix(""))
     with pytest.raises(FileNotFoundError):
         await manager.start()
     assert session.runtime.agent.is_shutdown
@@ -969,14 +1147,14 @@ async def test_workspace_failed_restore_keeps_the_full_saved_tab_list(
         await session.close()
     monkeypatch.chdir(rollout_path.parent)
     board = tmp_path / "board.html"
-    store = WorkspaceStateStore(board)
+    store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
     tabs = [
         {"title": "", "rollout_path": ""},
         {"title": "saved", "rollout_path": rollout_path.name},
         {"title": "missing", "rollout_path": str(tmp_path / "missing.jsonl")},
     ]
     store.save_tabs(tabs)
-    manager = WorkspaceSessionManager(make_session, board)
+    manager = WorkspaceSessionManager(make_session, board.with_suffix(""))
     try:
         with pytest.raises(FileNotFoundError):
             await manager.start()
@@ -987,7 +1165,7 @@ async def test_workspace_failed_restore_keeps_the_full_saved_tab_list(
 
 def test_workspace_does_not_save_a_fork_destination_owned_by_another_writer(tmp_path):
     board = tmp_path / "board.html"
-    with TestClient(create_app(make_session, board)) as browser:
+    with TestClient(create_app(make_session, board.with_suffix(""))) as browser:
         browser.post("/api/session/message", json={"prompt": "before fork"})
         state = wait_snapshot(
             browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done"
@@ -1002,7 +1180,7 @@ def test_workspace_does_not_save_a_fork_destination_owned_by_another_writer(tmp_
         assert state["recorded_rollout_path"] is None
         assert "File exists" in state["turns"][-1]["error"]
     assert fork_path.read_text(encoding="utf-8") == "another writer"
-    assert WorkspaceStateStore(board).load_tabs() == [
+    assert WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).load_tabs() == [
         {"title": "saved", "rollout_path": original_path, "fork": True}
     ]
 

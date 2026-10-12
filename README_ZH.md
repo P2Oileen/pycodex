@@ -166,7 +166,7 @@ Workspace 使用 `pycodex_ws.build_runtime()` 装配 `/link`、`/unlink`；
 
 VS Code 前端为每个项目在项目所在机器上启动独立的 workspace 后端，通过稳定
 WebviewView 在左侧活动栏的 Pycodex 入口显示聊天。首次使用优先复用已有
-`pycodex-ws>=0.3.1`，版本足够时不联网；缺失或版本太旧时，在对应的 Python
+`pycodex-ws>=0.4.0`，版本足够时不联网；缺失或版本太旧时，在对应的 Python
 环境中通过 pip 安装或升级。检查、安装和启动都在工作区所在主机完成。
 新建 session 会展开新会话、
 折叠上一个会话，保留后台任务和草稿；折叠条目继续更新状态，可直接点击展开或关闭。
@@ -176,7 +176,10 @@ WebviewView 在左侧活动栏的 Pycodex 入口显示聊天。首次使用优�
 发送时按照文字和片段的原始顺序展开为普通 prompt，后续消息不会自动附加。
 模型名称仅作展示，通过 `/model <name>` 切换模型，
 `/model` 列出可用模型；关闭会话会等待后端正常收尾。隐藏侧边栏只解除订阅。
-后端通过既有 `--workspace-config <path>` 读取临时 JSON 配置文件，正常退出后清理临时目录。
+扩展在项目所在主机的私有存储中按项目路径保存固定的 `workspaces.json`，
+通过 `--workspace-config <path>` 启动后端，使用
+`state_path: "workspaces.vscode"` 和 `enable_board: false`。
+配置与会话索引在退出后保留，再次打开侧边栏会恢复已有对话和历史。
 `pycodex-ws` 默认在 stdin EOF 时排空已接收任务并退出；运行期间须保持 stdin 打开，
 重定向到 `/dev/null` 会触发关闭。扩展通过保持管道打开管理后端生命周期；
 关闭项目或宿主崩溃使管道关闭，插件正常停用会等待退出确认。
@@ -318,7 +321,16 @@ pycodex doctor
 - 当前默认工具集由上游对齐子集和 pycodex 的 `clock` 扩展组成：`shell`、`shell_command`、`exec_command`、`write_stdin`、`clock`、`exec`、`wait`、`web_search`、`update_plan`、`request_user_input`、`request_permissions`、`spawn_agent`、`send_input`、`resume_agent`、`wait_agent`、`close_agent`、`apply_patch`、`grep_files`、`read_file`、`list_dir`、`view_image`
 - `clock(period_m)` 为当前 Agent session 设置一个周期计时器，传 `null` 取消；每次回复后重新计时，到期后用包含当前时区时间的 `<clock_tick>` 消息唤醒 Agent
 - 后台命令或 clock 正在等待时，空闲状态统一显示为 `idle: sleeping`
-- workspace 整个左侧展示区称为看板，包含实时 HTML Canvas 首标签和只读文件/diff 标签；
+- `pycodex-ws --workspace-config workspaces.json` 从 JSON 中读取 workspace 列表，
+  支持直接列表或 `{"workspaces": [...]}`。每项使用 `state_path`、`work_dir`、
+  可选 `id` 和默认开启的 `enable_board`。`state_path` 是文件名前缀，例如
+  `/data/demo` 对应 `demo.pycodex-ws.json` 会话索引、`demo.pycodex-views.json`
+  文件视图和 `demo.html` Canvas；后缀直接追加，前缀里的点不会被替换。
+  相对路径基于配置文件目录，规范化后的前缀也是 workspace 身份，不能重复注册。
+  `enable_board: false` 关闭 Canvas 标签、路由、轮询和上下文注入，会话及文件视图
+  仍照常持久化和恢复。旧 `board: "demo.html"` / `board: false` 配置读取时转换，
+  继续使用原状态文件，后续保存采用新格式。管理页新建时不填前缀会分配 `/tmp/pcws-*`。
+- workspace 整个左侧展示区称为看板，包含可选的实时 HTML Canvas 首标签和只读文件/diff 标签；
   所有标签在同一行共同滚动，溢出时可用鼠标滚轮横向滚动。点击普通 Markdown 文件链接
   `[源码](src/app.py:42)` 或 `[源码](/data/project/app.py#L42)` 即可打开视图。
   diff 使用 Git 风格链接：`[工作区改动](diff:HEAD:src/app.py)`、
@@ -331,6 +343,12 @@ pycodex doctor
   长标题沿用会话标签的宽度上限，优先截断次要说明，悬停标题保留完整路径和 Git revision。
   支持文本、Markdown、HTML、PNG/JPEG/GIF/WebP 和文本 diff。
   代码与 diff 使用 Monaco，支持语法高亮、查找、折叠、字符级差异和差异跳转；
+  右键选择 **Insert into chat**，或选中文本后点击工具栏同名按钮，
+  即可在当前会话草稿的光标位置插入独立上下文块，与普通文字交错排列。
+  点击块可编辑或移除，也可用 Backspace / Delete 整块删除。
+  来源使用完整 view label，保留 diff 两端的版本信息；有选区时只附带选中文本和选区，
+  无选区时只记录光标位置，diff 另标明选中侧。
+  插入后仍可编辑，手动发送才会提交。
   编辑器代码和样式在首次打开源码或 diff 时才加载，Canvas、Markdown/HTML 预览
   不加载 Monaco。查看器静态资源支持 gzip 传输及 ETag 缓存校验。
   内容区变窄时自动切换单栏 diff，定位左侧行号时保留双栏以显示目标。

@@ -2,7 +2,7 @@
   "name": "pycodex",
   "displayName": "Pycodex",
   "description": "Workspace chat using your Python environment and Codex profiles, with inline code context and context usage.",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "publisher": "randomizez",
   "private": true,
   "license": "Apache-2.0",

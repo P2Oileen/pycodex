@@ -31,12 +31,8 @@ class WorkspaceViewStore:
     max_file_bytes = 2 * 1024 * 1024
     max_text_lines = 20000
 
-    def __init__(self, board_path=None):
-        self.path = (
-            None
-            if board_path is None
-            else Path(board_path).with_suffix(".pycodex-views.json")
-        )
+    def __init__(self, path=None):
+        self.path = None if path is None else Path(path)
         self._lock = threading.Lock()
         self._views = []
         self._file_states = {}

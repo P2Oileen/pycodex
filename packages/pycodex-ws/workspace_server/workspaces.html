@@ -99,6 +99,16 @@
     input::placeholder {
       color: var(--muted);
     }
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+    }
+    input[type="checkbox"] {
+      width: 16px;
+      min-height: 16px;
+      margin: 0;
+      accent-color: var(--accent);
+    }
     .page {
       width: min(1180px, calc(100vw - 48px));
       margin: 0 auto;
@@ -366,12 +376,16 @@
         <div class="panel-head">
           <div>
             <h2 id="addTitle" class="panel-title">New workspace</h2>
-            <p class="panel-subtitle">Connect a working directory and a board to get started.</p>
+            <p class="panel-subtitle">Choose a working directory and where to save your workspace.</p>
           </div>
         </div>
         <form id="workspaceForm">
-          <label>Canvas file
-            <input id="boardInput" name="board" placeholder="/tmp/pcws-xxxx.html" spellcheck="false">
+          <label>State file prefix <span>optional</span>
+            <input id="statePathInput" name="state_path" placeholder="/tmp/pcws-xxxx" spellcheck="false">
+          </label>
+          <label class="checkbox-label">
+            <input id="enableBoardInput" name="enable_board" type="checkbox" checked>
+            Enable Canvas
           </label>
           <label>Directory
             <input id="dirInput" name="dir" placeholder="./" spellcheck="false">
@@ -394,7 +408,8 @@
     const statusEl = document.getElementById("status");
     const nameInput = document.getElementById("nameInput");
     const dirInput = document.getElementById("dirInput");
-    const boardInput = document.getElementById("boardInput");
+    const statePathInput = document.getElementById("statePathInput");
+    const enableBoardInput = document.getElementById("enableBoardInput");
     const addButton = document.getElementById("addButton");
     const refreshButton = document.getElementById("refreshButton");
     const workspaceCount = document.getElementById("workspaceCount");
@@ -441,7 +456,7 @@
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.appendChild(textNode("strong", "", "No workspaces yet"));
-      empty.appendChild(textNode("span", "", "Add one to open a board and start a pycodex session."));
+      empty.appendChild(textNode("span", "", "Add one to start a pycodex session."));
       rows.appendChild(empty);
     }
 
@@ -458,7 +473,8 @@
       const paths = document.createElement("div");
       paths.className = "paths";
       paths.appendChild(pathLine("Directory", workspace.work_dir || ""));
-      paths.appendChild(pathLine("Canvas", workspace.board_path || ""));
+      paths.appendChild(pathLine("State", workspace.state_path));
+      paths.appendChild(pathLine("Canvas", workspace.enable_board ? workspace.board_path : "Disabled"));
 
       const actions = document.createElement("div");
       actions.className = "actions";
@@ -511,7 +527,8 @@
         body: JSON.stringify({
           name: nameInput.value.trim(),
           dir: dirInput.value.trim() || "./",
-          board: boardInput.value.trim() || null,
+          state_path: statePathInput.value.trim() || null,
+          enable_board: enableBoardInput.checked,
         }),
       });
       const payload = await response.json();
@@ -522,7 +539,8 @@
       }
       nameInput.value = "";
       dirInput.value = "";
-      boardInput.value = "";
+      statePathInput.value = "";
+      enableBoardInput.checked = true;
       render(payload.workspaces || []);
       setStatus(`Added ${(payload.workspace && payload.workspace.id) || "workspace"}.`);
     }

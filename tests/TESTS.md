@@ -115,11 +115,11 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
   `npm ci --omit=optional --ignore-scripts && npm test`；与 Python 3.6
   测试环境独立，不给 Python runtime 增加 Node 依赖。按项目约定手动运行，
   不加入 CI。
-- 前端测试覆盖项目后端启动、临时配置文件权限与退出/启动失败清理、stdin 关闭、
+- 前端测试覆盖项目后端启动、固定配置文件权限、退出/启动失败后配置保留、stdin 关闭、
   停用等待（含已移除目录的后端）、
   远程工作目录、venv 选择/校验、远端文件选择、项目级设置、
   profile 参数/重启生效及重新加载提示、
-  context meter 快照字段、每个 chat 新建 session、
+  context meter 快照字段、每个 chat 新建 session、重开侧边栏恢复已有对话及过滤空会话、
   显式 session id、POST 不自动重试、旧轮询、多 session 隔离及 detach 不关闭后端。
 - 后端准备测试覆盖复用兼容版本、从 console script 定位原 Python 环境、
   空 venv 的独立安装与启动、旧版升级、通过 workspace 依赖升级 core、安装后版本复查、并发安装复用
@@ -138,7 +138,7 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
   以及隐藏/恢复握手、CSP、过期消息和发送确认。VS Code API 使用 mock，
   桌面 UI 联调需运行 Extension Development Host；聊天通过稳定 API 在左侧栏打开。
 - `uv run --dev pytest packages/pycodex-ws/tests/test_owned_workspace_server.py packages/pycodex-ws/tests/test_workspace_server.py`
-  覆盖 UTF-8 workspace 配置文件、既有 schema 验证，以及
+  覆盖 UTF-8 workspace 配置文件、新格式及旧 `board: false` 的归一化，以及
   不传额外选项时默认启用 EOF 关闭、真实 CLI 使用关闭的 stdin 启动后正常退出，
   stdin 在启动前/启动后关闭时仍执行完整 lifespan shutdown，
   以及 stdin 保持打开时 SIGINT/SIGTERM 关闭不会导致解释器退出崩溃。
@@ -191,6 +191,10 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   验证普通/JSON 回执不创建额外任务，移除逐个 argparse 字段、
   相同 buffer 状态和重复恢复流程的微测试。
 - `test_workspace_server.py` 以路由安全、工作区 CRUD、tab 持久化、线程隔离为主；
+  `state_path` 用例验证旧 HTML/无 Canvas 配置恢复原 rollout 和文件视图、
+  Canvas 开关切换保持会话与视图状态、单/多 workspace 的 Canvas 路由关闭、
+  前缀含点时的历史隔离，以及跨开关的重复前缀拒绝；
+  损坏的会话索引直接报错并保留原文件，不跳过记录或创建空会话覆盖它；
   fork 重启覆盖普通/线程会话、连续未落盘 fork、标题更新、续写与源文件隔离，
   并覆盖 compact/模型失败后的恢复路径、关闭排空、空标签页和无效源路径。
   验证启动/清理失败仍回收线程，取消关闭调用方不打断当前 turn；
@@ -207,7 +211,8 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   Git 对象固定及工作区文件更新、打开/读取/关闭 API 的认证及跨 workspace 隔离，
   以及标签顺序和关闭/恢复后的更新。
   同文件通过 Node 执行 `workspace_content_views.mjs`，验证点击才切换、其他页面打开不抢焦点、
-  新页面默认 Canvas、恢复选中状态、连续点击与失败、手动切换/关闭/停止使旧打开失效、
+  新页面默认 Canvas、恢复选中状态、Canvas 关闭时的文件视图恢复/空状态与 URI 拒绝、
+  连续点击与失败、手动切换/关闭/停止使旧打开失效、
   关闭后的旧轮询、迟到内容成功/失败、关闭期间切换标签及停止/恢复轮询；
   内容 revision 更新、后台缓存失效、更新时保留可见内容及编辑器、刷新失败重试，
   用户重开时切换已有标签、同标签重新展示、切换只处理一次及刷新期间的展示保留，

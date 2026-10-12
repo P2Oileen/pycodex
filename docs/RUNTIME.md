@@ -156,13 +156,18 @@ The [VS Code frontend](../extensions/vscode/README.md) starts a workspace backen
 per project using the existing CLI. Before startup it reads package metadata
 from the selected Python interpreter. Automatic detection resolves an existing
 console script's interpreter or finds Python on the workspace host. A compatible
-`pycodex-ws>=0.3.1` is reused without a network check; missing or older workspace
+`pycodex-ws>=0.4.0` is reused without a network check; missing or older workspace
 packages are installed/upgraded through that interpreter's pip, which resolves
 the matching core dependency. It launches `python -m workspace_server`
 with the same interpreter, including when a selected venv initially has no Pycodex.
 Installation finishes before the backend startup deadline starts. Pending
 installs are shared per Python environment, and closing during preparation waits
 for pip before discarding the launch. No private environment is created.
+The extension stores one `workspaces.json` per canonical project path under its
+host's private storage directory. It uses `state_path: "workspaces.vscode"` and
+`enable_board: false`; the configuration and session index survive shutdown.
+Opening the sidebar restores saved conversations; projects without saved state
+stay on the welcome screen until a chat is created.
 It uses the backend host's
 `~/.codex/config.toml` by default; the welcome screen explains the local/remote
 configuration source. The header settings menu selects project `.venv`/`venv`
@@ -174,7 +179,12 @@ offers a window reload if the backend is running; existing sessions keep their
 startup settings until it restarts.
 Sessions have no source-file binding or
 automatically attached editor context. On request, the frontend captures the
-source file, one-based cursor/selection and a bounded editor-buffer excerpt.
+source file and one-based cursor/selection. Nonempty selections include a bounded
+excerpt of the selected text; an empty selection records only the location.
+The location is either a selection range or a cursor position, with no language
+field. Web context uses the view's complete title as its sole source label,
+preserving both endpoints and full revisions of a diff.
+Explicit Explorer/SCM file selections include bounded file contents.
 Read-only Git diff documents and Explorer/SCM file selections use VS Code's
 document API. Context appears as atomic tokens interleaved with ordinary text in
 the composer. Insertion uses the saved cursor/selection; clicking a token edits
@@ -244,6 +254,11 @@ to the original workspace title when all sessions are idle.
 The workspace presents assistant replies as open text and user messages as
 right-aligned bubbles. Commands and thinking use quieter secondary styling;
 active thinking has a breathing left rule that respects reduced-motion settings.
+The Web and VS Code inputs share the text/token composer in
+`packages/pycodex-ws/workspace_server/frontend/composer.mjs`. The Web controller
+bundles it; the extension's compile command copies it into `out/composer.mjs`.
+Context tokens occupy one cursor position, support editing, deletion,
+copy/paste and undo, and stay in each session's ordered draft until sent.
 The compact composer keeps Enter to send and Shift+Enter for new lines, with
 a larger context ring centered alongside multiline input. Its placeholder reads
 `Message to <model>…` and follows the active session and model changes.
@@ -502,8 +517,27 @@ status observers no longer inspect raw Task results.
 
 ## Workspace content views
 
-The entire left workspace pane is the board. It starts with a permanent Canvas
-tab for live HTML, followed by read-only file/diff tabs. All tabs scroll together horizontally.
+The entire left workspace pane is the board. When `enable_board` is true, it starts
+with a permanent Canvas tab for live HTML, followed by read-only file/diff tabs.
+All tabs scroll together horizontally.
+
+A workspace has one `state_path` filename prefix and an `enable_board` boolean
+that defaults to true. The prefix identifies the workspace and appends
+`.pycodex-ws.json`, `.pycodex-views.json` and `.html` for session state, file views
+and Canvas respectively. The session manager receives only the prefix; each
+store receives its derived JSON file path. Disabling Canvas hides its tab,
+stops its polling, omits its context injection and returns 404 for its HTML,
+status and image routes. File views and conversations keep the same persistence
+paths across changes to the switch.
+Missing state starts a new workspace; malformed saved state fails restoration
+without replacing the saved index.
+
+Configuration loading normalizes legacy `board: "<prefix>.html"` entries and
+`board: false` entries to this contract. The latter preserve their
+`<config-stem>.<workspace-id>` state prefix. Existing files stay in place,
+and later config saves write the new fields. Mixing legacy and new fields is
+rejected. Non-`.html` legacy Canvas paths require an explicit rename/config update.
+
 The tab strips hide their native scrollbars so overflowing tabs stay vertically
 aligned with the toolbar buttons while remaining scrollable.
 Both content and session tab strips translate ordinary vertical mouse-wheel
@@ -553,7 +587,7 @@ optional line anchors and the link back to the live Canvas.
 Detailed syntax and viewer behavior are documented below. There is no `workspace_display` tool.
 Link clicks use the browser's view API, independently of Agent/Runtime, and add
 no messages or tool results to the conversation. They also work with an empty
-`--toolset`. Internal `board` IDs, configuration keys and HTTP routes keep their
+`--toolset`. Internal `board` IDs and HTTP routes keep their
 existing names.
 
 Ordinary Markdown file links accept absolute or workspace-relative paths.
@@ -661,6 +695,25 @@ the current presentation and do not replay line requests. Presentation choices
 belong to that browser page; another page's opens do not change them.
 Markdown/HTML comparisons always use the code diff editor.
 
+The code editor's **Insert into chat** context-menu action captures the displayed
+file and cursor location; a nonempty selection includes only its selected text,
+with end-exclusive columns. A selection also reveals the same action in the
+toolbar. Each excerpt is limited to 200 lines and 12,000 source characters, with
+an explicit truncation marker. The token uses the same compact labels as view
+tabs, including both short commit IDs, followed by its side and line range.
+Tokens share the tabs' 180px width limit and use an ellipsis; their full labels
+remain available on hover.
+Its expanded `View` field preserves the complete title with full Git revisions;
+Git context also identifies the repository, and diff context identifies the
+original/modified side.
+Missing or unreadable documents cannot be inserted. Insertion adds a separate
+context token at the current session draft's cursor, focuses the input and
+switches narrow screens to chat. Clicking a token opens its editable details;
+the remove button, Backspace or Delete removes it as one element. Only submitting
+the draft expands its tokens into `<editor_context>` text through the existing
+message API, preserving the order of text and blocks. Captured text stays fixed when files
+refresh or views change; a later insertion captures the latest displayed text.
+
 Monaco's diff worker computes line and character changes from the two complete
 documents, including leading and trailing whitespace changes.
 The native diff editor keeps both sides aligned when
@@ -709,7 +762,7 @@ to the browser and leaves the previous persisted views intact.
 `WorkspaceViewOpener` and `WorkspaceViewStore`.
 It saves open views, explicit file/Git sources, the latest contents, optional
 line targets and the monotonic reveal counter
-atomically in the Canvas file's sibling `.pycodex-views.json` file, separately from
+atomically in `<state_path>.pycodex-views.json`, separately from
 conversation state. Sources are checked again after a server restart.
 Earlier saved snapshots without source information remain fixed; reopening
 their file or diff creates a view with explicit sources. Such snapshots are not
@@ -718,7 +771,10 @@ labels without guessing source paths. The store is shared across that workspace'
 session threads; closing a tab is also reflected in other connected browsers.
 Selected-tab state is local to each browser/workspace. A click focuses its target
 only in that page; other pages can discover the tab without changing their
-selection. A new page defaults to Canvas, or restores its saved selection.
+selection. A new page restores its saved selection or defaults to Canvas.
+With Canvas disabled, it restores a file view or selects the first existing file
+view; an empty workspace shows an empty content pane. Closing the last file view
+returns to that empty pane, and other pages' opens do not change its selection.
 
 `POST api/views/open` accepts `{"href": "<file path or URI>"}` and returns
 `{"view": <full snapshot>, "views": <metadata list>}`. Relative local paths use the

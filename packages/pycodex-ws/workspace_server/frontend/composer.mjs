@@ -6,6 +6,7 @@ export class Composer {
     this.submit = submit;
     this.editContext = editContext;
     this.error = error;
+    this.composing = false;
     this.selection = { start: 0, end: 0 };
     this.undo = [];
     this.redo = [];
@@ -14,7 +15,12 @@ export class Composer {
       if (!event.isComposing) this.record();
       this.changed();
     });
-    element.addEventListener("compositionend", () => { this.record(); this.changed(); });
+    element.addEventListener("compositionstart", () => { this.composing = true; });
+    element.addEventListener("compositionend", () => {
+      this.composing = false;
+      this.record();
+      this.changed();
+    });
     document.addEventListener("selectionchange", () => {
       if (this.captureSelection()) this.changed();
     });
@@ -136,7 +142,7 @@ export class Composer {
         token.contentEditable = "false";
         token.dataset.context = JSON.stringify(part);
         token.textContent = part.label;
-        token.title = "点击编辑上下文；Backspace / Delete 可移除";
+        token.title = part.label + "\nClick to edit context; Backspace / Delete to remove";
         this.element.append(token, document.createTextNode(""));
       }
     }
@@ -154,7 +160,7 @@ export class Composer {
   }
 
   focus() {
-    this.element.focus();
+    this.element.focus({ preventScroll: true });
     const point = offset => {
       const walk = parent => {
         for (let index = 0; index < parent.childNodes.length; index++) {
@@ -212,7 +218,9 @@ export class Composer {
   insert(blocks) {
     this.captureSelection();
     this.replace(this.selection.start, this.selection.end,
-      blocks.map(block => ({ ...block, type: "context", id: crypto.randomUUID() })));
+      blocks.map(block => ({
+        ...block, type: "context", id: crypto.getRandomValues(new Uint32Array(4)).join("-"),
+      })));
   }
 
   updateContext(id, text) {
@@ -246,7 +254,7 @@ export class Composer {
   }
 
   keydown(event) {
-    if (event.isComposing) return;
+    if (event.isComposing || this.composing || event.keyCode === 229) return;
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
       event.preventDefault();
@@ -284,11 +292,13 @@ export class Composer {
       if (!Array.isArray(parts) || parts.some(part => !part || typeof part.text !== "string" ||
           !["text", "context"].includes(part.type) ||
           (part.type === "context" && typeof part.label !== "string"))) {
-        throw new Error("剪贴板中的上下文格式无效。");
+        throw new Error("Invalid context format in clipboard.");
       }
       this.captureSelection();
       this.replace(this.selection.start, this.selection.end, parts.map(part =>
-        part.type === "context" ? { ...part, id: crypto.randomUUID() } : part));
+        part.type === "context" ? {
+          ...part, id: crypto.getRandomValues(new Uint32Array(4)).join("-"),
+        } : part));
     } catch (error) {
       this.error(error.message);
     }

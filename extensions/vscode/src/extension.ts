@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
-import { realpath } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { createHash } from "node:crypto";
+import { access, realpath } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { BackendClient, errorMessage } from "./backend";
 import { BackendSetup, projectPythons } from "./backendSetup";
 import { Chat, ChatView } from "./chatView";
@@ -21,7 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     return;
   }
-  const frontend = new ChatFrontend(context.extensionUri);
+  const frontend = new ChatFrontend(context.extensionUri, context.globalStorageUri);
   activeFrontend = frontend;
   context.subscriptions.push(frontend);
 }
@@ -38,14 +39,16 @@ export class ChatFrontend implements vscode.Disposable {
   private readonly workspaces = new Map<string, WorkspaceProcess>();
   private readonly chats = new Map<string, Chat>();
   private readonly processes = new Set<WorkspaceProcess>();
+  private readonly restorations = new Map<string, Promise<void>>();
   private readonly view: ChatView;
   private readonly disposables: vscode.Disposable[] = [];
   private lastEditor?: vscode.TextEditor;
   private disposed = false;
 
-  constructor(extensionUri: vscode.Uri) {
+  constructor(extensionUri: vscode.Uri, private readonly storageUri: vscode.Uri) {
     this.view = new ChatView(extensionUri, this.chats, {
       open: folder => this.open(folder),
+      restore: () => this.restore(),
       settings: folder => this.settings(folder),
       captureContext: () => this.captureContext(),
       closed: chat => { this.chats.delete(chat.key); },
@@ -59,6 +62,7 @@ export class ChatFrontend implements vscode.Disposable {
           const key = folder.uri.toString();
           this.workspaces.get(key)?.dispose();
           this.workspaces.delete(key);
+          this.restorations.delete(key);
         }
       }),
       vscode.commands.registerCommand("pycodex.insertContext", (...resources: (ContextResource | ContextResource[])[]) =>
@@ -156,6 +160,7 @@ export class ChatFrontend implements vscode.Disposable {
       progress => {
         const workspace = new WorkspaceProcess(
           this.backendSetup.prepare(launch, message => progress.report({ message })),
+          this.workspaceConfig(directory),
         );
         this.workspaces.set(key, workspace);
         this.processes.add(workspace);
@@ -168,6 +173,49 @@ export class ChatFrontend implements vscode.Disposable {
         return workspace.ready;
       },
     );
+  }
+
+  private workspaceConfig(directory: string): string {
+    const key = createHash("sha256").update(directory).digest("hex");
+    return join(this.storageUri.fsPath, "workspaces", key, "workspaces.json");
+  }
+
+  private async restore(folders = vscode.workspace.workspaceFolders || []): Promise<void> {
+    const outcomes = await Promise.allSettled(folders.map(folder => {
+      const key = folder.uri.toString();
+      let restoration = this.restorations.get(key);
+      if (!restoration) {
+        restoration = this.restoreFolder(folder).catch(error => {
+          this.restorations.delete(key);
+          throw error;
+        });
+        this.restorations.set(key, restoration);
+      }
+      return restoration;
+    }));
+    const failures = outcomes.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length) throw new AggregateError(failures, failures.map(errorMessage).join("\n"));
+  }
+
+  private async restoreFolder(folder: vscode.WorkspaceFolder): Promise<void> {
+    const directory = await realpath(folder.uri.fsPath);
+    try {
+      await access(this.workspaceConfig(directory));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    const backend = await this.backend(folder);
+    const sessions = await backend.listSessions();
+    if (this.disposed || !vscode.workspace.workspaceFolders?.some(
+      item => item.uri.toString() === folder.uri.toString(),
+    )) return;
+    for (const session of sessions) {
+      // The server keeps an initial empty session so every displayed chat can close.
+      if (session.turn_count === 0) continue;
+      const chat = new Chat(new SessionConnection(backend, session.id), folder);
+      this.chats.set(chat.key, chat);
+    }
   }
 
   private async settings(folder?: vscode.WorkspaceFolder): Promise<void> {
@@ -248,6 +296,7 @@ export class ChatFrontend implements vscode.Disposable {
   private async open(folder?: vscode.WorkspaceFolder): Promise<Chat | undefined> {
     const target = folder || await this.currentFolder();
     if (!target) return;
+    await this.restore([target]);
     const backend = await this.backend(target);
     const sessionId = (await backend.createSession()).session_id;
     if (this.disposed) return;

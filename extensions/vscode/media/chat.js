@@ -1,4 +1,4 @@
-import { Composer } from "./composer.js";
+import { Composer } from "../out/composer.mjs";
 
 (() => {
   const vscode = acquireVsCodeApi();
