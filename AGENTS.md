@@ -6,6 +6,7 @@
 - PyPI 主 distribution name 用 `python-codex`；代码包目录、`import` 路径和 CLI 命令仍保持 `pycodex`。
 - `python-codex` 打包 `pycodex/` 和 `responses_server/`，提供核心 CLI，整套 portable 暂时保留在 core。`pycodex-ws` 是独立扩展包，源码位于 `packages/pycodex-ws/`，打包 `workspace_server/`、`pycodex_ws/` 及 viewer 资源，提供 `pycodex-ws` 命令，精确依赖同版本 core 并直接安装飞书/IPython SDK。只保持这两个普通包，不添加 extras 或插件发现机制，不在两个 wheel 中重复安装模块或命令。core 保持 Python 3.6.2+；ws 因飞书 SDK 要求 Python 3.7+。
 - 双包发布时先发布 `python-codex`，成功后再发布 `pycodex-ws`，避免扩展包短暂指向尚不存在的核心版本。两个包通过 uv workspace 在同一仓库开发，`uv sync --dev` 安装两包。
+- VS Code 扩展源码放在 `packages/pycodex-ws/extensions/vscode/`，共享 workspace 前端的 composer；扩展独立构建和发布 VSIX，不进入两个 Python wheel/sdist。Node 测试手动运行，不加入 CI。
 - 包结构直接放在 repo 根目录下的 `pycodex/`，不使用 `src/` layout。
 - Rust 到 Python 的主映射：`submission_loop` -> `pycodex/runtime.py`，`run_turn` / `run_sampling_request` -> `pycodex/agent.py`，`ToolRouter` -> `pycodex/tools/base_tool.py` + `pycodex/tools/`.
 - 会话协议先收敛到 4 类 item：`UserMessage`、`AssistantMessage`、`ToolCall`、`ToolResult`；只有这层稳定后再扩 richer event model。

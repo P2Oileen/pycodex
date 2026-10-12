@@ -117,7 +117,7 @@ Tests follow the same boundary: root `tests/` runs with the `test` dependency
 group and no workspace or SDK installation; `packages/pycodex-ws/tests/` runs
 with `dev` on Python 3.7+. Pure Runtime tests stay in core, while Web, Feishu,
 IPython and cross-frontend integration tests belong to workspace.
-The VS Code extension in `extensions/vscode/` is a workspace frontend with its
+The VS Code extension in `packages/pycodex-ws/extensions/vscode/` is a workspace frontend with its
 own Node tests and VSIX build, separate from both Python distributions.
 
 Both HTTP services use Starlette and Uvicorn directly, without Pydantic.
@@ -152,7 +152,7 @@ commands and invalid arguments produce explicit command errors. Destructive
 commands reject active or queued work; a command lock serializes asynchronous
 commands and lets close wait for accepted command work.
 
-The [VS Code frontend](../extensions/vscode/README.md) starts a workspace backend
+The [VS Code frontend](../packages/pycodex-ws/extensions/vscode/README.md) starts a workspace backend
 per project using the existing CLI. Before startup it reads package metadata
 from the selected Python interpreter. Automatic detection resolves an existing
 console script's interpreter or finds Python on the workspace host. A compatible

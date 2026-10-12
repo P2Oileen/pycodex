@@ -28,9 +28,10 @@ This distribution owns `workspace_server`, `pycodex_ws`, the frontend assets,
 and the `pycodex-ws` console script. The core owns `pycodex`, `responses_server`,
 the `pycodex` command and portable storage.
 
-The repository's [VS Code extension](../../extensions/vscode/README.md) is also
-a workspace frontend: it starts this package's server and uses its HTTP API.
-It is built and distributed separately as a VSIX, outside the Python wheel.
+The [VS Code extension](extensions/vscode/README.md) lives in this package's
+source directory. It starts the workspace server and uses its HTTP API.
+It is built and distributed separately as a VSIX, outside both Python wheels
+and source distributions.
 
 In the browser's code and diff viewer, right-click **Insert into chat**, or
 select text and click the toolbar button, to insert context into the current

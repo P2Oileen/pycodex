@@ -89,7 +89,9 @@ preserving session and file-view persistence. Existing `board: "demo.html"` and
 their original state files and rollout references. Subsequent config saves use
 only the new format; mixed fields and non-`.html` legacy paths are rejected.
 
-The VS Code extension now keeps one private configuration per project and
+The VS Code extension source lives in `packages/pycodex-ws/extensions/vscode/`.
+Its VSIX build remains separate from both Python distributions.
+It now keeps one private configuration per project and
 restores saved conversations on reopening the sidebar. It requires backend
 0.4.0 and creates workspaces with Canvas disabled. Browser code/diff views can
 insert selected text, or just the file/cursor location, into the chat draft.

@@ -109,7 +109,7 @@ UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test pytest tests
 See [test environments and coverage](tests/TESTS.md). Core tests support Python
 3.6.2+; workspace tests require Python 3.7+.
 
-A VS Code frontend is available in [`extensions/vscode`](extensions/vscode/README.md).
+A VS Code frontend is available in [`packages/pycodex-ws/extensions/vscode`](packages/pycodex-ws/extensions/vscode/README.md).
 It belongs to the workspace frontend and is packaged separately as a VSIX.
 It reuses an existing `pycodex-ws>=0.4.0` installation. On first use, missing
 or older backends are installed/upgraded with pip in the selected Python
@@ -183,7 +183,7 @@ Supporting services live in `tools/`, `portable/` and `utils/`.
 - `pycodex/prompts/`: vendored prompts and model metadata
 - `packages/pycodex-ws/workspace_server/`: Web board, API and file/diff viewers
 - `packages/pycodex-ws/pycodex_ws/`: Feishu, IPython and workspace assembly
-- `extensions/vscode/`: workspace's VS Code frontend, built separately as a VSIX
+- `packages/pycodex-ws/extensions/vscode/`: workspace's VS Code frontend, built separately as a VSIX
 - `tests/`: core tests
 - `packages/pycodex-ws/tests/`: workspace and cross-frontend integration tests
 

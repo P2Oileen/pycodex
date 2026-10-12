@@ -142,7 +142,7 @@ core 测试支持 Python 3.6.2+，workspace 测试要求 Python 3.7+；
 - `pycodex/prompts/`：内置提示和模型元数据
 - `packages/pycodex-ws/workspace_server/`：Web 看板、API、文件/diff 查看器
 - `packages/pycodex-ws/pycodex_ws/`：飞书、IPython 与 workspace 装配
-- `extensions/vscode/`：属于 workspace 的 VS Code 前端，独立构建 VSIX
+- `packages/pycodex-ws/extensions/vscode/`：属于 workspace 的 VS Code 前端，独立构建 VSIX
 - `tests/`：core 测试
 - `packages/pycodex-ws/tests/`：workspace 与跨前端集成测试
 
@@ -191,7 +191,7 @@ Remote SSH 等远程工作区的 Python 后端在远程服务器上启动；
 已有后端运行时会提示重新加载窗口后生效。输入框底部的 context meter 与 workspace 前端一致，
 可查看剩余比例、最近一次模型上报的用量、压缩阈值和上下文上限。
 构建 VSIX、Python 环境配置及 Remote SSH 用法见
-[`extensions/vscode/README.md`](extensions/vscode/README.md)。
+[`packages/pycodex-ws/extensions/vscode/README.md`](packages/pycodex-ws/extensions/vscode/README.md)。
 
 外部程序使用 `pycodex.bootstrap.build_model/build_agent/build_runtime` 装配，
 通过 `await runtime.start()`、`runtime.attach(handler)`、

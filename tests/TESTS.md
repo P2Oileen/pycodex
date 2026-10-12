@@ -111,7 +111,7 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
 
 ### VS Code 前端
 
-- `extensions/vscode` 属于 workspace 前端，独立构建 VSIX。它使用 Node 22+，运行
+- `packages/pycodex-ws/extensions/vscode` 属于 workspace 前端，独立构建 VSIX。它使用 Node 22+，运行
   `npm ci --omit=optional --ignore-scripts && npm test`；与 Python 3.6
   测试环境独立，不给 Python runtime 增加 Node 依赖。按项目约定手动运行，
   不加入 CI。

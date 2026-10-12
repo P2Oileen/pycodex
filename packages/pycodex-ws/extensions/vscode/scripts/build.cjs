@@ -5,7 +5,7 @@ const { execFileSync } = require("node:child_process");
 fs.rmSync("out", { recursive: true, force: true });
 execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "."], { stdio: "inherit" });
 fs.copyFileSync(
-  path.resolve(__dirname, "../../../packages/pycodex-ws/workspace_server/frontend/composer.mjs"),
+  path.resolve(__dirname, "../../../workspace_server/frontend/composer.mjs"),
   "out/composer.mjs",
 );
 const markdownRoot = path.dirname(require.resolve("markdown-it/package.json"));
