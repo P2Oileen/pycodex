@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-from pycodex.compat import ThreadingHTTPServer
+from pycodex.utils.compat import ThreadingHTTPServer
 
 DEFAULT_PORT = 8765
 DEFAULT_MODEL_ID = "gpt-5.4"

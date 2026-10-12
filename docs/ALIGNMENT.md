@@ -48,6 +48,20 @@ Tool-specific status uses two inputs:
 - proxy captures of actual upstream Codex and `pycodex` requests/results
 - source inspection against the latest upstream tool specifications
 
+## Core package layout (2026-10-12)
+
+Supporting modules now live under `pycodex.tools`, `pycodex.portable` and
+`pycodex.utils`. The top level retains the eight core modules and two package
+entry points. Portable's client and server remain in the core distribution;
+the server entry point is `python -m pycodex.portable.server`. Internal import
+paths are listed in [RUNTIME.md](RUNTIME.md#package-layout).
+
+Migration checks compare the complete tool declarations in the default, exec
+and sub-agent registries, including descriptions and local output schemas,
+against a pre-migration snapshot. All three are unchanged, as are the root
+package's public exports. SHA-256 checks confirm every prompt resource and
+the compactor source are unchanged; `AGENTS.md` is also unchanged.
+
 ## Image dependency boundary (2026-10-12)
 
 Core no longer requires or imports Pillow at startup. `view_image` retains the
@@ -69,6 +83,23 @@ tokens. Core remains a universal Python package with no native build; large
 bundles take longer to encrypt and decrypt. Tool descriptions,
 schemas and prompts are unaffected. NIST vectors, comparison with PyCryptodome,
 authentication before decryption, counter bounds and legacy bundles are tested.
+
+## HTTP framework dependency (2026-10-12)
+
+The Responses compatibility server and workspace server use Starlette directly.
+FastAPI, Pydantic and its native `pydantic-core` dependency are removed. Core
+retains Python 3.6.2 support with Starlette 0.19.x on Python 3.6; later
+interpreters resolve a compatible release from package metadata.
+
+Routes explicitly read path/query parameters and JSON bodies. Workspace JSON
+endpoints reject missing, malformed or non-object bodies and non-JSON content
+types with HTTP 422 and a `detail` message; they no longer expose Pydantic's
+validation-error structure. Responses keeps its existing HTTP 400 body checks
+and SSE behavior. File/Git view operations remain in the thread pool,
+and authentication, WebSocket subscriptions and runtime draining retain their
+existing boundaries. Automatic FastAPI `/docs`, `/redoc` and `/openapi.json`
+endpoints are removed. Tool descriptions, schemas, prompts and downstream model
+payloads are unchanged.
 
 ## Startup and provider defaults (2026-10-10)
 

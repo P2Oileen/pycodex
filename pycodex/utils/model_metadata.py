@@ -6,9 +6,9 @@ import typing
 from functools import lru_cache
 from pathlib import Path
 
-from .protocol import JSONDict
+from ..protocol import JSONDict
 
-DEFAULT_MODELS_PATH = Path(__file__).resolve().parent / "prompts" / "models.json"
+DEFAULT_MODELS_PATH = Path(__file__).resolve().parents[1] / "prompts" / "models.json"
 
 
 @lru_cache(maxsize=1)

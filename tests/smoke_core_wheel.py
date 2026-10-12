@@ -6,15 +6,23 @@ import subprocess
 import sys
 
 import pycodex
-from pycodex.portable import _decrypt_bundle, _encrypt_bundle
+from pycodex.portable.client import _decrypt_bundle, _encrypt_bundle
 from pycodex.utils.crypto import aes_gcm_decrypt, aes_gcm_encrypt
+from pycodex.utils.model_metadata import model_metadata
 
 
 def main():
     root = Path(__file__).resolve().parents[1]
     assert Path(pycodex.__file__).resolve().parent != root / "pycodex"
-    for name in ("Cryptodome", "Crypto", "PIL", "workspace_server", "pycodex_ws"):
+    for name in (
+        "Cryptodome", "Crypto", "PIL", "workspace_server", "pycodex_ws",
+        "fastapi", "pydantic", "pydantic_core",
+    ):
         assert find_spec(name) is None, name
+
+    assert model_metadata("step-5-preview")["slug"] == "step-5-preview"
+    context = pycodex.ContextManager(pycodex.ContextConfig(model="step-5-preview"))
+    assert context.resolve_base_instructions().startswith("You are Codex")
 
     key, nonce = b"\0" * 32, b"\0" * 12
     ciphertext = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
@@ -31,12 +39,20 @@ def main():
     plaintext = bytes(range(256)) * 4096
     bundle = _encrypt_bundle(plaintext, "public wheel fixture")
     assert _decrypt_bundle(bundle, "public wheel fixture") == plaintext
-    for module in ("pycodex", "pycodex.portable_server", "responses_server"):
+    for arguments in (
+        ["pycodex", "--help"],
+        ["pycodex", "doctor", "--help"],
+        ["pycodex.portable.server", "--help"],
+        ["responses_server", "--help"],
+    ):
         subprocess.run(
-            [sys.executable, "-m", module, "--help"],
+            [sys.executable, "-m"] + arguments,
             check=True, stdout=subprocess.DEVNULL,
         )
-    print("Core wheel: pure Python AES-GCM, portable round-trip and CLI smoke passed")
+    print(
+        "Core wheel: model resources, pure Python AES-GCM, "
+        "portable round-trip and CLI smoke passed"
+    )
 
 
 if __name__ == "__main__":

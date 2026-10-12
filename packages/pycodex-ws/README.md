@@ -8,6 +8,9 @@ matching core version and all integration dependencies.
 Pillow is a direct dependency of this package for image preview validation.
 Core can run without it; `view_image` then sends original image bytes.
 
+The HTTP and WebSocket server uses Starlette and Uvicorn, provided by core,
+without FastAPI, Pydantic or `pydantic-core`.
+
 ```bash
 python3 -m pip install pycodex-ws
 pycodex-ws --help

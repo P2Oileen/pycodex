@@ -27,8 +27,8 @@ from ..protocol import (
     ToolSpec,
     UserMessage,
 )
-from ..runtime_services import AgentRuntimeEnvironment
 from ..utils import get_debug_dir
+from .runtime_services import AgentRuntimeEnvironment
 
 if typing.TYPE_CHECKING:
     from ..agent import Agent

@@ -10,13 +10,13 @@ readme = "README.md"
 requires-python = ">=3.6.2"
 dependencies = [
     "dataclasses>=0.8; python_version < '3.7'",
-    "fastapi>=0.83.0,<0.84; python_version < '3.7'",
-    "fastapi>=0.83.0; python_version >= '3.7'",
     "importlib_metadata>=4.8.3; python_version < '3.8'",
     "loguru>=0.7.3",
     "prompt-toolkit>=3.0.36",
     "pyyaml>=6.0",
     "requests>=2.27.1",
+    "starlette>=0.19.1,<0.20; python_version < '3.7'",
+    "starlette>=0.19.1; python_version >= '3.7'",
     "tomli>=1.2.3,<2; python_version < '3.11'",
     "typing_extensions>=4.1.1; python_version < '3.8'",
     "uvicorn>=0.16.0,<0.17; python_version < '3.7'",

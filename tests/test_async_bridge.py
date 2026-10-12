@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pycodex import compat
+from pycodex.utils import compat
 from pycodex.utils.async_bridge import run_async
 
 

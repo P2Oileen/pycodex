@@ -13,9 +13,9 @@ import json
 import typing
 
 from ..protocol import JSONDict, JSONValue, UserMessage
-from ..runtime_services import SubAgentManager
 from .agent_tool_schemas import AGENT_STATUS_SCHEMA
 from .base_tool import BaseTool, ToolContext
+from .runtime_services import SubAgentManager
 
 DEFAULT_WAIT_AGENT_TIMEOUT_MS = 30_000
 MIN_WAIT_AGENT_TIMEOUT_MS = 10_000

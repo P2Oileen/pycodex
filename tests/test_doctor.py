@@ -3,8 +3,8 @@ import threading
 import pytest
 
 from pycodex.cli import main
-from pycodex.compat import ThreadingHTTPServer
-from pycodex.doctor import collect_doctor_report
+from pycodex.utils.compat import ThreadingHTTPServer
+from pycodex.utils.doctor import collect_doctor_report
 from tests.fake_responses_server import CaptureStore, build_handler
 
 
@@ -161,6 +161,6 @@ def test_main_dispatches_doctor_subcommand(monkeypatch: "pytest.MonkeyPatch") ->
         assert args.skip_live is True
         return 7
 
-    monkeypatch.setattr("pycodex.doctor.run_doctor_cli", fake_run_doctor_cli)
+    monkeypatch.setattr("pycodex.utils.doctor.run_doctor_cli", fake_run_doctor_cli)
 
     assert main(["doctor", "--skip-live"]) == 7

@@ -12,7 +12,7 @@ from typing import Callable
 
 import requests
 
-from .compat import Protocol
+from .utils.compat import Protocol
 
 try:
     import tomllib
@@ -26,7 +26,7 @@ from .events import (
     TokenCountEvent,
     ToolCalledEvent,
 )
-from .model_metadata import model_metadata
+from .utils.model_metadata import model_metadata
 from .protocol import (
     AssistantMessage,
     JSONDict,

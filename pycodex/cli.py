@@ -357,7 +357,7 @@ class CliSessionView:
 def main(argv=None):
     raw_args = list(argv) if argv is not None else sys.argv[1:]
     if raw_args and raw_args[0] == "doctor":
-        from .doctor import build_doctor_parser, run_doctor_cli
+        from .utils.doctor import build_doctor_parser, run_doctor_cli
 
         parser = build_doctor_parser()
         args = parser.parse_args(raw_args[1:])

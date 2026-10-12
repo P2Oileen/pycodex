@@ -4,6 +4,38 @@ The runtime keeps state with the component that owns the work. This document
 describes the Python implementation, not a claim of newly verified upstream
 wire parity.
 
+## Package layout
+
+The top level of `pycodex/` contains eight core modules: `agent`, `runtime`,
+`model`, `context`, `protocol`, `events`, `bootstrap` and `cli`, plus
+`__init__.py` and `__main__.py`. Supporting code uses these import paths:
+
+| Module | Responsibility |
+| --- | --- |
+| `pycodex.tools.runtime_services` | Plan, sub-agent, user-input and permissions services |
+| `pycodex.portable.client` | Codex home packing, upload, download and restoration |
+| `pycodex.portable.server` | Local encrypted-bundle storage service |
+| `pycodex.utils.compat` | Python and asyncio compatibility helpers |
+| `pycodex.utils.doctor` | Configuration and connectivity diagnostics |
+| `pycodex.utils.model_metadata` | Loading and looking up `pycodex/prompts/models.json` |
+| `pycodex.utils.debug` | Debug directory and debugger helpers |
+
+Imports of moved internal modules must use these paths; the old top-level
+modules are removed. Root exports such as `from pycodex import Agent` and
+`pycodex.debug()` remain available. `pycodex.portable` exports its public client
+functions, constants and `RemoteStorageError`; private client helpers live in
+`pycodex.portable.client`.
+
+`pycodex.utils` loads only low-level helpers during package initialization so
+the asyncio compatibility patch runs before core modules load. Compaction
+helpers and constants are imported directly from `pycodex.utils.compactor`;
+`compact`, `DEFAULT_COMPACT_PROMPT` and `SUMMARY_PREFIX` are no longer exported
+from the `pycodex.utils` package entry point.
+
+Portable remains entirely in core. Start its server with
+`python -m pycodex.portable.server`; `pycodex --put`, `pycodex --call` and
+`pycodex doctor` keep their existing command syntax.
+
 ## Ownership
 
 | Component | Owns |
@@ -80,6 +112,13 @@ The `python-codex` distribution owns `pycodex`, `responses_server` and the
 Its source lives in `packages/pycodex-ws/` and it depends on the exact matching
 core version, plus the Feishu and IPython SDKs. The workspace package requires
 Python 3.7+; core keeps Python 3.6.2 support.
+
+Both HTTP services use Starlette and Uvicorn directly, without Pydantic.
+Workspace routes parse JSON objects explicitly and return HTTP 422 with a
+`detail` message for invalid bodies or content types. HTTP errors retain their
+JSON `detail`, status and headers. File/Git view operations run in the thread
+pool so they do not block session polling or WebSocket delivery. Startup and
+shutdown continue to start and drain the same runtime managers.
 
 Portable AES-256-GCM runs through `pycodex.utils.crypto`, using the bundled pure
 Python subset of pyaes and tlslite-ng. It uses no optional crypto backend or
@@ -166,7 +205,7 @@ closure; no turn timeout or forced cancellation is added. Deactivation waits for
 all owned processes to exit. A temporary remote disconnection leaves sessions
 running if their extension host remains alive.
 Other CLI launchers must also keep stdin open; closed stdin (including
-`/dev/null`) requests shutdown. Programmatic FastAPI app construction does not
+`/dev/null`) requests shutdown. Programmatic Starlette app construction does not
 read stdin.
 
 Web command output preserves the event's plain text, including resume-list

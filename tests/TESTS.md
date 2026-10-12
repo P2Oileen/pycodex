@@ -25,8 +25,9 @@
 - 两个包都构建普通 `py3-none-any` wheel。AES-GCM 使用内嵌纯 Python 实现，
   不增加编译器、原生库构建或平台 wheel 矩阵。
 - `smoke_core_wheel.py` 在独立安装环境中检查 NIST 向量、认证失败、
-  1 MiB portable round-trip、模块入口，以及 core 不安装 Crypto、Cryptodome、
-  Pillow 或 workspace 模块。必须离开源码目录执行：
+  1 MiB portable round-trip、模型元数据和提示资源读取、CLI/doctor/
+  `pycodex.portable.server` 模块入口，以及 core 不安装 Crypto、Cryptodome、
+  Pillow、FastAPI、Pydantic、pydantic-core 或 workspace 模块。必须离开源码目录执行：
   `python /path/to/pycodex/tests/smoke_core_wheel.py`。
 - `publish.yml` 构建 core 和 workspace 的普通 wheel/sdist。
   安装 core 后再安装同批 workspace，检查两个 console script、
@@ -35,6 +36,17 @@
   `test_packaging.py` 另覆盖模块入口的帮助、doctor 分发及参数错误退出码。
 
 ## 自动化测试
+
+### HTTP 框架依赖
+
+- 两处 HTTP 服务及 fake 下游均直接使用 Starlette。Python 3.6 CI 安装
+  Starlette 0.19.x；安装和运行不需要 FastAPI、Pydantic 或 pydantic-core。
+- `responses_server/test_server.py` 覆盖路由别名、JSON 响应和 HTTP 错误，
+  并通过真实本地下游验证 SSE、tool follow-up 和模型请求转换。
+- `test_workspace_server.py` 覆盖单/多 workspace 的 JSON 对象校验、
+  非 JSON Content-Type 拒绝、JSON HTTP 错误、登录和 WebSocket。
+  `test_workspace_views.py` 还在文件打开操作阻塞时并发轮询会话，
+  验证线程池边界；原有静态资源、图片目录边界和生命周期回归继续保留。
 
 ### Portable 加密
 

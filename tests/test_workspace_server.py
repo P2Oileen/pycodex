@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from pycodex import (
@@ -456,6 +456,83 @@ def test_password_protects_http_and_websocket(tmp_path, multi):
             assert websocket.receive_json()["type"] == "hello"
             websocket.send_json({"type": "ping"})
             assert websocket.receive_json()["type"] == "pong"
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_workspace_json_body_validation(tmp_path, multi):
+    if multi:
+        registry = WorkspaceRegistry([
+            make_entry(WorkspaceDefinition("first", None, tmp_path)),
+        ])
+        app = create_multi_workspace_app(registry, password="test-password")
+        prefix = "/w/first"
+    else:
+        app = create_app(make_session, None, password="test-password")
+        prefix = ""
+    with TestClient(app) as browser:
+        invalid_bodies = [
+            (b"", "application/json"),
+            (b'{"password":"request-body-marker"', "application/json"),
+            (b"[]", "application/json"),
+            (b"null", "application/json"),
+            (b'"text"', "application/json"),
+            (b"1", "application/json"),
+            (b"{}", "text/plain"),
+            (b"{}", None),
+        ]
+        endpoints = [
+            "/login", prefix + "/api/views/open", prefix + "/api/session/message",
+        ]
+        if multi:
+            endpoints.append("/api/workspaces")
+        for endpoint in endpoints:
+            for body, media_type in invalid_bodies:
+                headers = {} if media_type is None else {"Content-Type": media_type}
+                response = browser.post(endpoint, data=body, headers=headers)
+                assert response.status_code == 422, (endpoint, body, media_type)
+                assert "detail" in response.json()
+                assert "request-body-marker" not in response.text
+            if endpoint == "/login":
+                response = browser.post(
+                    "/login",
+                    data=b'{"password":"test-password"}',
+                    headers={"Content-Type": "application/vendor+json; charset=utf-8"},
+                )
+                assert response.status_code == 200
+        assert browser.get(prefix + "/api/session").json()["snapshot"]["turns"] == []
+        assert browser.get(prefix + "/api/views").json() == {"views": []}
+        if multi:
+            assert len(registry.list_workspaces()) == 1
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_workspace_http_errors_remain_json(tmp_path, multi):
+    if multi:
+        app = create_multi_workspace_app(WorkspaceRegistry([
+            make_entry(WorkspaceDefinition("first", None, tmp_path)),
+        ]))
+        prefix = "/w/first"
+    else:
+        app = create_app(make_session, None)
+        prefix = ""
+    with TestClient(app) as browser:
+        response = browser.get(
+            prefix + "/api/session", params={"session_id": "missing"}
+        )
+        assert response.status_code == 404
+        assert response.json() == {"detail": "session not found"}
+        assert browser.post(prefix + "/api/sessions").status_code == 200
+        response = browser.delete(prefix + "/api/sessions/missing")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "session not found"}
+        response = browser.options(prefix + "/api/session/message")
+        assert response.status_code == 405
+        assert response.json() == {"detail": "Method Not Allowed"}
+        assert response.headers["allow"] == "POST"
+        if multi:
+            response = browser.get("/w/missing/api/session")
+            assert response.status_code == 404
+            assert response.json() == {"detail": "workspace not found"}
 
 
 @pytest.mark.parametrize(

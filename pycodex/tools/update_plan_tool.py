@@ -13,8 +13,8 @@ Expected behavior:
 import typing
 
 from ..protocol import JSONDict, JSONValue
-from ..runtime_services import PlanItem, PlanStore
 from .base_tool import BaseTool, ToolContext
+from .runtime_services import PlanItem, PlanStore
 
 VALID_PLAN_STATUSES = {"pending", "in_progress", "completed"}
 

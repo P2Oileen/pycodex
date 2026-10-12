@@ -7,12 +7,12 @@ import pytest
 from pycodex.portable import (
     DEFAULT_ENTRY_CONFIG,
     RemoteStorageError,
-    _decrypt_bundle,
     bootstrap_called_home,
     resolve_put_source_dir,
     upload_codex_home,
 )
-from pycodex.portable_server import CodexStorageServer
+from pycodex.portable.client import _decrypt_bundle
+from pycodex.portable.server import CodexStorageServer
 
 
 def test_decrypt_bundle_reads_legacy_cryptography_payload() -> "None":
@@ -124,7 +124,7 @@ def test_upload_codex_home_checks_server_before_packing(
     codex_home.mkdir()
     _write_codex_home(codex_home)
     monkeypatch.setattr(
-        "pycodex.portable._build_bundle_bytes",
+        "pycodex.portable.client._build_bundle_bytes",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("should not pack before server preflight")
         ),

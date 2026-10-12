@@ -9,8 +9,11 @@ from dataclasses import replace
 from typing import Iterator
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
+from starlette.requests import Request
+from starlette.responses import JSONResponse, StreamingResponse
+from starlette.routing import Route
 
 from .config import CompatServerConfig
 from .server import ResponseServer
@@ -20,6 +23,12 @@ from .stream_router import OutcommingChatError, UnsupportedIncommingFeature
 def _run_uvicorn_server(server) -> "None":
     asyncio.set_event_loop(asyncio.new_event_loop())
     server.run()
+
+
+async def _http_exception_response(request: "Request", exc: "HTTPException"):
+    return JSONResponse(
+        {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+    )
 
 
 def _format_sse_event(
@@ -113,33 +122,25 @@ class ManagedResponseServer:
         config: "CompatServerConfig",
         session_store=None,
         stream_router=None,
-    ) -> "FastAPI":
+    ) -> "Starlette":
         response_server = ResponseServer(
             config,
             session_store=session_store,
             stream_router=stream_router,
         )
-        app = FastAPI(title="ResponsesCompat", version="0.1.0")
-        app.state.response_server = response_server
 
-        @app.get("/health")
-        @app.get("/healthz")
-        async def health() -> "typing.Dict[str, bool]":
-            return {"ok": True}
+        async def health(request: "Request"):
+            return JSONResponse({"ok": True})
 
-        @app.get("/models")
-        @app.get("/v1/models")
-        async def list_models():
+        async def list_models(request: "Request"):
             try:
-                return response_server.list_models()
+                return JSONResponse(response_server.list_models())
             except OutcommingChatError as exc:
                 return JSONResponse(
                     {"error": {"message": str(exc)}},
                     status_code=502,
                 )
 
-        @app.post("/responses")
-        @app.post("/v1/responses")
         async def responses(request: "Request"):
             try:
                 request_body = await request.json()
@@ -174,6 +175,18 @@ class ManagedResponseServer:
                 },
             )
 
+        app = Starlette(
+            routes=[
+                Route("/health", health, methods=["GET"]),
+                Route("/healthz", health, methods=["GET"]),
+                Route("/models", list_models, methods=["GET"]),
+                Route("/v1/models", list_models, methods=["GET"]),
+                Route("/responses", responses, methods=["POST"]),
+                Route("/v1/responses", responses, methods=["POST"]),
+            ],
+            exception_handlers={HTTPException: _http_exception_response},
+        )
+        app.state.response_server = response_server
         return app
 
     def __init__(self, config: "CompatServerConfig") -> "None":

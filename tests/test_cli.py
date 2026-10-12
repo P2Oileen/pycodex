@@ -36,7 +36,7 @@ from pycodex.events import (
     ToolStartedEvent,
     TurnCompletedEvent,
 )
-from pycodex.portable_server import CodexStorageServer
+from pycodex.portable.server import CodexStorageServer
 from tests.fakes import ScriptedModelClient
 
 

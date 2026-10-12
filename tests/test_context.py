@@ -13,7 +13,7 @@ from pycodex import (
     ToolRegistry,
     UserMessage,
 )
-from pycodex.model_metadata import model_metadata
+from pycodex.utils.model_metadata import model_metadata
 from tests.fakes import ScriptedModelClient
 
 

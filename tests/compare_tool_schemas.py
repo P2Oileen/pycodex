@@ -24,7 +24,7 @@ import typing
 from dataclasses import dataclass
 from pathlib import Path
 
-from pycodex.compat import ThreadingHTTPServer, shlex_join
+from pycodex.utils.compat import ThreadingHTTPServer, shlex_join
 from tests.fake_responses_server import CaptureStore, build_proxy_handler
 
 try:

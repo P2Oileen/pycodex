@@ -5,8 +5,7 @@ import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable
 
-from .compat import Literal
-from .events import (
+from ..events import (
     CompactCompletedEvent,
     CompactFailedEvent,
     CompactStartedEvent,
@@ -16,11 +15,12 @@ from .events import (
     TurnInterruptedEvent,
     TurnStartedEvent,
 )
-from .protocol import ConversationItem, ToolCall, ToolResult
-from .utils import uuid7_string
+from ..protocol import ConversationItem, ToolCall, ToolResult
+from ..utils import uuid7_string
+from ..utils.compat import Literal
 
 if TYPE_CHECKING:
-    from .runtime import AgentRuntime
+    from ..runtime import AgentRuntime
 
 PlanStatus = Literal["pending", "in_progress", "completed"]
 AgentStatus = typing.Union[

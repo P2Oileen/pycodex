@@ -4,7 +4,7 @@ import sys
 import pytest
 from Cryptodome.Cipher import AES
 
-from pycodex.portable import _decrypt_bundle
+from pycodex.portable.client import _decrypt_bundle
 from pycodex.utils import crypto
 
 

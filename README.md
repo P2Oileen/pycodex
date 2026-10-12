@@ -33,6 +33,11 @@ or compiler and ships a `py3-none-any` wheel. Existing `PCX1` bundles and call
 tokens remain compatible; large bundles take longer to encrypt and decrypt.
 See the [source notes](pycodex/utils/_aes_gcm/README.md).
 
+The Responses compatibility server and workspace HTTP server use Starlette
+and Uvicorn directly. Neither package requires FastAPI, Pydantic or
+`pydantic-core`. Python 3.6 uses Starlette 0.19.x; newer interpreters resolve
+a compatible Starlette release through its Python version metadata.
+
 This repository extracts the core Codex agent loop from upstream Codex
 (`https://github.com/openai/codex`) into a deliberately small Python version,
 while preserving the two most important layers:
@@ -138,19 +143,34 @@ nailing the core tool-augmented reasoning loop first.
 
 ## Layout
 
-- `pycodex/protocol.py`: minimal conversation item / prompt protocol
-- `pycodex/events.py`: typed events, plain-text views and stateful presentation
-- `pycodex/utils/event_helpers.py`: stateless text, color, summary and result-formatting helpers
-- `pycodex/utils/image_utils.py`: image loading, resizing and data-URL preparation
-- `pycodex/model.py`: model client protocol and Responses API adapter
-- `pycodex/cli.py`: single-turn/interactive entry points, terminal I/O executor and input loop
-- `pycodex/bootstrap.py`: frontend-independent model, tools, Agent and session assembly
-- `pycodex/tools/base_tool.py`: `BaseTool`, `ToolRegistry`, `ToolContext`
-- `pycodex/tools/`: concrete tool implementations
+The top level of `pycodex/` contains the core components and package entry points.
+Supporting services live in `tools/`, `portable/` and `utils/`.
+
 - `pycodex/agent.py`: inner turn loop
 - `pycodex/runtime.py`: session commands, submission queues and frontend event subscriptions
+- `pycodex/model.py`: model client protocol and Responses API adapter
+- `pycodex/context.py`: configuration, prompt assembly and instruction loading
+- `pycodex/protocol.py`: minimal conversation item / prompt protocol
+- `pycodex/events.py`: typed events, plain-text views and stateful presentation
+- `pycodex/bootstrap.py`: frontend-independent model, tools, Agent and session assembly
+- `pycodex/cli.py`: single-turn/interactive entry points, terminal I/O executor and input loop
+- `pycodex/tools/base_tool.py`: `BaseTool`, `ToolRegistry`, `ToolContext`
+- `pycodex/tools/runtime_services.py`: plan, sub-agent, user-input and permissions services
+- `pycodex/tools/`: concrete tools and their execution managers
+- `pycodex/portable/`: Codex home storage client and server, both included in core
+- `pycodex/utils/compat.py`: supported-Python compatibility helpers
+- `pycodex/utils/doctor.py`: configuration and connectivity diagnostics
+- `pycodex/utils/model_metadata.py`: vendored model metadata lookup
+- `pycodex/utils/debug.py`: debug paths and the `pycodex.debug()` implementation
+- `pycodex/utils/event_helpers.py`: stateless text, color, summary and result-formatting helpers
+- `pycodex/utils/image_utils.py`: image loading, resizing and data-URL preparation
+- `pycodex/prompts/`: vendored prompts and model metadata
+- `packages/pycodex-ws/workspace_server/`: Web board, API and file/diff viewers
+- `packages/pycodex-ws/pycodex_ws/`: Feishu, IPython and workspace assembly
 - `extensions/vscode/`: VS Code chat frontend using the workspace HTTP API
 - `tests/test_agent.py`: core behavior tests
+
+See [package layout and import paths](docs/RUNTIME.md#package-layout).
 
 ## Current Alignment Status
 
@@ -460,6 +480,13 @@ pycodex doctor --json
 
 `Portable Mode` is the quickest way to bring your usual `pycodex` setup into a
 fresh machine, container, or debug image.
+
+The storage client and server are both included in `python-codex`. To start a
+local storage service, run this in a separate terminal:
+
+```bash
+python -m pycodex.portable.server --root .tmp/pycodex_storage --host 127.0.0.1 --port 5577
+```
 
 Use it like this:
 

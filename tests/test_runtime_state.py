@@ -18,7 +18,7 @@ from pycodex import (
 from pycodex.bootstrap import get_tools
 from pycodex.events import TokenCountEvent
 from pycodex.runtime import SubmissionInterrupted
-from pycodex.runtime_services import AgentRuntimeEnvironment, SubAgentManager
+from pycodex.tools.runtime_services import AgentRuntimeEnvironment, SubAgentManager
 from pycodex.tools import ClockManager, ClockTool, ExecCommandTool, UnifiedExecManager
 from pycodex.tools.unified_exec_manager import UnifiedExecSession
 from tests.fakes import ScriptedModelClient

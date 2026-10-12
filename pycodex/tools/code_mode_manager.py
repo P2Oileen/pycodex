@@ -21,7 +21,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ..compat import is_ascii, stream_writer_is_closing
+from ..utils.compat import is_ascii, stream_writer_is_closing
 from ..protocol import JSONDict, JSONValue, ToolCall
 from ..utils.truncation import DEFAULT_MAX_OUTPUT_TOKENS
 from .base_tool import StructuredToolOutput, ToolContext, ToolRegistry

@@ -20,14 +20,20 @@ import typing
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import (
+from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
     Response,
 )
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from pycodex.bootstrap import build_agent, build_model, configure_loguru
 from pycodex.events import (
@@ -821,7 +827,7 @@ def create_app(
     board_path: "typing.Union[Path, None]",
     password: "typing.Union[str, None]" = None,
     work_dir: "typing.Union[Path, None]" = None,
-) -> FastAPI:
+) -> Starlette:
     manager = (
         session_source
         if isinstance(session_source, WorkspaceSessionManager)
@@ -837,25 +843,22 @@ def create_app(
 def create_multi_workspace_app(
     registry: "WorkspaceRegistry",
     password: "typing.Union[str, None]" = None,
-) -> FastAPI:
+) -> Starlette:
     app = _create_lifespan_app(registry.start, registry.close)
     auth_token = _install_auth(app, password)
     view_asset_cache = {}
 
-    @app.get("/")
-    async def index() -> Response:
+    async def index(request: Request) -> Response:
         return _html_response(_render_workspaces_manager_shell())
 
-    @app.get("/favicon.ico")
-    async def favicon() -> Response:
+    async def favicon(request: Request) -> Response:
         return Response(status_code=204)
 
-    @app.get("/api/workspaces")
-    async def workspaces() -> JSONResponse:
+    async def workspaces(request: Request) -> JSONResponse:
         return JSONResponse({"workspaces": registry.list_workspaces()})
 
-    @app.post("/api/workspaces")
-    async def add_workspace(payload: "typing.Dict[str, object]") -> JSONResponse:
+    async def add_workspace(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
         try:
             entry = await registry.add_workspace(
                 str(payload.get("name") or ""),
@@ -872,22 +875,20 @@ def create_multi_workspace_app(
             }
         )
 
-    @app.delete("/api/workspaces/{workspace_id}")
-    async def delete_workspace(workspace_id: str) -> JSONResponse:
+    async def delete_workspace(request: Request) -> JSONResponse:
         try:
-            await registry.delete_workspace(workspace_id)
+            await registry.delete_workspace(request.path_params["workspace_id"])
         except KeyError:
             raise HTTPException(status_code=404, detail="workspace not found")
         return JSONResponse({"ok": True, "workspaces": registry.list_workspaces()})
 
-    @app.api_route("/w/{workspace_id}", methods=["GET", "HEAD"])
-    async def workspace_index_redirect(workspace_id: str) -> RedirectResponse:
+    async def workspace_index_redirect(request: Request) -> RedirectResponse:
+        workspace_id = request.path_params["workspace_id"]
         _workspace_entry_or_404(registry, workspace_id)
         return RedirectResponse(url="/w/{0}/".format(workspace_id), status_code=307)
 
-    @app.api_route("/w/{workspace_id}/", methods=["GET", "HEAD"])
-    async def workspace_index(workspace_id: str) -> HTMLResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_index(request: Request) -> HTMLResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _html_response(
             _render_workspace_shell(
                 entry.definition.board_path,
@@ -896,127 +897,152 @@ def create_multi_workspace_app(
             )
         )
 
-    @app.api_route("/w/{workspace_id}/board", methods=["GET", "HEAD"])
-    async def workspace_board(workspace_id: str) -> Response:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_board(request: Request) -> Response:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _board_response(entry.definition.board_path)
 
-    @app.get("/w/{workspace_id}/api/board")
-    async def workspace_board_status(workspace_id: str) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_board_status(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _board_status_response(entry.definition.board_path)
 
-    @app.get("/w/{workspace_id}/api/views")
-    def workspace_views(workspace_id: str) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    def workspace_views(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _views_response(entry.manager)
 
-    @app.post("/w/{workspace_id}/api/views/open")
-    def workspace_open_view(
-        workspace_id: str, payload: "typing.Dict[str, object]"
-    ) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
-        return _open_view_response(entry.manager, entry.definition.work_dir, payload)
+    async def workspace_open_view(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return await run_in_threadpool(
+            _open_view_response, entry.manager, entry.definition.work_dir, payload
+        )
 
-    @app.get("/w/{workspace_id}/api/views/{view_id}")
-    def workspace_view(workspace_id: str, view_id: str) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
-        return _view_response(entry.manager, view_id)
+    def workspace_view(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return _view_response(entry.manager, request.path_params["view_id"])
 
-    @app.delete("/w/{workspace_id}/api/views/{view_id}")
-    def workspace_close_view(workspace_id: str, view_id: str) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
-        return _close_view_response(entry.manager, view_id)
+    def workspace_close_view(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return _close_view_response(entry.manager, request.path_params["view_id"])
 
-    @app.api_route(
-        "/w/{workspace_id}/assets/content_views.mjs", methods=["GET", "HEAD"]
-    )
-    @app.api_route(
-        "/w/{workspace_id}/assets/content_views.css", methods=["GET", "HEAD"]
-    )
-    @app.api_route(
-        "/w/{workspace_id}/assets/content_views.LICENSE.txt", methods=["GET", "HEAD"]
-    )
-    @app.api_route("/w/{workspace_id}/assets/editor.mjs", methods=["GET", "HEAD"])
-    @app.api_route("/w/{workspace_id}/assets/editor.css", methods=["GET", "HEAD"])
-    def workspace_view_asset(workspace_id: str, request: Request) -> Response:
-        _workspace_entry_or_404(registry, workspace_id)
+    def workspace_view_asset(request: Request) -> Response:
+        _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _view_asset_response(
             request.url.path.rsplit("/", 1)[-1], request, view_asset_cache
         )
 
-    @app.get("/w/{workspace_id}/ws/session")
-    async def workspace_websocket_backend_hint(workspace_id: str) -> JSONResponse:
-        _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_websocket_backend_hint(request: Request) -> JSONResponse:
+        _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _websocket_backend_hint_response()
 
-    @app.get("/w/{workspace_id}/api/sessions")
-    async def workspace_sessions(workspace_id: str) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_sessions(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _sessions_response(entry.manager)
 
-    @app.post("/w/{workspace_id}/api/sessions")
-    async def workspace_new_session(workspace_id: str) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_new_session(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return await _new_session_response(entry.manager)
 
-    @app.delete("/w/{workspace_id}/api/sessions/{session_id}")
-    async def workspace_delete_session(
-        workspace_id: str, session_id: str
-    ) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
-        return await _delete_session_response(entry.manager, session_id)
+    async def workspace_delete_session(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return await _delete_session_response(
+            entry.manager, request.path_params["session_id"]
+        )
 
-    @app.get("/w/{workspace_id}/api/session")
-    async def workspace_session(
-        workspace_id: str,
-        session_id: "typing.Union[str, None]" = None,
-    ) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
-        return _session_response(entry.manager, session_id)
+    async def workspace_session(request: Request) -> JSONResponse:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return _session_response(entry.manager, request.query_params.get("session_id"))
 
-    @app.post("/w/{workspace_id}/api/session/message")
-    async def workspace_message(
-        workspace_id: str,
-        payload: "typing.Dict[str, object]",
-    ) -> JSONResponse:
-        entry = _workspace_entry_or_404(registry, workspace_id)
+    async def workspace_message(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return await _message_response(entry.manager, payload)
 
-    @app.websocket("/w/{workspace_id}/ws/session")
-    async def workspace_websocket_session(
-        workspace_id: str, websocket: WebSocket
-    ) -> None:
+    async def workspace_websocket_session(websocket: WebSocket) -> None:
         if not _auth_cookie_matches(
             auth_token, websocket.cookies.get(AUTH_COOKIE_NAME)
         ):
             await websocket.close(code=1008)
             return
         try:
-            entry = registry.get(workspace_id)
+            entry = registry.get(websocket.path_params["workspace_id"])
         except (KeyError, ValueError):
             await websocket.close(code=1008)
             return
         await _websocket_session_handler(entry.manager, websocket)
 
-    @app.api_route(
-        "/w/{workspace_id}/{asset_path:path}",
-        methods=["GET", "HEAD"],
-    )
-    async def workspace_board_asset(workspace_id: str, asset_path: str) -> Response:
-        entry = _workspace_entry_or_404(registry, workspace_id)
-        return _board_asset_response(entry.definition.board_path, asset_path)
+    async def workspace_board_asset(request: Request) -> Response:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return _board_asset_response(
+            entry.definition.board_path, request.path_params["asset_path"]
+        )
 
+    app.routes.extend([
+        Route("/", index, methods=["GET"]),
+        Route("/favicon.ico", favicon, methods=["GET"]),
+        Route("/api/workspaces", workspaces, methods=["GET"]),
+        Route("/api/workspaces", add_workspace, methods=["POST"]),
+        Route("/api/workspaces/{workspace_id}", delete_workspace, methods=["DELETE"]),
+        Route("/w/{workspace_id}", workspace_index_redirect, methods=["GET", "HEAD"]),
+        Route("/w/{workspace_id}/", workspace_index, methods=["GET", "HEAD"]),
+        Route("/w/{workspace_id}/board", workspace_board, methods=["GET", "HEAD"]),
+        Route("/w/{workspace_id}/api/board", workspace_board_status, methods=["GET"]),
+        Route("/w/{workspace_id}/api/views", workspace_views, methods=["GET"]),
+        Route("/w/{workspace_id}/api/views/open", workspace_open_view, methods=["POST"]),
+        Route("/w/{workspace_id}/api/views/{view_id}", workspace_view, methods=["GET"]),
+        Route(
+            "/w/{workspace_id}/api/views/{view_id}",
+            workspace_close_view, methods=["DELETE"],
+        ),
+        Route(
+            "/w/{workspace_id}/assets/content_views.mjs",
+            workspace_view_asset, methods=["GET", "HEAD"],
+        ),
+        Route(
+            "/w/{workspace_id}/assets/content_views.css",
+            workspace_view_asset, methods=["GET", "HEAD"],
+        ),
+        Route(
+            "/w/{workspace_id}/assets/content_views.LICENSE.txt",
+            workspace_view_asset, methods=["GET", "HEAD"],
+        ),
+        Route(
+            "/w/{workspace_id}/assets/editor.mjs",
+            workspace_view_asset, methods=["GET", "HEAD"],
+        ),
+        Route(
+            "/w/{workspace_id}/assets/editor.css",
+            workspace_view_asset, methods=["GET", "HEAD"],
+        ),
+        Route(
+            "/w/{workspace_id}/ws/session",
+            workspace_websocket_backend_hint, methods=["GET"],
+        ),
+        Route("/w/{workspace_id}/api/sessions", workspace_sessions, methods=["GET"]),
+        Route("/w/{workspace_id}/api/sessions", workspace_new_session, methods=["POST"]),
+        Route(
+            "/w/{workspace_id}/api/sessions/{session_id}",
+            workspace_delete_session, methods=["DELETE"],
+        ),
+        Route("/w/{workspace_id}/api/session", workspace_session, methods=["GET"]),
+        Route(
+            "/w/{workspace_id}/api/session/message",
+            workspace_message, methods=["POST"],
+        ),
+        WebSocketRoute("/w/{workspace_id}/ws/session", workspace_websocket_session),
+        Route(
+            "/w/{workspace_id}/{asset_path:path}",
+            workspace_board_asset, methods=["GET", "HEAD"],
+        ),
+    ])
     return app
 
 
-def _install_auth(app: FastAPI, password: "typing.Union[str, None]") -> str:
+def _install_auth(app: Starlette, password: "typing.Union[str, None]") -> str:
     password_text = str(password or "")
     if not password_text:
         return ""
     token = secrets.token_urlsafe(32)
 
-    @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
         if path in {"/favicon.ico", "/login"} or _auth_cookie_matches(
@@ -1034,14 +1060,11 @@ def _install_auth(app: FastAPI, password: "typing.Union[str, None]") -> str:
             url="/login?" + urlencode({"next": target}), status_code=303
         )
 
-    @app.get("/login")
-    async def login_page() -> HTMLResponse:
+    async def login_page(request: Request) -> HTMLResponse:
         return _html_response(_render_login_shell())
 
-    @app.post("/login")
-    async def login(
-        request: Request, payload: "typing.Dict[str, object]"
-    ) -> JSONResponse:
+    async def login(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
         if not secrets.compare_digest(
             str(payload.get("password") or ""), password_text
         ):
@@ -1066,7 +1089,27 @@ def _install_auth(app: FastAPI, password: "typing.Union[str, None]") -> str:
         )
         return response
 
+    app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
+    app.routes.extend([
+        Route("/login", login_page, methods=["GET"]),
+        Route("/login", login, methods=["POST"]),
+    ])
     return token
+
+
+async def _json_object_body(request: Request) -> "typing.Dict[str, object]":
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type != "application/json" and not (
+        media_type.startswith("application/") and media_type.endswith("+json")
+    ):
+        raise HTTPException(status_code=422, detail="request body must be JSON")
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=422, detail="invalid JSON body")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="request body must be a JSON object")
+    return payload
 
 
 def _auth_cookie_matches(token: str, cookie: "typing.Union[str, None]") -> bool:
@@ -1152,10 +1195,16 @@ def _render_login_shell() -> str:
 </html>"""
 
 
+async def _http_exception_response(request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(
+        {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+    )
+
+
 def _create_lifespan_app(
     start: "typing.Callable[[], typing.Awaitable[None]]",
     close: "typing.Callable[[], typing.Awaitable[None]]",
-) -> FastAPI:
+) -> Starlette:
     if asynccontextmanager is not None:
 
         @asynccontextmanager
@@ -1166,100 +1215,75 @@ def _create_lifespan_app(
             finally:
                 await close()
 
-        return FastAPI(lifespan=lifespan)
+        return Starlette(
+            lifespan=lifespan,
+            exception_handlers={HTTPException: _http_exception_response},
+        )
 
-    app = FastAPI()
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        await start()
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        await close()
-
-    return app
+    return Starlette(
+        on_startup=[start],
+        on_shutdown=[close],
+        exception_handlers={HTTPException: _http_exception_response},
+    )
 
 
 def _install_workspace_routes(
-    app: FastAPI,
+    app: Starlette,
     manager: WorkspaceSessionManager,
     board_path: "typing.Union[Path, None]",
     work_dir: Path,
 ) -> None:
     view_asset_cache = {}
 
-    @app.get("/")
-    async def index() -> HTMLResponse:
+    async def index(request: Request) -> HTMLResponse:
         return _html_response(_render_workspace_shell(board_path, work_dir=work_dir))
 
-    @app.get("/favicon.ico")
-    async def favicon() -> Response:
+    async def favicon(request: Request) -> Response:
         return Response(status_code=204)
 
-    @app.api_route("/board", methods=["GET", "HEAD"])
-    async def board() -> Response:
+    async def board(request: Request) -> Response:
         return _board_response(board_path)
 
-    @app.get("/api/board")
-    async def board_status() -> JSONResponse:
+    async def board_status(request: Request) -> JSONResponse:
         return _board_status_response(board_path)
 
-    @app.get("/api/views")
-    def views() -> JSONResponse:
+    def views(request: Request) -> JSONResponse:
         return _views_response(manager)
 
-    @app.post("/api/views/open")
-    def open_view(payload: "typing.Dict[str, object]") -> JSONResponse:
-        return _open_view_response(manager, work_dir, payload)
+    async def open_view(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
+        return await run_in_threadpool(_open_view_response, manager, work_dir, payload)
 
-    @app.get("/api/views/{view_id}")
-    def view(view_id: str) -> JSONResponse:
-        return _view_response(manager, view_id)
+    def view(request: Request) -> JSONResponse:
+        return _view_response(manager, request.path_params["view_id"])
 
-    @app.delete("/api/views/{view_id}")
-    def close_view(view_id: str) -> JSONResponse:
-        return _close_view_response(manager, view_id)
+    def close_view(request: Request) -> JSONResponse:
+        return _close_view_response(manager, request.path_params["view_id"])
 
-    @app.api_route("/assets/content_views.mjs", methods=["GET", "HEAD"])
-    @app.api_route("/assets/content_views.css", methods=["GET", "HEAD"])
-    @app.api_route("/assets/content_views.LICENSE.txt", methods=["GET", "HEAD"])
-    @app.api_route("/assets/editor.mjs", methods=["GET", "HEAD"])
-    @app.api_route("/assets/editor.css", methods=["GET", "HEAD"])
     def view_asset(request: Request) -> Response:
         return _view_asset_response(
             request.url.path.rsplit("/", 1)[-1], request, view_asset_cache
         )
 
-    @app.get("/ws/session")
-    async def websocket_backend_hint() -> JSONResponse:
+    async def websocket_backend_hint(request: Request) -> JSONResponse:
         return _websocket_backend_hint_response()
 
-    @app.get("/api/sessions")
-    async def sessions() -> JSONResponse:
+    async def sessions(request: Request) -> JSONResponse:
         return _sessions_response(manager)
 
-    @app.post("/api/sessions")
-    async def new_session() -> JSONResponse:
+    async def new_session(request: Request) -> JSONResponse:
         return await _new_session_response(manager)
 
-    @app.delete("/api/sessions/{session_id}")
-    async def delete_session(session_id: str) -> JSONResponse:
-        return await _delete_session_response(manager, session_id)
+    async def delete_session(request: Request) -> JSONResponse:
+        return await _delete_session_response(manager, request.path_params["session_id"])
 
-    @app.get("/api/session")
-    async def session(
-        session_id: "typing.Union[str, None]" = None,
-    ) -> JSONResponse:
-        return _session_response(manager, session_id)
+    async def session(request: Request) -> JSONResponse:
+        return _session_response(manager, request.query_params.get("session_id"))
 
-    @app.post("/api/session/message")
-    async def message(
-        payload: "typing.Dict[str, object]",
-    ) -> JSONResponse:
+    async def message(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
         return await _message_response(manager, payload)
 
-    @app.websocket("/ws/session")
     async def websocket_session(websocket: WebSocket) -> None:
         auth_token = typing.cast(str, app.state.workspace_auth_token)
         if not _auth_cookie_matches(
@@ -1269,9 +1293,32 @@ def _install_workspace_routes(
             return
         await _websocket_session_handler(manager, websocket)
 
-    @app.api_route("/{asset_path:path}", methods=["GET", "HEAD"])
-    async def board_asset(asset_path: str) -> Response:
-        return _board_asset_response(board_path, asset_path)
+    async def board_asset(request: Request) -> Response:
+        return _board_asset_response(board_path, request.path_params["asset_path"])
+
+    app.routes.extend([
+        Route("/", index, methods=["GET"]),
+        Route("/favicon.ico", favicon, methods=["GET"]),
+        Route("/board", board, methods=["GET", "HEAD"]),
+        Route("/api/board", board_status, methods=["GET"]),
+        Route("/api/views", views, methods=["GET"]),
+        Route("/api/views/open", open_view, methods=["POST"]),
+        Route("/api/views/{view_id}", view, methods=["GET"]),
+        Route("/api/views/{view_id}", close_view, methods=["DELETE"]),
+        Route("/assets/content_views.mjs", view_asset, methods=["GET", "HEAD"]),
+        Route("/assets/content_views.css", view_asset, methods=["GET", "HEAD"]),
+        Route("/assets/content_views.LICENSE.txt", view_asset, methods=["GET", "HEAD"]),
+        Route("/assets/editor.mjs", view_asset, methods=["GET", "HEAD"]),
+        Route("/assets/editor.css", view_asset, methods=["GET", "HEAD"]),
+        Route("/ws/session", websocket_backend_hint, methods=["GET"]),
+        Route("/api/sessions", sessions, methods=["GET"]),
+        Route("/api/sessions", new_session, methods=["POST"]),
+        Route("/api/sessions/{session_id}", delete_session, methods=["DELETE"]),
+        Route("/api/session", session, methods=["GET"]),
+        Route("/api/session/message", message, methods=["POST"]),
+        WebSocketRoute("/ws/session", websocket_session),
+        Route("/{asset_path:path}", board_asset, methods=["GET", "HEAD"]),
+    ])
 
 
 def _views_response(manager: WorkspaceSessionManager) -> JSONResponse:

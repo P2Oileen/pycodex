@@ -12,9 +12,9 @@ Expected behavior:
 import typing
 
 from ..protocol import JSONDict, JSONValue
-from ..runtime_services import SubAgentManager
 from .agent_tool_schemas import COLLAB_INPUT_ITEMS_SCHEMA
 from .base_tool import BaseTool, ToolContext
+from .runtime_services import SubAgentManager
 
 SEND_INPUT_OUTPUT_SCHEMA = {
     "type": "object",

@@ -34,7 +34,7 @@ from pycodex import (
     ToolSpec,
     UserMessage,
 )
-from pycodex.compat import ThreadingHTTPServer
+from pycodex.utils.compat import ThreadingHTTPServer
 from pycodex.events import AssistantDeltaEvent, TokenCountEvent, ToolCalledEvent
 from pycodex.model import (
     RESPONSES_LITE_HEADER,

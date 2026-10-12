@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from tests.fakes import ScriptedModelClient
 from workspace_server.app import build_parser, run_serve_cli

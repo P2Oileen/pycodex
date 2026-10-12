@@ -9,8 +9,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pytest
-from fastapi.testclient import TestClient
 from PIL import Image
+from starlette.testclient import TestClient
 
 import workspace_server.app as workspace_app
 from pycodex import AssistantMessage, ModelResponse
@@ -809,6 +809,43 @@ def test_view_routes_are_authenticated_and_workspace_scoped(tmp_path, multi):
         assert browser.get(prefix + "/api/views").json() == {"views": []}
         assert browser.get(prefix + "/api/views/" + view_id).status_code == 404
         assert browser.delete(prefix + "/api/views/" + view_id).status_code == 404
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_opening_view_does_not_block_session_polling(tmp_path, monkeypatch, multi):
+    (tmp_path / "A.py").write_text("value = 1\n", encoding="utf-8")
+    manager = WorkspaceSessionManager(make_session, None)
+    if multi:
+        app = create_multi_workspace_app(WorkspaceRegistry([
+            WorkspaceEntry(WorkspaceDefinition("first", None, tmp_path), manager),
+        ]))
+        prefix = "/w/first"
+    else:
+        app = create_app(manager, None, work_dir=tmp_path)
+        prefix = ""
+    entered = threading.Event()
+    release = threading.Event()
+    original = workspace_app._open_view_response
+
+    def blocked_open(*args):
+        entered.set()
+        assert release.wait(5), "view operation was not released"
+        return original(*args)
+
+    monkeypatch.setattr(workspace_app, "_open_view_response", blocked_open)
+    with TestClient(app) as browser, ThreadPoolExecutor(max_workers=2) as executor:
+        opened = executor.submit(
+            browser.post, prefix + "/api/views/open", json={"href": "A.py"}
+        )
+        try:
+            assert entered.wait(5)
+            polled = executor.submit(browser.get, prefix + "/api/session")
+            assert polled.result(timeout=2).status_code == 200
+        finally:
+            release.set()
+        assert opened.result(timeout=5).json()["view"]["documents"][0]["text"] == (
+            "value = 1\n"
+        )
 
 
 def test_view_asset_compression_cache_and_revalidation(tmp_path, monkeypatch):

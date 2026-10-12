@@ -1,4 +1,4 @@
-"""Minimal FastAPI Chat Completions server for standalone responses-server tests."""
+"""Minimal ASGI Chat Completions server for standalone responses-server tests."""
 
 import asyncio
 import json
@@ -10,8 +10,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, StreamingResponse
+from starlette.routing import Route
 
 DEFAULT_MODEL_ID = "gpt-5.4"
 
@@ -60,10 +62,10 @@ class CaptureStore:
         )
 
 
-class RunningFastAPITestServer:
+class RunningASGITestServer:
     def __init__(
         self,
-        app: "FastAPI",
+        app: "Starlette",
         host: "str" = "127.0.0.1",
         port: "typing.Union[int, None]" = None,
     ) -> "None":
@@ -97,14 +99,14 @@ class RunningFastAPITestServer:
         deadline = time.time() + timeout_seconds
         while not self._server.started:
             if time.time() >= deadline:
-                raise RuntimeError("timed out waiting for fake FastAPI server to start")
+                raise RuntimeError("timed out waiting for fake ASGI server to start")
             time.sleep(0.01)
 
     def stop(self, timeout_seconds: "float" = 5.0) -> "None":
         self._server.should_exit = True
         self._thread.join(timeout=timeout_seconds)
         if self._thread.is_alive():
-            raise RuntimeError("timed out waiting for fake FastAPI server to stop")
+            raise RuntimeError("timed out waiting for fake ASGI server to stop")
 
 
 def build_text_chunks(
@@ -351,8 +353,7 @@ def build_test_app(
     model_id: "str" = DEFAULT_MODEL_ID,
     messages_events: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]], None]" = None,
     chunk_delay_seconds: "float" = 0.0,
-) -> "FastAPI":
-    app = FastAPI(title="FakeChat", version="0.1.0")
+) -> "Starlette":
     chat_completion_count = 0
     messages_count = 0
 
@@ -369,17 +370,13 @@ def build_test_app(
             body,
         )
 
-    @app.get("/models")
-    @app.get("/v1/models")
     async def models(request: "Request"):
         await write_capture(request, None)
-        return {
+        return JSONResponse({
             "object": "list",
             "data": [{"id": model_id, "object": "model"}],
-        }
+        })
 
-    @app.post("/chat/completions")
-    @app.post("/v1/chat/completions")
     async def chat_completions(request: "Request"):
         nonlocal chat_completion_count
         try:
@@ -408,8 +405,6 @@ def build_test_app(
             },
         )
 
-    @app.post("/messages")
-    @app.post("/v1/messages")
     async def messages(request: "Request"):
         nonlocal messages_count
         try:
@@ -442,8 +437,7 @@ def build_test_app(
             },
         )
 
-    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-    async def fallback(path: "str", request: "Request"):
+    async def fallback(request: "Request"):
         body: "object" = None
         if request.method != "GET":
             try:
@@ -453,7 +447,18 @@ def build_test_app(
         await write_capture(request, body)
         return JSONResponse({"ok": True})
 
-    return app
+    return Starlette(routes=[
+        Route("/models", models, methods=["GET"]),
+        Route("/v1/models", models, methods=["GET"]),
+        Route("/chat/completions", chat_completions, methods=["POST"]),
+        Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+        Route("/messages", messages, methods=["POST"]),
+        Route("/v1/messages", messages, methods=["POST"]),
+        Route(
+            "/{path:path}", fallback,
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        ),
+    ])
 
 
 def build_test_server(
@@ -461,8 +466,8 @@ def build_test_server(
     stream_chunks: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]]]",
     model_id: "str" = DEFAULT_MODEL_ID,
     chunk_delay_seconds: "float" = 0.0,
-) -> "RunningFastAPITestServer":
-    return RunningFastAPITestServer(
+) -> "RunningASGITestServer":
+    return RunningASGITestServer(
         build_test_app(
             capture_store,
             stream_chunks,
@@ -477,8 +482,8 @@ def build_messages_server(
     messages_events: "typing.Union[typing.List[typing.Dict[str, object]], typing.List[typing.List[typing.Dict[str, object]]]]",
     model_id: "str" = DEFAULT_MODEL_ID,
     chunk_delay_seconds: "float" = 0.0,
-) -> "RunningFastAPITestServer":
-    return RunningFastAPITestServer(
+) -> "RunningASGITestServer":
+    return RunningASGITestServer(
         build_test_app(
             capture_store,
             [],

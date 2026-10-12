@@ -11,7 +11,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 path
     import tomli as tomllib
 
-from .model_metadata import model_metadata
+from .utils.model_metadata import model_metadata
 from .protocol import ContextMessage, ConversationItem, JSONDict, Prompt, ToolSpec
 from .utils.get_env import (
     get_sandbox_tag,

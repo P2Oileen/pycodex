@@ -7,8 +7,8 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from .compat import ThreadingHTTPServer
-from .portable import (
+from ..utils.compat import ThreadingHTTPServer
+from .client import (
     DEFAULT_STORAGE_SERVER,
     HEALTHCHECK_PATH,
     STORAGE_API_PREFIX,
@@ -166,7 +166,7 @@ class CodexStorageServer:
 
 def build_parser() -> "argparse.ArgumentParser":
     parser = argparse.ArgumentParser(
-        prog="python -m pycodex.portable_server",
+        prog="python -m pycodex.portable.server",
         description="Run a pycodex remote storage service for --put/--call testing.",
     )
     parser.add_argument(

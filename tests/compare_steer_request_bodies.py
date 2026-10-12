@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pycodex.compat import ThreadingHTTPServer
+from pycodex.utils.compat import ThreadingHTTPServer
 from tests.compare_tool_schemas import (
     build_proxy_config_copy,
     load_provider_info,

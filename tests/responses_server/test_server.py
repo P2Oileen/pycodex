@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 import requests
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from responses_server import CompatServerConfig, ManagedResponseServer, StreamRouter
 from responses_server.payload_processors import PAYLOAD_POST_PROCESSORS
@@ -32,6 +32,37 @@ from tests.responses_server.fake_chat_completions_server import (
     build_text_chunks,
     build_tool_call_chunks,
 )
+
+
+@pytest.mark.parametrize("prefix", ["", "/v1"])
+def test_responses_server_http_routes(monkeypatch, prefix):
+    app = ManagedResponseServer.build_app(
+        CompatServerConfig(outcomming_base_url="https://example.invalid/v1")
+    )
+    models = {"object": "list", "data": [{"id": "test", "object": "model"}]}
+    monkeypatch.setattr(app.state.response_server, "list_models", lambda: models)
+
+    with TestClient(app) as client:
+        for path in ("/health", "/healthz"):
+            assert client.get(path).json() == {"ok": True}
+        response = client.get(prefix + "/models")
+        assert response.status_code == 200
+        assert response.json() == models
+        for body in (b"{", b"[]", b"null"):
+            response = client.post(
+                prefix + "/responses",
+                data=body,
+                headers={"Content-Type": "application/json"},
+            )
+            assert response.status_code == 400
+            assert "message" in response.json()["error"]
+        response = client.get(prefix + "/responses")
+        assert response.status_code == 405
+        assert response.json() == {"detail": "Method Not Allowed"}
+        assert response.headers["allow"] == "POST"
+        response = client.get("/missing")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not Found"}
 
 
 def test_responses_server_streams_text_from_chat_backend(tmp_path) -> "None":

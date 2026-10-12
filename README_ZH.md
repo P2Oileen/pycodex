@@ -29,6 +29,10 @@ MIT/BSD 许可。核心包无需加密扩展或编译器，统一分发 `py3-non
 已有 `PCX1` 密文和 call token 保持兼容，大包加解密的耗时会增加。
 源码来源和裁剪范围见 [说明](pycodex/utils/_aes_gcm/README.md)。
 
+Responses 兼容服务和 workspace HTTP 服务直接使用 Starlette 与 Uvicorn；
+两包均不依赖 FastAPI、Pydantic 或 `pydantic-core`。Python 3.6 使用
+Starlette 0.19.x，更新的解释器按包的 Python 版本声明解析兼容版本。
+
 这个仓库把上游 Codex（`https://github.com/openai/codex`）里最核心的 agent
 闭环先抽成一个尽量小的 Python 版本，重点保留两层结构：
 
@@ -100,21 +104,34 @@ uv run pycodex
 
 ## 目录
 
-- `pycodex/protocol.py`：最小的会话 item / prompt 协议
-- `pycodex/events.py`：类型化事件、纯文本视图及有状态展示逻辑
-- `pycodex/utils/event_helpers.py`：无状态的文本、颜色、摘要及结果格式化 helpers
-- `pycodex/utils/image_utils.py`：图片加载、缩放和 data URL 转换
-- `pycodex/model.py`：模型客户端协议和 Responses API 适配器
-- `pycodex/cli.py`：单轮/交互命令行入口、终端 I/O 执行器和输入循环
-- `pycodex/bootstrap.py`：与前端无关的模型、工具、Agent 和会话装配
-- `pycodex/tools/base_tool.py`：`BaseTool`、`ToolRegistry`、`ToolContext`
-- `pycodex/tools/`：具体工具实现
+`pycodex/` 一级只保留核心组件和包入口，配套服务归入 `tools/`、`portable/`
+和 `utils/`。
+
 - `pycodex/agent.py`：主循环
 - `pycodex/runtime.py`：统一会话命令、提交队列和前端事件订阅
+- `pycodex/model.py`：模型客户端协议和 Responses API 适配器
+- `pycodex/context.py`：配置、prompt 构造和指令加载
+- `pycodex/protocol.py`：最小的会话 item / prompt 协议
+- `pycodex/events.py`：类型化事件、纯文本视图及有状态展示逻辑
+- `pycodex/bootstrap.py`：与前端无关的模型、工具、Agent 和会话装配
+- `pycodex/cli.py`：单轮/交互命令行入口、终端 I/O 执行器和输入循环
+- `pycodex/tools/base_tool.py`：`BaseTool`、`ToolRegistry`、`ToolContext`
+- `pycodex/tools/runtime_services.py`：计划、子 Agent、交互问答和权限服务
+- `pycodex/tools/`：具体工具及其执行管理器
+- `pycodex/portable/`：Codex home 存储客户端和服务端，整套保留在 core
+- `pycodex/utils/compat.py`：受支持 Python 版本的兼容 helpers
+- `pycodex/utils/doctor.py`：配置与连通性诊断
+- `pycodex/utils/model_metadata.py`：内置模型元数据查询
+- `pycodex/utils/debug.py`：调试路径及 `pycodex.debug()` 实现
+- `pycodex/utils/event_helpers.py`：无状态的文本、颜色、摘要及结果格式化 helpers
+- `pycodex/utils/image_utils.py`：图片加载、缩放和 data URL 转换
+- `pycodex/prompts/`：内置提示和模型元数据
 - `packages/pycodex-ws/workspace_server/`：Web 看板、API、文件/diff 查看器
 - `packages/pycodex-ws/pycodex_ws/`：飞书、IPython 与 workspace 装配
 - `extensions/vscode/`：通过 workspace HTTP API 接入的 VS Code 聊天前端
 - `tests/test_agent.py`：核心行为测试
+
+导入路径和目录职责见 [运行时文档](docs/RUNTIME.md#package-layout)。
 
 ## 当前对齐状态
 
@@ -328,6 +345,12 @@ pycodex doctor --json
 
 `Portable Mode` 适合在新机器、新容器或新的调试镜像里，快速带起你平时使用的
 `pycodex` 配置。
+
+存储客户端和服务端都包含在 `python-codex` 中。本地使用时，先在另一个终端启动：
+
+```bash
+python -m pycodex.portable.server --root .tmp/pycodex_storage --host 127.0.0.1 --port 5577
+```
 
 常见用法：
 

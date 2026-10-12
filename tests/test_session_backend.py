@@ -627,7 +627,7 @@ async def test_late_frontends_restore_active_stream_and_follow_completion():
 @pytest.mark.parametrize("threaded", [False, True])
 @pytest.mark.parametrize("transport", ["http", "websocket"])
 def test_web_transports_deliver_structured_answers(threaded, transport):
-    from fastapi.testclient import TestClient
+    from starlette.testclient import TestClient
 
     class QuestionTool(BaseTool):
         name = "question_fixture"

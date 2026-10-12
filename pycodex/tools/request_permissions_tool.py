@@ -10,8 +10,8 @@ Expected behavior:
 """
 
 from ..protocol import JSONDict, JSONValue
-from ..runtime_services import RequestPermissionsManager
 from .base_tool import BaseTool, ToolContext
+from .runtime_services import RequestPermissionsManager
 
 NETWORK_PERMISSIONS_SCHEMA = {
     "type": "object",

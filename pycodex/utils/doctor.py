@@ -10,9 +10,9 @@ from pathlib import Path
 
 import requests
 
-from .model import ResponsesModelClient, ResponsesProviderConfig
-from .protocol import AssistantMessage, Prompt, UserMessage
-from .utils.dotenv import DOTENV_FILENAME, load_codex_dotenv
+from ..model import ResponsesModelClient, ResponsesProviderConfig
+from ..protocol import AssistantMessage, Prompt, UserMessage
+from .dotenv import DOTENV_FILENAME, load_codex_dotenv
 
 
 @dataclass

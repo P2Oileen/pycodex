@@ -9,9 +9,9 @@ Expected behavior:
 """
 
 from ..protocol import JSONDict, JSONValue
-from ..runtime_services import SubAgentManager
 from .agent_tool_schemas import AGENT_STATUS_SCHEMA
 from .base_tool import BaseTool, ToolContext
+from .runtime_services import SubAgentManager
 
 RESUME_AGENT_OUTPUT_SCHEMA = {
     "type": "object",

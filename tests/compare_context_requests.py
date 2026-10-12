@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 
 from pycodex.bootstrap import build_agent, build_model, build_runtime
-from pycodex.compat import ThreadingHTTPServer
+from pycodex.utils.compat import ThreadingHTTPServer
 from tests.compare_steer_request_bodies import scripted_origin_server
 from tests.fake_responses_server import CaptureStore, build_proxy_handler
 

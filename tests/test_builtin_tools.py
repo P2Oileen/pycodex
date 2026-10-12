@@ -9,7 +9,7 @@ import pytest
 
 from pycodex import Agent, AgentRuntime, AssistantMessage, ContextConfig, ModelResponse
 from pycodex.protocol import ToolCall, ToolResult, UserMessage
-from pycodex.runtime_services import (
+from pycodex.tools.runtime_services import (
     PlanStore,
     RequestPermissionsManager,
     SubAgentManager,

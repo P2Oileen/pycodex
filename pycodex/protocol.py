@@ -19,7 +19,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from .compat import Literal, TypeAlias
+from .utils.compat import Literal, TypeAlias
 
 JSONValue: "TypeAlias" = Any
 JSONDict: "TypeAlias" = typing.Dict[str, Any]

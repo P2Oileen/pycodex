@@ -1,3 +1,5 @@
+"""Compatibility helpers for supported Python versions."""
+
 import asyncio
 import functools
 import shlex

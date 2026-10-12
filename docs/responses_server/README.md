@@ -5,8 +5,11 @@
 它和现有 `pycodex/` runtime 保持隔离，目标是建模一个面向 Codex 的本地
 `/v1/responses` 服务，再把请求翻译到 outcomming backend。
 
-当前 HTTP backend 使用 FastAPI。
-当前独立测试里的 fake outcomming chat backend 也使用 FastAPI。
+当前 HTTP backend 直接使用 Starlette 与 Uvicorn，不依赖 FastAPI、
+Pydantic 或 `pydantic-core`。独立测试里的 fake outcomming chat backend
+也使用 Starlette。Python 3.6 使用 Starlette 0.19.x。
+路由显式返回 JSON 或 SSE，保留原有请求校验和错误状态；
+不再提供 FastAPI 自动生成的 `/docs`、`/redoc` 和 `/openapi.json`。
 
 compat runtime 的下游 chat-completions / messages 流读取 timeout 默认是
 `300` 秒，与 pycodex Responses client 的 `300_000 ms` SSE idle timeout
@@ -65,7 +68,7 @@ prompt 渲染路径一致，也保留 provider 自定义 effort 值（例如 `ma
 
 当前职责拆分：
 
-- `responses_server/app.py`：FastAPI app 和 CLI 入口
+- `responses_server/app.py`：Starlette app 和 CLI 入口
 - `responses_server/server.py`：`ResponseServer`，负责持有 `SessionStore` 和 `StreamRouter`
 - `responses_server/stream_router.py`：`StreamRouter`，负责 incomming 请求翻译、outcomming request 和流路由；对 `model_provider = "vllm"` 额外适配 chat-level reasoning
 - `responses_server/payload_processors.py`：按 `CompatServerConfig.model_provider` 选择 provider-specific payload `post_process`
@@ -177,5 +180,5 @@ uv run pytest tests/test_model.py -k long_compat_reasoning -q
 
 测试结构现在是：
 
-- 主 incomming server：FastAPI app + `fastapi.testclient.TestClient`
-- fake outcomming chat server：FastAPI app + `uvicorn` 临时实例
+- 主 incomming server：Starlette app + `starlette.testclient.TestClient`
+- fake outcomming chat server：Starlette app + `uvicorn` 临时实例

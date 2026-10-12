@@ -33,7 +33,7 @@ def test_workspace_distribution_tracks_core_version() -> "None":
         "pillow>=9.0.0",
     ]
     assert not any(
-        dependency.startswith(("pillow", "pycryptodomex"))
+        dependency.startswith(("pillow", "pycryptodomex", "fastapi", "pydantic"))
         for dependency in core["project"]["dependencies"]
     )
     assert core["project"]["scripts"] == {"pycodex": "pycodex.cli:main"}
@@ -92,7 +92,7 @@ def test_python_module_entrypoint(tmp_path, arguments, exit_code, output):
 
 
 @pytest.mark.parametrize("filename", ["test.yml", "publish.yml"])
-def test_python36_workflows_install_yaml_dependency(filename):
+def test_python36_workflows_install_compatibility_dependencies(filename):
     path = ROOT / ".github" / "workflows" / filename
     workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["pytest-py36"]["steps"]
@@ -102,3 +102,5 @@ def test_python36_workflows_install_yaml_dependency(filename):
         if step["name"] == "Install Python 3.6 compatibility dependencies"
     )
     assert '"pyyaml>=6.0"' in install["run"]
+    assert '"starlette>=0.19.1,<0.20"' in install["run"]
+    assert "fastapi" not in install["run"]

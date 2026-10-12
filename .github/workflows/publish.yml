@@ -86,7 +86,7 @@ jobs:
             "loguru>=0.7.3,<1" \
             "pycryptodomex>=3.20" \
             "pillow>=8.4.0,<9" \
-            "fastapi>=0.83,<0.84" \
+            "starlette>=0.19.1,<0.20" \
             "uvicorn>=0.16,<0.17" \
             "pytest>=6.2.5,<7" \
             "pytest-asyncio>=0.16,<0.17"
@@ -150,7 +150,7 @@ jobs:
             --no-deps --force-reinstall "$RUNNER_TEMP"/pycodex-sdist-wheel/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/pycodex-wheel/bin/python" - <<'PY'
-          from pycodex.portable import _decrypt_bundle, _encrypt_bundle
+          from pycodex.portable.client import _decrypt_bundle, _encrypt_bundle
           payload = b"source distribution fixture"
           assert _decrypt_bundle(_encrypt_bundle(payload, "public fixture"), "public fixture") == payload
           PY

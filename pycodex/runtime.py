@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 
 from .agent import BASE_EVENT_HANDLER, Agent, TurnInterrupted
-from .compat import Literal
+from .utils.compat import Literal
 from .events import (
     AssistantDeltaEvent,
     AutoCompactCompletedEvent,

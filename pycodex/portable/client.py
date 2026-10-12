@@ -12,7 +12,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 
-from .utils.crypto import aes_gcm_decrypt, aes_gcm_encrypt
+from ..utils.crypto import aes_gcm_decrypt, aes_gcm_encrypt
 
 try:
     import tomllib

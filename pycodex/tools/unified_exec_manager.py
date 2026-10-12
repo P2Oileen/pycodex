@@ -22,7 +22,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ..compat import shlex_join, stream_writer_is_closing
+from ..utils.compat import shlex_join, stream_writer_is_closing
 from ..utils.truncation import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     approx_token_count,
