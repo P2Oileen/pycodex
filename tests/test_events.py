@@ -612,7 +612,7 @@ def test_queue_render_consumes_feedback_only_when_input_starts(explicit):
     assert operations == ([("log", "[steer] queued: next")] if explicit else [])
     TurnStartedEvent("turn", ("next",), "submission").render(display)
     assert operations[-3:] == [
-        ("status", "turn_started"),
+        ("status", "understood"),
         ("log", "[steer] inserted: next"),
         ("log", "user> next"),
     ]

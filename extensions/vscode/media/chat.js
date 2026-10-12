@@ -185,7 +185,6 @@ import { Composer } from "./composer.js";
     const signature = JSON.stringify(turn);
     if (existing?.signature === signature) return existing;
     const element = existing?.element || textElement("section", "turn", "");
-    const reasoningOpen = element.querySelector(".reasoning")?.open;
     element.replaceChildren();
     if (turn.kind !== "control" && turn.prompt) {
       const user = textElement("div", "user-message", "");
@@ -193,11 +192,8 @@ import { Composer } from "./composer.js";
       element.append(user);
     }
     if (turn.thinking) {
-      const reasoning = textElement("details", "reasoning", "");
-      reasoning.open = Boolean(reasoningOpen);
-      const content = textElement("div", "response", "");
-      content.innerHTML = markdown.render(turn.thinking);
-      reasoning.append(textElement("summary", "", "思考过程"), content);
+      const reasoning = textElement("div", "reasoning", "");
+      reasoning.append(textElement("div", "response", turn.thinking));
       element.append(reasoning);
     }
     if (turn.response) {
@@ -207,11 +203,6 @@ import { Composer } from "./composer.js";
       element.append(response);
     }
     if (turn.error) element.append(textElement("div", "turn-error", turn.error));
-    const status = {
-      completed: "已完成", failed: "失败", error: "失败", interrupted: "已接入新的输入",
-      queued: "已排队", running: "回复中",
-    }[turn.status] || turn.status;
-    if (status) element.append(textElement("div", "turn-footer", status));
     return { element, signature };
   }
   function renderConversation(snapshot) {
@@ -278,13 +269,9 @@ import { Composer } from "./composer.js";
     byId("error-settings").hidden = !retry;
     byId("question").hidden = !snapshot?.input_request;
     byId("question-text").textContent = snapshot?.input_request?.text || "";
-    const statusLabels = {
-      talking: "正在回复…", reconnecting: "正在重新连接…", compacting: "正在整理对话…",
-      compacted: "对话已整理", sleeping: "后台任务运行中",
-    };
     const activity = !sessionKey ? "" : state.closing ? "正在关闭，等待任务收尾…" : sending ? "正在发送…" : !snapshot ? "正在连接…" :
       !snapshot.accepts_input ? "会话已关闭" : snapshot.running
-        ? statusLabels[snapshot.status] || snapshot.status || "正在处理…" : "";
+        ? snapshot.status || "正在处理…" : "";
     byId("activity").hidden = !activity || Boolean(error) || Boolean(snapshot?.input_request);
     byId("activity-text").textContent = activity;
     byId("spinner").hidden = Boolean(snapshot && !snapshot.accepts_input && !state.closing);

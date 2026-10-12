@@ -73,7 +73,7 @@ class EventDisplay:
 
     def begin_turn(self, event):
         self.finish_stream()
-        self.set_status(event.kind)
+        self.set_status("understood")
         submission_id = event.submission_id or event.turn_id
         for prompts in (self.inserted_steer_prompts, self.queued_steer_prompts):
             for prompt in prompts.pop(submission_id, []):

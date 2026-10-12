@@ -9,6 +9,7 @@ from pycodex.events import (
     InputQueuedEvent,
     InputRequestedEvent,
     InputResolvedEvent,
+    ModelCalledEvent,
     SessionClosedEvent,
     SessionStateEvent,
     StreamErrorEvent,
@@ -119,13 +120,13 @@ def test_feishu_card_uses_session_title_and_preserves_input_status() -> None:
     assert rendered["header"]["title"]["content"] == "Project notes"
     assert rendered["header"]["template"] == "blue"
     assert _element(rendered, "user_prompt_md")["content"] == "user> hello"
-    assert _prompt_input(rendered)["placeholder"]["content"] == "pycodex> turn_started"
+    assert _prompt_input(rendered)["placeholder"]["content"] == "pycodex> understood"
     assert not _prompt_input(rendered)["disabled"]
     card.display.set_context_window_tokens(100000)
     card.apply_event(TokenCountEvent({"total_tokens": 56000}))
     assert (
         _prompt_input(card.render())["placeholder"]["content"]
-        == "pyco(50%)> turn_started"
+        == "pyco(50%)> understood"
     )
 
 
@@ -146,7 +147,8 @@ def test_feishu_card_delegates_unknown_events_to_its_own_plain_display() -> None
     assert other.output_text == other.display.stream_buffer == ""
     rendered = card.render()
     assert _answer_markdown_content(rendered) == "Ready."
-    assert _element(rendered, "activity_md")["content"] == "new event"
+    assert not _has_element(rendered, "activity_md")
+    assert "new event" not in json.dumps(rendered)
     assert _working_markdown_content(rendered) == "live text"
     assert (
         _prompt_input(rendered)["placeholder"]["content"] == "custom> custom activity"
@@ -248,13 +250,17 @@ def test_feishu_card_shows_current_delta_segment_above_input() -> None:
 
     call = ToolCall("call", "shell", {"command": ["pwd"]})
     card.apply_event(ToolStartedEvent("turn", call))
+    assert _working_markdown_content(card.render()) == "first segment"
     card.apply_event(
         ToolCompletedEvent("turn", call, ToolResult("call", "shell", "done"))
     )
     rendered = card.render()
-    assert not _has_element(rendered, "working_output_box")
+    assert _working_markdown_content(rendered) == "first segment"
     assert _answer_markdown_content(rendered) == "(*last turn)\nprevious answer"
-    assert _element(rendered, "activity_md")["content"] == "[shell] pwd -> done"
+    assert not _has_element(rendered, "activity_md")
+    assert "[shell]" not in json.dumps(rendered)
+    card.apply_event(ModelCalledEvent("turn", 2, 4, 1))
+    assert _working_markdown_content(card.render()) == "first segment"
 
     card.apply_event(AssistantDeltaEvent("final ", "turn"))
     card.apply_event(AssistantDeltaEvent("answer", "turn"))
@@ -267,7 +273,7 @@ def test_feishu_card_shows_current_delta_segment_above_input() -> None:
     assert not _has_element(rendered, "working_output_box")
 
 
-def test_feishu_card_shared_buffer_discards_retries_and_flushes_fatal_output() -> None:
+def test_feishu_card_discards_retries_and_keeps_fatal_output_separate() -> None:
     card = PycodexCard()
     card.apply_event(TurnCompletedEvent("previous", 1, "previous answer", 0))
     card.apply_event(TurnStartedEvent("turn", ("next prompt",)))
@@ -281,10 +287,8 @@ def test_feishu_card_shared_buffer_discards_retries_and_flushes_fatal_output() -
     card.apply_event(AssistantDeltaEvent("retained"))
     card.apply_event(TurnFailedEvent("turn", 1, "failed", "RuntimeError", 0))
     assert card.output_text == "(*last turn)\nprevious answer"
-    assert _element(card.render(), "activity_md")["content"] == (
-        "assistant> retained\nError: failed"
-    )
-    assert not _has_element(card.render(), "working_output_box")
+    assert _element(card.render(), "activity_md")["content"] == "failed"
+    assert _working_markdown_content(card.render()) == "retained"
 
 
 @pytest.mark.parametrize(
@@ -347,9 +351,8 @@ def test_feishu_card_restores_snapshot_without_replaying_active_turn_twice() -> 
     assert card.user_prompt == "live"
     card.show_history(0)
     assert card.output_text == "(*last turn)\nanswer"
-    assert _element(card.render(), "activity_md")["content"] == (
-        "user> live\nassistant> partial\n" + request.visualize()
-    )
+    assert _element(card.render(), "activity_md")["content"] == request.visualize()
+    assert _working_markdown_content(card.render()) == "partial"
     assert card.prompt_text == "other> "
     assert card.display.stream_buffer == ""
     assert card.render()["header"]["title"]["content"] == "Restored"
@@ -385,9 +388,9 @@ def test_feishu_card_disables_closed_input_and_removes_detached_input() -> None:
     rendered = card.render()
     assert rendered["header"]["title"]["content"] == "pycodex"
     assert _answer_markdown_content(rendered) == "Ready."
-    assert _element(rendered, "activity_md")["content"] == "assistant> last output"
+    assert _working_markdown_content(rendered) == "last output"
     assert _prompt_input(rendered)["disabled"]
-    assert not _has_element(rendered, "working_output_box")
+    assert not _has_element(rendered, "activity_md")
 
     card.detach()
     rendered = card.render()

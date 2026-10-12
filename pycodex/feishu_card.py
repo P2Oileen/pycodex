@@ -8,11 +8,16 @@ import requests
 
 from .events import (
     DEFAULT_MAIN_PROMPT,
+    CommandCompletedEvent,
+    CommandFailedEvent,
     Event,
     EventDisplay,
     InputQueuedEvent,
+    InputRequestedEvent,
     SessionStateEvent,
+    StreamErrorEvent,
     TurnCompletedEvent,
+    TurnFailedEvent,
     TurnStartedEvent,
 )
 from .utils.event_helpers import completed_history
@@ -52,12 +57,14 @@ class PycodexCard:
         self.model_name = "pycodex"
         self.output_text = ""
         self.activity_text = ""
+        self.working_output = ""
         self.user_prompt = ""
         self.turn_history = []
         self.history_index = None
         self._active_turn_id = None
-        self._event_output = ""
-        self.display = EventDisplay(self._log, self._set_status, self._set_prompt)
+        self.display = EventDisplay(
+            lambda text: None, self._set_status, self._set_prompt
+        )
         self.detached = False
         self.accepts_input = True
         self._user_access_token = None
@@ -159,7 +166,6 @@ class PycodexCard:
         self.detached = True
 
     def apply_event(self, event: "Event") -> None:
-        self._event_output = ""
         if isinstance(event, SessionStateEvent):
             state = event.state
             self.model_name = state["model"]
@@ -171,6 +177,7 @@ class PycodexCard:
                 self.turn_history = list(completed_history(state))
                 self.history_index = None
                 active = state["active_turn"]
+                self.working_output = active["assistant_text"] if active is not None else ""
                 self._active_turn_id = active["turn_id"] if active is not None else None
                 self.user_prompt = (
                     "\n".join(active["user_texts"])
@@ -197,26 +204,30 @@ class PycodexCard:
                     self.user_prompt = prompt
                 self._active_turn_id = event.turn_id
         event.render(self.display)
+        if self.display.stream_buffer:
+            self.working_output = self.display.stream_buffer
         if isinstance(event, TurnCompletedEvent):
             if event.output_text:
                 self.output_text = event.output_text
                 self.turn_history.append((self.user_prompt, event.output_text))
             self.activity_text = ""
+            self.working_output = ""
             self._active_turn_id = None
-        elif isinstance(event, TurnStartedEvent):
+        elif isinstance(event, (TurnStartedEvent, StreamErrorEvent)):
             self.activity_text = ""
-        elif self._event_output:
-            self.activity_text = self._event_output
+            self.working_output = ""
+        elif isinstance(event, (
+            CommandCompletedEvent, CommandFailedEvent, InputRequestedEvent, TurnFailedEvent,
+        )):
+            self.activity_text = event.visualize()
+        elif isinstance(event, SessionStateEvent) and event.reason in {"attach", "history"}:
+            request = event.state["input_request"]
+            self.activity_text = request.visualize() if request is not None else ""
 
     def _mark_last_turn_output(self) -> None:
         prefix = "(*last turn)\n"
         if self.output_text and not self.output_text.startswith(prefix):
             self.output_text = prefix + self.output_text
-
-    def _log(self, text: str) -> None:
-        self._event_output = (
-            self._event_output + ("\n" if self._event_output else "") + text
-        )[-CARD_OUTPUT_LIMIT:]
 
     def _set_status(self, text: "typing.Union[str, None]") -> None:
         self.status = text
@@ -232,7 +243,7 @@ class PycodexCard:
         status = "Closed" if self.display.closed else self.status
         input_disabled = not self.accepts_input or self.detached or self.display.closed
         output = _truncate(self.output_text, CARD_OUTPUT_LIMIT) or "Ready."
-        working_output = _truncate(self.display.stream_buffer, CARD_OUTPUT_LIMIT)
+        working_output = _truncate(self.working_output, CARD_OUTPUT_LIMIT)
         color = _status_color("Detached" if self.detached else status or "Idle")
         body_elements = [
             _output_box(
@@ -256,7 +267,9 @@ class PycodexCard:
                 {
                     "tag": "markdown",
                     "element_id": "activity_md",
-                    "content": _render_output_content(self.activity_text, output_mode),
+                    "content": _render_output_content(
+                        _truncate(self.activity_text, CARD_OUTPUT_LIMIT), output_mode
+                    ),
                 }
             )
         if self.user_prompt:

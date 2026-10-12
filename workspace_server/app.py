@@ -399,7 +399,7 @@ class WebSessionView:
         turn = self._turns_by_submission_id.get(submission_id)
 
         if isinstance(event, TurnStartedEvent):
-            self._set_spinner_status(event.kind)
+            self._set_spinner_status("understood")
             turn = self._ensure_turn(submission_id, turn_id, event.visualize())
             turn["status"] = "running"
             turn["thinking"] = ""
