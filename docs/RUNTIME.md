@@ -702,7 +702,8 @@ toolbar. Each excerpt is limited to 200 lines and 12,000 source characters, with
 an explicit truncation marker. The token uses the same compact labels as view
 tabs, including both short commit IDs, followed by its side and line range.
 Tokens share the tabs' 180px width limit and use an ellipsis; their full labels
-remain available on hover.
+remain available on hover. Tokens and their details shrink with the composer,
+and the details' action buttons wrap within narrow panes.
 Its expanded `View` field preserves the complete title with full Git revisions;
 Git context also identifies the repository, and diff context identifies the
 original/modified side.

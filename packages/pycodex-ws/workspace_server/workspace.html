@@ -641,11 +641,13 @@
       min-width: 0;
       padding: 8px 20px 10px;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 6px;
       align-content: end;
       background: var(--panel-raised);
     }
     .composer-surface {
+      min-width: 0;
       border: 1px solid var(--line-strong);
       border-radius: 10px;
       background: var(--panel-raised);
@@ -735,7 +737,7 @@
     }
     .context-token {
       display: inline-block;
-      max-width: min(100%, var(--tab-max-width));
+      max-width: min(calc(100% - 4px), var(--tab-max-width));
       vertical-align: middle;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -751,6 +753,7 @@
     }
     .context-token:hover { border-color: var(--accent); }
     .context-block-detail {
+      min-width: 0;
       margin: 0 10px 10px;
       border: 1px solid var(--line);
       border-radius: var(--radius-sm);
@@ -759,6 +762,7 @@
     .context-block-detail[hidden] { display: none; }
     .context-block-heading {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       padding: 4px 8px;
@@ -767,14 +771,25 @@
       font-size: 12px;
     }
     .context-block-heading span {
-      flex: 1;
+      flex: 1 1 120px;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .context-block-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 4px;
+      min-width: 0;
+      max-width: 100%;
+      margin-left: auto;
+    }
     .context-block-heading button {
       flex: 0 0 auto;
+      max-width: 100%;
+      overflow-wrap: anywhere;
       border: 0;
       border-radius: var(--radius-sm);
       padding: 3px 6px;
@@ -785,6 +800,8 @@
     .context-block-heading button:hover { background: var(--accent-soft); }
     .context-block-editor {
       display: block;
+      min-width: 0;
+      max-width: 100%;
       width: 100%;
       height: 150px;
       max-height: 30vh;
@@ -1055,8 +1072,10 @@
           <div id="contextBlockDetail" class="context-block-detail" hidden>
             <div class="context-block-heading">
               <span id="contextBlockLabel"></span>
-              <button id="contextBlockRemove" type="button">Remove</button>
-              <button id="contextBlockDone" type="button">Done</button>
+              <div class="context-block-actions">
+                <button id="contextBlockRemove" type="button">Remove</button>
+                <button id="contextBlockDone" type="button">Done</button>
+              </div>
             </div>
             <textarea id="contextBlockEditor" class="context-block-editor" spellcheck="false"></textarea>
           </div>

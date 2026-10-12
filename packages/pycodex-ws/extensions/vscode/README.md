@@ -172,6 +172,7 @@ code --extensionDevelopmentPath="$PWD" /absolute/path/to/your/project
 - Each insertion appears as a file token at the message cursor, replacing any
   selected text. Tokens sit among your words like emoji. Click one to edit its
   content or remove it; Backspace and Delete remove a token as a single element.
+  Long tokens are capped at 180px and show their full label on hover.
   Copy/paste within the composer preserves tokens; pasting elsewhere yields their
   expanded text. Send expands each token at its position into one ordinary prompt,
   preserving the order of text and code. If there is no session, inserting context
