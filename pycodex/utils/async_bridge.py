@@ -5,10 +5,9 @@ import inspect
 def run_async(awaitable):
     """Run an awaitable from synchronous code and return its real result.
 
-    This helper is intended for sync call sites (for example, IPython cells)
-    that need to call async agent APIs without managing the event loop
-    themselves. It returns the underlying result directly and raises on
-    failure instead of swallowing exceptions.
+    This helper lets synchronous callers use async agent APIs without
+    managing the event loop themselves. It returns the underlying result
+    directly and propagates exceptions.
     """
     try:
         running_loop = asyncio.get_running_loop()

@@ -515,7 +515,6 @@ schema 一致的工具有：
 | `resume_agent` | `legacy-flat mismatch; round-trip same` | `class aligned` | pycodex 首轮仍平铺暴露此工具，upstream 首轮改用 `tool_search`；已补抓真实 happy path；`pending_init` 返回值、sub-agent tool 子集、sub-agent context 都已对齐 |
 | `wait_agent` | `legacy-flat mismatch; round-trip same` | `class aligned` | pycodex 首轮仍平铺暴露此工具，upstream 首轮改用 `tool_search`；历史 round-trip 外层 shape 一致，仅剩动态 agent id |
 | `close_agent` | `legacy-flat mismatch; round-trip same` | `class aligned` | pycodex 首轮仍平铺暴露此工具，upstream 首轮改用 `tool_search`；schema/runtime 输出为 upstream 当前的 `previous_status`；parent-thread notification message 也已补齐 |
-| `ipython` | `not in default registry` | `local shim` | 这是可选 IPython attach helper，不属于默认 CLI tool 集合；当前没有 upstream default CLI 同名 payload 对齐目标 |
 
 ### Redacted example: request-level diff categories
 
@@ -708,7 +707,7 @@ The remaining explicit alignment work is:
 - Capture/compare code-mode request-visible payloads for `exec` / `wait`, not
   only their class-level schemas and smoke behavior.
 - Decide whether local helper tools (`shell`, `grep_files`, `read_file`,
-  `list_dir`, optional `ipython`) are intended to stay as local shims or should
+  `list_dir`) are intended to stay as local shims or should
   be replaced/renamed as upstream evolves.
 - Broaden runtime parity beyond the currently aligned non-interactive `exec`
   path and captured default two-turn TUI path.
@@ -794,7 +793,7 @@ The remaining explicit alignment work is:
 - 原 submission 的 Future 收到 `SubmissionInterrupted`，批量 steer Futures 共享最终结果；直接 await `run_turn` / `maybe_invoke` 的调用方收到 `TurnInterrupted`。裸 Agent 不再替外层消费队列，pending 输入必须由 Runtime worker 执行。
 - 历史上通过 `tests/compare_steer_request_bodies.py` 的 fake/proxy capture，默认 steer 的首轮/次轮 request body 在忽略 `prompt_cache_key` 后与本机 installed `codex-cli 0.115.0` 对齐。该脚本去掉顶层 `service_tier`，避免把本地 fast-mode 配置混进默认语义；同一 steer turn 的 follow-up request 继续带 `workspaces`。
 - 2026-09-22 的后续整理按用户确认改为普通串行协程：Agent 不持有 turn Task，`maybe_invoke` 在 idle 时直接 await `run_turn`，clock 与子 Agent 状态改用既有生命周期事件。验证依据是本地请求体、生命周期和交互回归测试，未重新执行 installed CLI live capture；不要把历史 capture 当成本次重新验证。
-- 前后端分离将会话命令、问答、权限和生命周期统一到当前 `AgentRuntime`，CLI/Web/飞书都调用 `submit_input` 并独立订阅状态/事件；IPython 按明确约定保留裸 Agent。公共装配位于 `bootstrap.py`，Web 不再导入 CLI shell。这是本地架构契约和回归验证，不是新增的 upstream wire parity 声明。
+- 前后端分离将会话命令、问答、权限和生命周期统一到当前 `AgentRuntime`，CLI/Web/飞书都调用 `submit_input` 并独立订阅状态/事件。公共装配位于 `bootstrap.py`，Web 不再导入 CLI shell。这是本地架构契约和回归验证，不是新增的 upstream wire parity 声明。
 
 ## timeout / interrupt 对齐现状
 

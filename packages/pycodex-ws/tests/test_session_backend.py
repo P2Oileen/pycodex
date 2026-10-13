@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import sys
 import time
+import types
 
 import pytest
 
@@ -282,6 +283,38 @@ async def test_busy_feishu_input_steers_and_queue_remains_ordered():
         link.detach()
 
 
+@pytest.mark.parametrize("command", ["/link", "/link fake"])
+@pytest.mark.asyncio
+async def test_link_without_sdk_reports_unavailable_before_creating_connection(
+    monkeypatch, command
+):
+    monkeypatch.setitem(sys.modules, "lark_oapi", None)
+
+    def create_link(*args):
+        pytest.fail("Unavailable /link must not create a Feishu connection")
+
+    monkeypatch.setattr("pycodex_ws.feishu_link.PycodexRuntimeLink", create_link)
+    client = ControlClient([ModelResponse([AssistantMessage("still ready")])])
+    queue = build_workspace_runtime(
+        Agent(client, ToolRegistry(), ContextConfig())
+    )
+    await queue.start()
+    try:
+        receipt = await queue.submit_input(command)
+        with pytest.raises(
+            RuntimeError, match="/link is unavailable.*lark-oapi"
+        ) as error:
+            await receipt.future
+        assert "python -m pip install lark-oapi" in str(error.value)
+        assert client.call_count == 0
+        unlink = await queue.submit_input("/unlink")
+        assert (await unlink.future)["lines"] == ["No Feishu card is linked."]
+        normal = await queue.submit_input("hello")
+        assert (await normal.future).output_text == "still ready"
+    finally:
+        await queue.close()
+
+
 @pytest.mark.parametrize("cancel_caller", [False, True])
 @pytest.mark.asyncio
 async def test_close_waits_for_accepted_command_then_releases_connection(
@@ -306,6 +339,7 @@ async def test_close_waits_for_accepted_command_then_releases_connection(
         def detach(self):
             detached.append(True)
 
+    monkeypatch.setitem(sys.modules, "lark_oapi", types.ModuleType("lark_oapi"))
     monkeypatch.setattr("pycodex_ws.feishu_link.PycodexRuntimeLink", Link)
     queue = build_workspace_runtime(
         Agent(ControlClient([]), ToolRegistry(), ContextConfig())
@@ -481,22 +515,6 @@ def test_web_transports_deliver_structured_answers(threaded, transport):
         assert len(state["turns"]) == 1
         assert state["turns"][-1]["response"] == "answered"
     assert client.call_count == 2
-
-
-def test_ipython_bootstrap_keeps_bare_agent(monkeypatch):
-    import pycodex_ws.ipython
-
-    client = ControlClient([])
-    agent = Agent(client, ToolRegistry(), ContextConfig())
-    attached = []
-    monkeypatch.setattr(pycodex_ws.ipython, "build_model", lambda path: client)
-    monkeypatch.setattr(pycodex_ws.ipython, "build_agent", lambda **kwargs: agent)
-    monkeypatch.setattr(
-        "pycodex_ws.ipython.attach_ipython_tool", attached.append
-    )
-    assert pycodex_ws.ipython.ipython_agent("unused") is agent
-    assert attached == [agent]
-    assert not hasattr(agent, "submission_queue")
 
 
 @pytest.mark.asyncio

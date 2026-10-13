@@ -174,8 +174,11 @@ jobs:
           "$RUNNER_TEMP/pycodex-wheel/bin/pycodex-ws" --help
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m workspace_server --help
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pycodex_ws.feishu_oauth --help
-          "$RUNNER_TEMP/pycodex-wheel/bin/python" -c \
-            "import lark_oapi, IPython; from pycodex_ws.ipython import ipython_agent"
+          "$RUNNER_TEMP/pycodex-wheel/bin/python" - <<'PY'
+          from importlib.util import find_spec
+          from pycodex_ws import build_runtime
+          assert find_spec("lark_oapi") is None
+          PY
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip check
           "$RUNNER_TEMP/pycodex-wheel/bin/python" -m pip uninstall -y pycodex-ws
           "$RUNNER_TEMP/pycodex-wheel/bin/pycodex" --help

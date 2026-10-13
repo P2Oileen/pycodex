@@ -10,16 +10,15 @@ first, then `pycodex-ws` after the core upload succeeds.
 | Package | Contents | Python |
 | --- | --- | --- |
 | `python-codex` | Agent, runtime, CLI, standard tools, Responses compatibility server and all portable storage functionality | 3.6.2+ |
-| `pycodex-ws` | Browser workspace, viewer assets, Feishu and IPython integrations | 3.7+ |
+| `pycodex-ws` | Browser workspace, viewer assets and optional Feishu integration | 3.7+ |
 
 `pycodex-ws` now owns its code and resources, including `workspace_server`,
 `pycodex_ws` and the `pycodex-ws` command. The core package owns `pycodex`,
 `responses_server` and the `pycodex` command. Install the workspace package to
-upgrade both packages together and include the integration dependencies.
+upgrade both packages together.
 
-Python integrations use `pycodex_ws.build_runtime()` for workspace assembly
-and `from pycodex_ws.ipython import ipython_agent` for IPython. Feishu adapters
-also live under `pycodex_ws`. Core callers continue to use
+Python integrations use `pycodex_ws.build_runtime()` for workspace assembly.
+Feishu adapters also live under `pycodex_ws`. Core callers continue to use
 `pycodex.bootstrap.build_runtime()`.
 
 The Feishu authorization helper is included in the workspace wheel and source
@@ -28,6 +27,12 @@ the old repository-only `tools/feishu_oauth.py` path is removed.
 
 ## Smaller runtime dependencies
 
+- The unused IPython integration and dependency are removed from `pycodex-ws`,
+  including its kernel tool, Agent shortcut and event printer.
+- The Feishu SDK `lark-oapi` is optional and is not installed automatically.
+  `/link` works when the SDK can be imported; otherwise it reports that it is
+  unavailable before creating a connection. To enable it, run
+  `python3 -m pip install lark-oapi` in the workspace's Python environment.
 - Core no longer requires Pillow. When Pillow is absent, `view_image` returns
   the original image with `detail="original"`, including when `high` is
   requested. With Pillow installed, the default path still resizes images to
@@ -105,7 +110,7 @@ python3 -m pip install --upgrade python-codex==0.4.0
 python3 -m pycodex --help
 ```
 
-For an existing Web installation or the integration SDKs:
+For an existing Web installation:
 
 ```bash
 python3 -m pip install --upgrade pycodex-ws==0.4.0

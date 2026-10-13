@@ -20,9 +20,13 @@ The import path remains `pycodex`; the CLI commands are `pycodex` and
 
 `python-codex` contains the Agent, runtime, CLI, standard tools, Responses
 compatibility server and portable storage support. `pycodex-ws` depends on the
-exact matching core version and contains the browser workspace, viewer assets,
-Feishu and IPython integrations, including their dependencies. It owns the
+exact matching core version and contains the browser workspace, viewer assets
+and optional Feishu integration. It owns the
 `workspace_server` and `pycodex_ws` modules and the `pycodex-ws` command.
+
+The Feishu SDK is not installed automatically. Install it in the workspace's
+Python environment with `python3 -m pip install lark-oapi` to enable `/link`.
+If `lark_oapi` cannot be imported, `/link` reports that it is unavailable.
 
 Core does not require Pillow. Without it, `view_image` sends the original image
 bytes with `detail="original"`, including when `high` is requested. With Pillow
@@ -58,7 +62,7 @@ Relevant Rust reference points:
 
 ## Quick Start
 
-Install the core CLI, or install the workspace package to include all integrations:
+Install the core CLI, or install the workspace package for the browser frontend:
 
 ```bash
 python3 -m pip install python-codex
@@ -66,7 +70,7 @@ python3 -m pip install pycodex-ws
 ```
 
 The core supports Python 3.6.2 or newer. The workspace package requires Python
-3.7 or newer because of its Feishu SDK dependency. Commands are installed into
+3.7 or newer. Commands are installed into
 that interpreter's scripts directory. On a machine with multiple Python
 installations, select the same interpreter explicitly for startup:
 
@@ -98,7 +102,7 @@ uv run pycodex
 
 Tests are split by package. `uv run --dev pytest` runs both suites;
 `uv run --dev pytest packages/pycodex-ws/tests` runs workspace and integration
-tests. To check core without installing workspace or its SDKs, use a separate
+tests. To check core without installing workspace, use a separate
 environment:
 
 ```bash
@@ -182,7 +186,7 @@ Supporting services live in `tools/`, `portable/` and `utils/`.
 - `pycodex/utils/image_utils.py`: image loading, resizing and data-URL preparation
 - `pycodex/prompts/`: vendored prompts and model metadata
 - `packages/pycodex-ws/workspace_server/`: Web board, API and file/diff viewers
-- `packages/pycodex-ws/pycodex_ws/`: Feishu, IPython and workspace assembly
+- `packages/pycodex-ws/pycodex_ws/`: Feishu and workspace assembly
 - `packages/pycodex-ws/extensions/vscode/`: workspace's VS Code frontend, built separately as a VSIX
 - `tests/`: core tests
 - `packages/pycodex-ws/tests/`: workspace and cross-frontend integration tests
@@ -394,7 +398,8 @@ Current behavior:
   user instruction; this is intended for side-effect follow-ups such as
   Feishu notifications
 - `/link <feishu-email|open_id|chat_id>` in a workspace session attaches it
-  to a Feishu card; multiple sessions in the same workspace process share
+  to a Feishu card when the optional `lark-oapi` SDK can be imported;
+  multiple sessions in the same workspace process share
   one Feishu long-connection listener and route card actions by message id
 - Feishu user OAuth stores its refresh token only in
   `~/.codex/.feishu_refresh_token` (mode `0600`). Run
@@ -715,8 +720,7 @@ CLI, Web and Feishu all use `AgentRuntime.submit_input`: not just `/model`
 and `/resume`, but every session command, steer/queue admission, interactive
 questions and permissions, state notifications and shutdown. Frontends only
 adapt input and render events. Web no longer imports or runs the CLI shell.
-IPython is the deliberate exception: `pycodex_ws.ipython.ipython_agent()` returns
-a bare Agent. Workspace assembly uses `pycodex_ws.build_runtime()` to add
+Workspace assembly uses `pycodex_ws.build_runtime()` to add
 `/link` and `/unlink`; `pycodex.bootstrap.build_runtime()` provides core commands.
 
 ```python

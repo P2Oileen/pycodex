@@ -18,9 +18,8 @@ def test_workspace_distribution_tracks_core_version():
     assert workspace["project"]["requires-python"] == ">=3.7"
     assert workspace["project"]["dependencies"] == [
         "python-codex=={0}".format(version),
-        "lark-oapi",
-        "ipython>=7",
         "pillow>=9.0.0",
+        "websockets>=11,<16",
     ]
     assert workspace["project"]["scripts"] == {
         "pycodex-ws": "workspace_server:main",

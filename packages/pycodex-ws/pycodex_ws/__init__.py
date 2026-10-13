@@ -1,5 +1,7 @@
 """Workspace integrations for python-codex."""
 
+from importlib import import_module
+
 from pycodex.bootstrap import build_runtime as build_core_runtime
 
 
@@ -19,6 +21,13 @@ def build_runtime(agent):
 
     async def connect(target):
         nonlocal link
+        try:
+            import_module("lark_oapi")
+        except ImportError:
+            raise RuntimeError(
+                "/link is unavailable: lark-oapi could not be imported. "
+                "Install it with: python -m pip install lark-oapi"
+            ) from None
         if not target:
             raise ValueError("Usage: /link <feishu-email|open_id|chat_id>")
         if link is not None:

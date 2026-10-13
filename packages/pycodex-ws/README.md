@@ -1,9 +1,9 @@
 # pycodex-ws
 
 `pycodex-ws` provides the browser workspace, Canvas and file/diff viewer,
-Feishu integration and IPython tools for
+and optional Feishu integration for
 [`python-codex`](https://pypi.org/project/python-codex/). It installs the exact
-matching core version and all integration dependencies.
+matching core version.
 
 Pillow is a direct dependency of this package for image preview validation.
 Core can run without it; `view_image` then sends original image bytes.
@@ -41,8 +41,18 @@ its range, or only the cursor position. Context appears as a separate block amon
 text; click a block to edit or remove it before sending.
 
 Workspace sessions include `/link` and `/unlink` for Feishu. Python callers use
-`pycodex_ws.build_runtime(agent)` for the same assembly, or
-`from pycodex_ws.ipython import ipython_agent` inside an IPython session.
+`pycodex_ws.build_runtime(agent)` for the same assembly.
+
+The Feishu SDK is optional and is not installed automatically. To enable
+`/link`, install it in the same Python environment as the workspace:
+
+```bash
+python3 -m pip install lark-oapi
+```
+
+`/link` checks that `lark_oapi` can be imported before creating a connection.
+If it cannot, the command reports that it is unavailable and shows the manual
+installation command. Other workspace features work without the SDK.
 
 For initial Feishu user authorization, run the module included in this package:
 
@@ -93,6 +103,6 @@ root to install both, then `uv run pycodex-ws --help`. Build this package with
 `uv build packages/pycodex-ws`.
 
 Run `uv run --dev pytest packages/pycodex-ws/tests` from the repository root for
-workspace, Feishu, IPython and cross-frontend integration tests. Core tests live
+workspace, Feishu and cross-frontend integration tests. Core tests live
 in the root `tests/` directory and use the independent `test` dependency group.
 `uv run --dev pytest` runs both suites; see [test documentation](../../tests/TESTS.md).

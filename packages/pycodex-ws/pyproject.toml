@@ -5,14 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "pycodex-ws"
 version = "0.4.0"
-description = "Browser workspace, Feishu and IPython integrations for python-codex"
+description = "Browser workspace and optional Feishu integration for python-codex"
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = [
     "python-codex==0.4.0",
-    "lark-oapi",
-    "ipython>=7",
     "pillow>=9.0.0",
+    "websockets>=11,<16",
 ]
 
 [project.scripts]

@@ -6,7 +6,7 @@
 
 - `tests/` 覆盖 core：Agent、Runtime、CLI、工具、Responses compat 和整套
   portable，支持 Python 3.6.2+。
-- `packages/pycodex-ws/tests/` 覆盖 Web、飞书、IPython 及跨前端集成，
+- `packages/pycodex-ws/tests/` 覆盖 Web、飞书及跨前端集成，
   支持 Python 3.7+。混合测试按行为归属拆开，纯 Runtime 用例仍留在 core。
 - 根目录 `conftest.py` 为两组测试隔离 `CODEX_HOME`；workspace 的
   `conftest.py` 另隔离 `HOME`，避免飞书测试读取开发者的真实凭据。
@@ -28,10 +28,11 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv sync --group test
 env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test pytest tests
 ```
 
-`test` 不安装 workspace、飞书或 IPython。Pillow 用于图片工具的生成、解码及
+`test` 不安装 workspace 或飞书。Pillow 用于图片工具的生成、解码及
 有/无 Pillow 两种行为测试；PyCryptodomex 用于加密参考结果。两者只在测试
 依赖组中，不是 core 的运行时依赖。`dev` 包含 `test`、workspace 和开发工具，
 保留 `uv sync --dev` 一次安装两包的方式。pytest 默认收集这两个测试目录。
+两组都不自动安装可选的 `lark-oapi`，飞书 SDK 行为通过 fake 验证。
 
 ## CI 环境
 
@@ -75,7 +76,8 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
   重新构建并验证 portable。全部成功后才上传发布产物，发布顺序保持 core 在前。
   PyPI 和 TestPyPI 均先上传 core，再上传 workspace；core 上传失败时
   workspace 发布 job 不执行。workspace wheel smoke 还从源码目录外运行
-  `python -m pycodex_ws.feishu_oauth --help`，确认授权入口随包分发。
+  `python -m pycodex_ws.feishu_oauth --help`，确认授权入口随包分发，
+  并验证安装 workspace 不会带入 `lark_oapi`。
   core 的 `test_packaging.py` 覆盖模块入口的帮助、doctor 分发及参数错误退出码；
   workspace 的同名测试检查双包版本、依赖、模块和命令的归属。
 
@@ -290,7 +292,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
 - 权限接纳与显式 scope、空答/超时/detach/close 取消及过期 request id。
 - fork 同步 Agent/provider identity，保留 history/usage；首次续写才创建 rollout。
 - 未启动/重复关闭、工具清理错误和 worker 错误传播，不留下悬挂的关闭等待。
-- 子进程验证 core 后端装配不导入 CLI、Web、飞书或 IPython。
+- 子进程验证 core 后端装配不导入 CLI、Web 或飞书。
 
 ### `packages/pycodex-ws/tests/test_session_backend.py`
 
@@ -299,6 +301,8 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   未续写即关闭不建空文件，续写只在新文件记录 metadata 和继承历史。
 - 独立 attach/detach、多前端模型/标题同步、迟加入前端恢复 active stream；
   飞书 busy 时接受 steer，显式 queue 顺序不变。
+- `/link` 在 SDK 不可导入时只报告不可用，不创建连接或调用模型；
+  普通会话仍可使用。SDK 可导入时验证连接及关闭清理。
 - 多题、选项标签、Other、权限 scope、结构化回答、空答/超时/detach/close
   取消及过期 request id。
 - 单 worker、未启动/并发/重复关闭、工具关闭钩子只执行一次；
@@ -307,7 +311,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   包括排队中的请求重新设置 clock 的情况，清理期间禁止恢复会话。
 - `test_runtime_state.py` 验证子 Agent 清理报错后仍关闭其余子 Agent，
   首个错误向调用方传播，其余错误向事件循环报告。
-- 验证 Web 不导入 CLI；IPython 保持裸 Agent。
+- 验证 Web 不导入 CLI。
 
 ### `tests/test_agent.py`
 

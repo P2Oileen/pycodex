@@ -60,7 +60,7 @@ and console scripts; `pycodex-ws` remains a thin metapackage depending on
   There is no Agent-owned turn Task or cancellation API.
 - Use `AgentRuntime.start()` / `close()` and `submit_input()` for frontends.
   The old submission-queue aliases and separate interactive-session module
-  are removed. IPython deliberately continues to expose a bare Agent.
+  are removed.
 - `session_file_path=None` means an in-memory session without recording.
   Frontend `build_agent` supplies the default recording path explicitly.
   Use `runtime.resume(path)` or `agent.resume(path)` for an existing rollout;

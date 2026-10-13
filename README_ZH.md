@@ -19,8 +19,12 @@ Import 路径仍保持 `pycodex`；CLI 命令为 `pycodex` 和 `pycodex-ws`。
 
 `python-codex` 提供 Agent、Runtime、CLI、标准工具、Responses 兼容服务和
 整套 portable 功能。`pycodex-ws` 精确依赖同版本的核心包，提供 Web 看板、
-viewer 资源、飞书和 IPython 集成及其依赖；它独立拥有 `workspace_server`、
+viewer 资源和可选飞书集成；它独立拥有 `workspace_server`、
 `pycodex_ws` 模块和 `pycodex-ws` 命令。
+
+飞书 SDK 不会自动安装。需要 `/link` 时，在 workspace 使用的 Python 环境中
+手动执行 `python3 -m pip install lark-oapi`。如果无法导入 `lark_oapi`，
+`/link` 只提示不可用，其他 workspace 功能照常使用。
 
 核心包不依赖 Pillow。未安装时，`view_image` 直接发送原图并返回
 `detail="original"`，省略 `detail` 或指定 `high` 也一样；已安装时默认仍将
@@ -58,7 +62,7 @@ python3 -m pip install python-codex
 python3 -m pip install pycodex-ws
 ```
 
-核心包要求 Python 3.6.2 或更新版本；workspace 包因飞书 SDK 要求 Python 3.7+。
+核心包要求 Python 3.6.2 或更新版本；workspace 包要求 Python 3.7+。
 命令会安装到该解释器的 scripts 目录。
 在同时存在 Python 2/3 或多套 Python 的机器上，可以明确使用安装时的解释器启动：
 
@@ -141,7 +145,7 @@ core 测试支持 Python 3.6.2+，workspace 测试要求 Python 3.7+；
 - `pycodex/utils/image_utils.py`：图片加载、缩放和 data URL 转换
 - `pycodex/prompts/`：内置提示和模型元数据
 - `packages/pycodex-ws/workspace_server/`：Web 看板、API、文件/diff 查看器
-- `packages/pycodex-ws/pycodex_ws/`：飞书、IPython 与 workspace 装配
+- `packages/pycodex-ws/pycodex_ws/`：飞书与 workspace 装配
 - `packages/pycodex-ws/extensions/vscode/`：属于 workspace 的 VS Code 前端，独立构建 VSIX
 - `tests/`：core 测试
 - `packages/pycodex-ws/tests/`：workspace 与跨前端集成测试
@@ -154,7 +158,6 @@ core 测试支持 Python 3.6.2+，workspace 测试要求 Python 3.7+；
 所有会话命令、steer/queue 策略、模型/历史/标题状态、交互问答和权限响应、
 worker 启停及连接清理都由后端统一处理，前端只做输入和展示适配。
 Web 不再导入或运行 CLI shell，飞书运行中也能提交 steer 和回答问题。
-IPython 是明确的例外：`pycodex_ws.ipython.ipython_agent()` 返回裸 Agent。
 Workspace 使用 `pycodex_ws.build_runtime()` 装配 `/link`、`/unlink`；
 `pycodex.bootstrap.build_runtime()` 仅装配核心会话命令。
 

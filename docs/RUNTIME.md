@@ -46,7 +46,6 @@ Portable remains entirely in core. Start its server with
 | `AgentRuntimeEnvironment` | Plan, sub-agent, user-input and permissions services |
 | `SubAgentManager` | Child runtimes, terminal event status and status waiters; each runtime owns its worker |
 | CLI / web / Feishu | Input transport and event rendering; no command interpretation or direct Agent control |
-| IPython | Deliberately a bare Agent, outside the frontend/queue contract |
 
 Construction takes three required arguments:
 `Agent(model_client, tool_registry, context_config)`. `ContextConfig` includes
@@ -96,27 +95,31 @@ Session wrapper. Queue data remains internal to Runtime.
 ```text
 CLI / Web / Feishu -> AgentRuntime -> Agent
 VS Code -> workspace_server HTTP -> AgentRuntime
-IPython ---------------------------> Agent
 ```
 
 `pycodex.bootstrap` owns model/tool/Agent/session assembly. It imports neither
 CLI nor Web nor Feishu presentation code. Its `build_runtime(agent)` provides
 core commands. `pycodex_ws.build_runtime(agent)` adds `/link`, `/unlink` and
 connection cleanup for workspace sessions; the Feishu adapter is imported only
-when linking. Both return the same `AgentRuntime`, which can register
+when linking. `/link` first attempts to import the optional `lark_oapi` SDK.
+An import failure reports that the command is unavailable and gives a manual
+installation command, before creating a card or connection. Both return the same
+`AgentRuntime`, which can register
 application-specific async handlers with `register_command`.
 
 The `python-codex` distribution owns `pycodex`, `responses_server` and the
 `pycodex` CLI, including all portable functionality. `pycodex-ws` owns
 `workspace_server`, `pycodex_ws`, viewer resources and the `pycodex-ws` command.
 Its source lives in `packages/pycodex-ws/` and it depends on the exact matching
-core version, plus the Feishu and IPython SDKs. The workspace package requires
-Python 3.7+; core keeps Python 3.6.2 support.
+core version. The Feishu SDK is installed manually with
+`python -m pip install lark-oapi`; it is not a package dependency.
+The workspace package requires Python 3.7+; core keeps Python 3.6.2 support.
 
 Tests follow the same boundary: root `tests/` runs with the `test` dependency
 group and no workspace or SDK installation; `packages/pycodex-ws/tests/` runs
-with `dev` on Python 3.7+. Pure Runtime tests stay in core, while Web, Feishu,
-IPython and cross-frontend integration tests belong to workspace.
+with `dev` on Python 3.7+. Pure Runtime tests stay in core, while Web, Feishu
+and cross-frontend integration tests belong to workspace. Both dependency
+groups omit the Feishu SDK; SDK-dependent tests use fakes.
 The VS Code extension in `packages/pycodex-ws/extensions/vscode/` is a workspace frontend with its
 own Node tests and VSIX build, separate from both Python distributions.
 
@@ -388,8 +391,7 @@ The CLI still detaches its view on cleanup
 failure, and the Web adapter stops and joins its thread after session cleanup,
 including on failure; startup failure closes the partially started session.
 
-`pycodex_ws.ipython.ipython_agent()` returns a bare Agent with its kernel tool
-attached. Direct `ask`, `run_turn` and idle-only background hooks stay available
+Direct Agent callers can use `ask`, `run_turn` and idle-only background hooks
 without a submission queue.
 This does not make arbitrary dependency replacement a supported mid-turn
 operation. `history` remains an immutable snapshot; model-name and admission
@@ -904,7 +906,7 @@ Rendering one historical turn, capped at the existing 6,500-character display
 limit, keeps the card payload independent of the number of stored turns.
 Attach/resume reloads history from the runtime snapshot and clears the selection.
 The panel schema follows the [Feishu folding-panel documentation](https://open.feishu.cn/document/feishu-cards/card-json-v2-components/containers/collapsible-panel).
-Web retains its own projection; IPython keeps its tool-only printer. ANSI is
+Web retains its own projection. ANSI is
 applied only at a terminal presentation boundary, never stored in event fields,
 Web JSON or generated Feishu presentation. The module does not import terminal,
 Web or Feishu implementations.
