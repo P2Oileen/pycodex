@@ -118,7 +118,7 @@ def test_closing_active_tab_restores_visited_tab(late_poll):
         ("    let pollTimer = null;", "    const markdownRenderer ="),
         ("    function stateForSession(", "    function renderTabs("),
         ("    function messageSignature(", "    function startPolling("),
-        ("    function renderSnapshot(", "    function renderTurn("),
+        ("    function renderSnapshot(", "    function renderConversation("),
         ("    async function switchSession(", '    form.addEventListener("submit"'),
     ]:
         fragments.append(source[source.index(start) : source.index(end)])
@@ -129,7 +129,10 @@ class AbortController {
   constructor() { this.signal = {aborted: false}; }
   abort() { this.signal.aborted = true; }
 }
-const log = {textContent: "", scrollTop: 0, scrollHeight: 1000, clientHeight: 100};
+const log = {
+  textContent: "", scrollTop: 0, scrollHeight: 1000, clientHeight: 100,
+  children: [], getBoundingClientRect: () => ({top: 0}),
+};
 const prompt = {};
 const contextBlockDetail = {hidden: true};
 const showToast = () => {};
@@ -151,7 +154,7 @@ const isNearBottom = () => false;
 const scrollToBottom = () => {};
 const setSpinner = text => { spinnerText = text; };
 const addEntry = (_role, text) => { log.textContent += text; };
-const renderTurn = turn => { log.textContent += turn.response; };
+const renderConversation = turns => { log.textContent = turns.map(turn => turn.response).join(""); };
 """ + "\n".join(fragments)
     script += r"""
 const tabs = [{id: "a"}, {id: "b"}];
