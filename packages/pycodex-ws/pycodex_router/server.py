@@ -1,20 +1,28 @@
 import argparse
 import asyncio
+import json
 import os
 import re
 import secrets
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.requests import HTTPConnection
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from pycodex.portable.client import _base58_encode
 from pycodex.utils.session_persist import resolve_codex_home
-from workspace_server.app import _auth_cookie_matches, _install_auth, parse_listen
+from workspace_server.app import (
+    _auth_cookie_matches,
+    _install_auth,
+    _json_object_body,
+    parse_listen,
+)
 from workspace_server.workspaces import normalize_workspace_id
 
 from .browser import BrowserAccess, require_login
@@ -50,6 +58,17 @@ def load_registration_key(path):
     if os.name == "posix" and path.stat().st_mode & 0o077:
         raise ValueError("router registration key file must have owner-only permissions")
     return value.decode("ascii")
+
+
+def normalize_alias(value):
+    if (
+        not isinstance(value, str)
+        or len(value) > 128
+        or any(ord(char) < 32 for char in value)
+    ):
+        raise ValueError("Device alias must be a single line of at most 128 characters.")
+    value.encode("utf-8")
+    return value.strip()
 
 
 class Node:
@@ -126,7 +145,13 @@ def validate_inventory(workspaces):
 
 
 class Router:
-    def __init__(self, connect_timeout=10, max_connections=64, registration_key=None):
+    def __init__(
+        self,
+        connect_timeout=10,
+        max_connections=64,
+        registration_key=None,
+        aliases_path=None,
+    ):
         self.registration_key = (
             _base58_encode(os.urandom(16))
             if registration_key is None
@@ -142,6 +167,57 @@ class Router:
         self.streams = {}
         self.browser_token = ""
         self.blocked_ips = set()
+        self.aliases_path = Path(aliases_path) if aliases_path is not None else None
+        self.aliases = {}
+        if self.aliases_path is not None and self.aliases_path.exists():
+            aliases = json.loads(self.aliases_path.read_text(encoding="utf-8"))
+            if not isinstance(aliases, dict) or any(
+                not re.fullmatch("[a-z2-7]{52}", node_id)
+                or not alias
+                or normalize_alias(alias) != alias
+                for node_id, alias in aliases.items()
+            ):
+                raise ValueError("invalid router aliases file")
+            self.aliases = aliases
+
+    def _save_aliases(self, aliases):
+        if self.aliases_path is not None:
+            path = self.aliases_path
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            data = json.dumps(aliases, ensure_ascii=False, indent=2).encode("utf-8")
+            with tempfile.NamedTemporaryFile(
+                dir=str(path.parent), prefix=path.name + ".", delete=False
+            ) as handle:
+                temporary_path = Path(handle.name)
+                try:
+                    handle.write(data + b"\n")
+                    handle.close()
+                    os.replace(str(temporary_path), str(path))
+                finally:
+                    if temporary_path.exists():
+                        temporary_path.unlink()
+        self.aliases = aliases
+
+    async def rename_device(self, request):
+        if not self.browser_token or not _auth_cookie_matches(
+            self.browser_token, request.cookies.get("pycodex_router_auth")
+        ):
+            raise HTTPException(401, "Authentication required.")
+        node_id = request.path_params["node_id"]
+        if node_id not in self.nodes:
+            raise HTTPException(404, "Device is not connected.")
+        payload = await _json_object_body(request)
+        try:
+            alias = normalize_alias(payload.get("alias"))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        aliases = dict(self.aliases)
+        if alias:
+            aliases[node_id] = alias
+        else:
+            aliases.pop(node_id, None)
+        self._save_aliases(aliases)
+        return JSONResponse({"alias": alias})
 
     async def accept_tunnel(self, websocket):
         authorization = websocket.headers.get("authorization", "").encode("utf-8")
@@ -349,7 +425,12 @@ class Router:
         workspaces = []
         for node in sorted(self.nodes.values(), key=lambda item: item.id):
             base = request.scope.get("root_path", "") + "/n/" + node.id + "/"
-            nodes.append({"id": node.id, "name": node.name, "url": base})
+            nodes.append({
+                "id": node.id,
+                "name": node.name,
+                "alias": self.aliases.get(node.id, ""),
+                "url": base,
+            })
             for workspace in node.workspaces:
                 item = dict(workspace)
                 item.update(
@@ -368,9 +449,13 @@ class Router:
 
 
 def create_app(
-    password=None, connect_timeout=10, max_connections=64, registration_key=None
+    password=None,
+    connect_timeout=10,
+    max_connections=64,
+    registration_key=None,
+    aliases_path=None,
 ):
-    router = Router(connect_timeout, max_connections, registration_key)
+    router = Router(connect_timeout, max_connections, registration_key, aliases_path)
 
     async def index(request):
         return HTMLResponse(
@@ -393,6 +478,7 @@ def create_app(
             Route("/", index),
             Route("/api/workspaces", router.workspaces),
             Route("/api/registration-key", registration_key_info),
+            Route("/api/nodes/{node_id}/alias", router.rename_device, methods=["POST"]),
         ]
     )
     router.browser_token = _install_auth(
@@ -465,8 +551,13 @@ def main(argv=None):
     addresses = [parse_listen(args.listen), parse_listen(args.tunnel_listen)]
     if addresses[0][1] != 0 and addresses[0][1] == addresses[1][1]:
         parser.error("browser and device listeners must use different ports")
-    key_path = resolve_codex_home() / "router.key"
-    app = create_app(args.password, registration_key=load_registration_key(key_path))
+    codex_home = resolve_codex_home()
+    key_path = codex_home / "router.key"
+    app = create_app(
+        args.password,
+        registration_key=load_registration_key(key_path),
+        aliases_path=codex_home / "router-aliases.json",
+    )
     tunnel_app = create_tunnel_app(app.state.router)
     sockets = []
 

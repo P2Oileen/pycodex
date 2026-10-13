@@ -36,9 +36,9 @@
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-size: 13px; }
     a { color: inherit; text-decoration: none; }
-    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
+    a:focus-visible, .device-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
     svg { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-    h1, h2, h3, p { margin: 0; }
+    h1, h2, h3, h4, p { margin: 0; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .page { width: min(1440px, calc(100% - 48px)); margin: 0 auto; padding-bottom: 32px; }
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--line); }
@@ -60,15 +60,21 @@
     .registration-content { display: grid; gap: 8px; margin-top: 12px; }
     .registration input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .registration p { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    #alias-status { margin-bottom: 12px; color: var(--danger); font-size: 12px; }
+    #alias-status:empty { display: none; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
     .layout > * { min-width: 0; }
     .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
     h2 { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; }
     .count { min-width: 23px; padding: 2px 7px; border-radius: 6px; background: var(--soft); color: var(--muted); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
     #activity { color: var(--green); font-size: 12px; }
+    #workspaces { display: grid; gap: 16px; }
     .workspace-table, .nodes { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
-    .list-head, .workspace-row { display: grid; grid-template-columns: minmax(94px, .85fr) minmax(120px, 1.35fr) minmax(110px, 1fr) 60px 44px; gap: 12px; align-items: center; padding: 10px 14px; }
-    .list-head { position: sticky; top: 0; z-index: 1; border-radius: 9px 9px 0 0; background: var(--soft); color: var(--muted); font-size: 10px; font-weight: 550; letter-spacing: .3px; }
+    .workspace-group-heading { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+    .workspace-group-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+    .workspace-group-heading .count { flex: 0 0 auto; }
+    .list-head, .workspace-row { display: grid; grid-template-columns: minmax(94px, .85fr) minmax(120px, 1.85fr) 60px 44px; gap: 12px; align-items: center; padding: 10px 14px; }
+    .list-head { position: sticky; top: 0; z-index: 1; background: var(--soft); color: var(--muted); font-size: 10px; font-weight: 550; letter-spacing: .3px; }
     .workspace-row { min-height: 62px; border-top: 1px solid var(--line); }
     .workspace-row > * { min-width: 0; }
     .workspace-row:hover { background: var(--soft); }
@@ -79,8 +85,6 @@
     .workspace-title { font-size: 12px; line-height: 1.6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .workspace-path, .state-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .state-path { color: var(--muted); }
-    .workspace-device { color: var(--muted); }
-    .workspace-device code { display: block; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .session-count { color: var(--muted); font-size: 11px; line-height: 1.7; }
     .open-link, .manage-link { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 28px; color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
     .open-link svg, .manage-link svg { width: 13px; height: 13px; }
@@ -90,6 +94,9 @@
     .device-heading { display: flex; align-items: start; gap: 9px; }
     .device-heading svg { width: 17px; height: 17px; margin-top: 1px; color: var(--muted); }
     .device-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
+    .device-label { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: left; overflow-wrap: anywhere; cursor: text; }
+    .device-label[hidden] { display: none; }
+    .device-alias-input { width: 100%; min-width: 0; padding: 3px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; outline: none; }
     .online-dot { margin-top: 7px; }
     .device-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; margin-top: 6px; }
     .device-detail { color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -109,9 +116,7 @@
       .intro { padding: 20px 0; }
       .list-head { display: none; }
       .workspace-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 10px; padding: 10px 12px; }
-      .workspace-row:first-child { border-top: 0; border-radius: 9px 9px 0 0; }
       .workspace-paths { grid-column: 1 / -1; grid-row: 2; }
-      .workspace-device { grid-column: 1 / -1; grid-row: 3; }
       .activity-badge { grid-column: 2; grid-row: 1; }
       .open-link { grid-column: 3; grid-row: 1; min-height: 36px; }
     }
@@ -144,19 +149,15 @@
           <p>On the device, use <code>pycodex-ws --listen-to KEY@ROUTER_ADDRESS:6000</code>. Replace <code>KEY</code> with this key and use your router's device port.</p>
         </div>
       </details>
+      <p id="alias-status" role="alert"></p>
       <div class="layout">
         <section aria-labelledby="workspace-heading">
           <div class="section-heading">
             <h2 id="workspace-heading">Workspaces <span id="workspace-count" class="count">—</span></h2>
             <span id="activity"></span>
           </div>
-          <div class="workspace-table">
-            <div class="list-head" aria-hidden="true">
-              <span>Workspace</span><span>Directory / state</span><span>Device</span><span>Status</span><span></span>
-            </div>
-            <div id="workspaces" aria-busy="true">
-              <div class="empty"><h3>Loading workspaces…</h3></div>
-            </div>
+          <div id="workspaces" aria-busy="true">
+            <div class="empty"><h3>Loading workspaces…</h3></div>
           </div>
         </section>
         <aside aria-labelledby="device-heading">
@@ -168,18 +169,27 @@
       </div>
     </main>
   </div>
+  <template id="workspace-group-template">
+    <section class="workspace-table workspace-group">
+      <header class="workspace-group-heading">
+        <h3 class="workspace-group-name"><button type="button" class="device-label"></button></h3>
+        <span class="count"></span>
+      </header>
+      <div class="list-head" aria-hidden="true">
+        <span>Workspace</span><span>Directory / state</span><span>Status</span><span></span>
+      </div>
+      <div class="workspace-group-list"></div>
+    </section>
+  </template>
   <template id="workspace-template">
     <article class="workspace-row">
       <div class="workspace-main">
-        <h3 class="workspace-title"></h3>
+        <h4 class="workspace-title"></h4>
         <span class="session-count"></span>
       </div>
       <div class="workspace-paths">
         <p class="workspace-path"></p>
         <p class="state-path"></p>
-      </div>
-      <div class="workspace-device">
-        <code></code>
       </div>
       <span class="activity-badge"></span>
       <a class="open-link">Open <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
@@ -189,7 +199,7 @@
     <article class="device">
       <div class="device-heading">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/></svg>
-        <h3 class="device-name"><code></code></h3>
+        <h3 class="device-name"><button type="button" class="device-label"></button></h3>
         <span class="online-dot" aria-label="Online"></span>
       </div>
       <div class="device-footer">
@@ -212,14 +222,18 @@
       const layout = document.querySelector(".layout");
       const workspaces = document.getElementById("workspaces");
       const nodes = document.getElementById("nodes");
+      const workspaceGroupTemplate = document.getElementById("workspace-group-template");
       const workspaceTemplate = document.getElementById("workspace-template");
       const deviceTemplate = document.getElementById("device-template");
       const emptyTemplate = document.getElementById("empty-template");
       const deviceConnection = document.getElementById("device-connection");
       const registrationKey = document.getElementById("registration-key");
       const registrationStatus = document.getElementById("registration-status");
+      const aliasStatus = document.getElementById("alias-status");
       let refreshing = false;
       let signature = "";
+      let editingDevice = null;
+      let aliasRevision = 0;
 
       registrationKey.addEventListener("focus", () => registrationKey.select());
       deviceConnection.addEventListener("toggle", async () => {
@@ -256,8 +270,77 @@
         layout.dataset.stale = String(state === "error");
       }
 
+      function bindDeviceLabel(label, node, data) {
+        label.textContent = node.alias || node.name;
+        label.title = `${node.name}\nClick to rename device`;
+        label.setAttribute("aria-label", `Rename device ${node.alias || node.name}`);
+        label.addEventListener("click", () => editDeviceAlias(label, node, data));
+      }
+
+      function editDeviceAlias(label, node, data) {
+        if (editingDevice !== null) return;
+        editingDevice = node.id;
+        aliasStatus.textContent = "";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "device-alias-input";
+        input.maxLength = 128;
+        input.setAttribute("aria-label", "Device alias");
+        input.title = "Leave empty to use the original device name.";
+        input.value = node.alias || "";
+        input.placeholder = node.name;
+        label.hidden = true;
+        label.before(input);
+        let finished = false;
+        const finish = async save => {
+          if (finished) return;
+          finished = true;
+          const alias = input.value.trim();
+          input.remove();
+          label.hidden = false;
+          try {
+            if (save && alias !== (node.alias || "")) {
+              const response = await fetch(`api/nodes/${encodeURIComponent(node.id)}/alias`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({alias}),
+              });
+              if (!response.ok) throw new Error(await response.text());
+              const result = await response.json();
+              node.alias = result.alias;
+              aliasRevision += 1;
+              render(data);
+              signature = JSON.stringify(data);
+            }
+          } catch (error) {
+            aliasStatus.textContent = `Could not rename device: ${error.message}`;
+          } finally {
+            editingDevice = null;
+            refresh();
+          }
+        };
+        input.addEventListener("keydown", event => {
+          if (event.isComposing) return;
+          if (event.key === "Enter" || event.key === "Escape") {
+            event.preventDefault();
+            finish(event.key === "Enter");
+            label.focus();
+          }
+        });
+        input.addEventListener("blur", () => finish(true));
+        input.focus();
+        input.select();
+      }
+
       function render(data) {
         const workspaceList = document.createDocumentFragment();
+        const groups = new Map();
+        for (const node of data.nodes) {
+          const group = workspaceGroupTemplate.content.firstElementChild.cloneNode(true);
+          group.setAttribute("aria-label", node.alias || node.name);
+          bindDeviceLabel(group.querySelector(".device-label"), node, data);
+          groups.set(node.id, {node, group});
+        }
         for (const workspace of data.workspaces) {
           const card = workspaceTemplate.content.firstElementChild.cloneNode(true);
           const title = card.querySelector(".workspace-title");
@@ -269,17 +352,21 @@
           const statePath = card.querySelector(".state-path");
           statePath.textContent = workspace.state_path;
           statePath.title = workspace.state_path;
-          const device = card.querySelector(".workspace-device code");
-          device.textContent = workspace.node_name;
-          device.title = workspace.node_name;
           const activity = card.querySelector(".activity-badge");
           activity.dataset.state = workspace.running ? "working" : "ready";
           activity.textContent = workspace.running ? "Working" : "Ready";
           card.querySelector(".session-count").textContent = countLabel(workspace.session_count, "session");
           const link = card.querySelector(".open-link");
           link.href = workspace.url;
-          link.setAttribute("aria-label", `Open ${workspace.id} on ${workspace.node_name}`);
-          workspaceList.append(card);
+          const {node, group} = groups.get(workspace.node_id);
+          link.setAttribute("aria-label", `Open ${workspace.id} on ${node.alias || node.name}`);
+          group.querySelector(".workspace-group-list").append(card);
+        }
+        for (const {group} of groups.values()) {
+          const count = group.querySelector(".workspace-group-list").childElementCount;
+          if (!count) continue;
+          group.querySelector(".count").textContent = countLabel(count, "workspace");
+          workspaceList.append(group);
         }
         if (!data.workspaces.length) {
           workspaceList.append(empty("No workspaces yet", data.nodes.length
@@ -290,13 +377,13 @@
         const nodeList = document.createDocumentFragment();
         for (const node of data.nodes) {
           const card = deviceTemplate.content.firstElementChild.cloneNode(true);
-          card.querySelector(".device-name code").textContent = node.name;
+          bindDeviceLabel(card.querySelector(".device-label"), node, data);
           const owned = data.workspaces.filter(workspace => workspace.node_id === node.id);
           const sessions = owned.reduce((total, workspace) => total + workspace.session_count, 0);
           card.querySelector(".device-detail").textContent = `${countLabel(owned.length, "workspace")} · ${countLabel(sessions, "session")}`;
           const link = card.querySelector(".manage-link");
           link.href = node.url;
-          link.setAttribute("aria-label", `Manage workspaces on ${node.name}`);
+          link.setAttribute("aria-label", `Manage workspaces on ${node.alias || node.name}`);
           nodeList.append(card);
         }
         if (!data.nodes.length) {
@@ -313,6 +400,7 @@
       async function refresh() {
         if (refreshing) return;
         refreshing = true;
+        const revision = aliasRevision;
         try {
           const response = await fetch("api/workspaces", {cache: "no-store"});
           if (response.status === 401) {
@@ -322,7 +410,7 @@
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
           const next = JSON.stringify(data);
-          if (next !== signature) {
+          if (editingDevice === null && revision === aliasRevision && next !== signature) {
             render(data);
             signature = next;
           }

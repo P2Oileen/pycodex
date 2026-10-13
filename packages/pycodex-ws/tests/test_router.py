@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import secrets
@@ -1027,6 +1028,7 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
     port = listener.getsockname()[1]
     address = "http://127.0.0.1:{0}".format(port)
     key_path = tmp_path / "router.key"
+    aliases_path = tmp_path / "router-aliases.json"
     registration_key = load_registration_key(key_path)
     app, registry = workspace_app(tmp_path / "workspace")
     attach_router(app, registry, client_target(address, registration_key), 6007)
@@ -1049,12 +1051,23 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
                     lambda: bool(session.snapshot()["turns"])
                     and session.snapshot()["turns"][-1]["response"] == "done"
                 )
-                gate = create_app(registration_key=load_registration_key(key_path))
-                async with serve_router(gate, listener=listener):
+                gate = create_app(
+                    "router-password",
+                    registration_key=load_registration_key(key_path),
+                    aliases_path=aliases_path,
+                )
+                async with serve_router(gate, listener=listener) as (web, unused):
                     await eventually(lambda: client.connected)
                     node_id = client.node_id
                     assert node_id
                     assert list(gate.state.router.nodes) == [node_id]
+                    async with ip_browser(web) as browser:
+                        await login(browser)
+                        renamed = await browser.post(
+                            "/api/nodes/" + node_id + "/alias",
+                            json={"alias": "开发机"},
+                        )
+                        assert renamed.status_code == 200
                 await eventually(lambda: not client.connected)
                 assert session.runtime.accepts_input
                 assert not client._task.done()
@@ -1065,7 +1078,9 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
                 )
                 replacement_listener.bind(("127.0.0.1", port))
                 restarted_gate = create_app(
-                    registration_key=load_registration_key(key_path)
+                    "router-password",
+                    registration_key=load_registration_key(key_path),
+                    aliases_path=aliases_path,
                 )
                 async with serve_router(
                     restarted_gate, listener=replacement_listener
@@ -1075,6 +1090,9 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
                     assert client.node_id == node_id
                     assert registry.get("shared").manager.get() is session
                     async with ip_browser(web) as browser:
+                        await login(browser)
+                        inventory = (await browser.get("/api/workspaces")).json()
+                        assert inventory["nodes"][0]["alias"] == "开发机"
                         resumed = (
                             await browser.get(
                                 node_url(web, node_id) + "w/shared/api/session"
@@ -1444,6 +1462,130 @@ async def test_trusted_devices_use_ip_paths_and_keep_browser_header_checks():
                     assert (await browser.post(first_url)).status_code == 200
 
 
+@pytest.mark.parametrize("root", ["", "/remote"])
+async def test_device_aliases_are_authenticated_and_do_not_change_identity(
+    tmp_path, root
+):
+    path = tmp_path / "router-aliases.json"
+    gate = create_app("router-password", aliases_path=path)
+    app = Starlette(routes=[Route("/", lambda request: Response("device"))])
+    async with serve_router(gate, root) as (address, target):
+        async with device(
+            app, target, workspaces=lambda: [workspace_record()]
+        ) as first:
+            async with device(
+                app, target, workspaces=lambda: [workspace_record()]
+            ) as second:
+                async with ip_browser(address) as browser:
+                    endpoint = root + "/api/nodes/" + first.node_id + "/alias"
+                    response = await browser.post(endpoint, json={"alias": "开发机"})
+                    assert response.status_code == 401
+                    assert not path.exists()
+                    await browser.post(
+                        root + "/login", json={"password": "router-password"}
+                    )
+                    before = (await browser.get(root + "/api/workspaces")).json()
+                    original = next(
+                        node for node in before["nodes"] if node["id"] == first.node_id
+                    )
+                    assert (
+                        original["name"] == gate.state.router.nodes[second.node_id].name
+                    )
+
+                    response = await browser.post(endpoint, json={"alias": "  开发机  "})
+                    assert response.json() == {"alias": "开发机"}
+                    after = (await browser.get(root + "/api/workspaces")).json()
+                    after_nodes = {node["id"]: node for node in after["nodes"]}
+                    assert after_nodes[first.node_id] == dict(original, alias="开发机")
+                    assert after["workspaces"] == before["workspaces"]
+                    assert gate.state.router.nodes[first.node_id].name == original["name"]
+                    assert after_nodes[second.node_id]["alias"] == ""
+                    assert (await browser.get(original["url"])).text == "device"
+                    assert json.loads(path.read_text(encoding="utf-8")) == {
+                        first.node_id: "开发机"
+                    }
+                    if os.name == "posix":
+                        assert path.stat().st_mode & 0o777 == 0o600
+
+                    for payload in [
+                        {},
+                        [],
+                        {"alias": None},
+                        {"alias": 1},
+                        {"alias": "a" * 129},
+                        {"alias": "two\nlines"},
+                    ]:
+                        assert (
+                            await browser.post(endpoint, json=payload)
+                        ).status_code == 422
+                    for body in [b"{", b'{"alias":"\\ud800"}']:
+                        assert (
+                            await browser.post(
+                                endpoint,
+                                content=body,
+                                headers={"Content-Type": "application/json"},
+                            )
+                        ).status_code == 422
+                    assert (
+                        await browser.post(
+                            endpoint,
+                            json={"alias": "other"},
+                            headers={"Origin": "https://other.example"},
+                        )
+                    ).status_code == 403
+                    assert (
+                        await browser.post(
+                            root + "/api/nodes/missing/alias", json={"alias": "other"}
+                        )
+                    ).status_code == 404
+                    assert gate.state.router.aliases == {first.node_id: "开发机"}
+
+                    response = await browser.post(endpoint, json={"alias": ""})
+                    assert response.json() == {"alias": ""}
+                    assert (await browser.get(root + "/api/workspaces")).json() == before
+                    assert json.loads(path.read_text(encoding="utf-8")) == {}
+
+
+async def test_device_aliases_cannot_be_changed_without_a_router_password():
+    async with serve_router(create_app()) as (address, target):
+        async with device(Starlette(), target) as client:
+            async with ip_browser(address) as browser:
+                response = await browser.post(
+                    "/api/nodes/" + client.node_id + "/alias", json={"alias": "device"}
+                )
+                assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "contents", ["{", "[]", '{"invalid": "alias"}', '{"' + "a" * 52 + '": 42}']
+)
+def test_invalid_alias_files_are_not_replaced(tmp_path, contents):
+    path = tmp_path / "router-aliases.json"
+    path.write_text(contents, encoding="utf-8")
+    with pytest.raises(ValueError):
+        create_app(aliases_path=path)
+    assert path.read_text(encoding="utf-8") == contents
+
+
+def test_alias_write_failure_keeps_previous_state(tmp_path, monkeypatch):
+    path = tmp_path / "router-aliases.json"
+    node_id = "a" * 52
+    path.write_text(json.dumps({node_id: "original"}), encoding="utf-8")
+    router = create_app(aliases_path=path).state.router
+    before = path.read_bytes()
+
+    def fail_replace(source, destination):
+        raise OSError("disk full")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("pycodex_router.server.os.replace", fail_replace)
+        with pytest.raises(OSError, match="disk full"):
+            router._save_aliases({node_id: "changed"})
+    assert router.aliases == {node_id: "original"}
+    assert path.read_bytes() == before
+    assert not list(tmp_path.glob("router-aliases.json.*"))
+
+
 def test_registration_key_file_is_private_and_reused(tmp_path):
     path = tmp_path / "router" / "router.key"
     first = load_registration_key(path)
@@ -1680,6 +1822,14 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(
             assert node["id"]
             assert node["name"] == socket.gethostname() + "/127.0.0.1:0"
             assert inventory["workspaces"] == []
+            renamed = await browser.post(
+                "/api/nodes/" + node["id"] + "/alias", json={"alias": "CLI device"}
+            )
+            assert renamed.status_code == 200
+            aliases_file = Path(os.environ["CODEX_HOME"]) / "router-aliases.json"
+            assert json.loads(aliases_file.read_text(encoding="utf-8")) == {
+                node["id"]: "CLI device"
+            }
             assert (await browser.get(node["url"])).status_code == 200
             with pytest.raises(InvalidStatusCode):
                 async with connect(tunnel_url(public, "control")):
