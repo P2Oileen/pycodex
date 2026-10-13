@@ -108,6 +108,10 @@ def build_parser() -> "argparse.ArgumentParser":
         help="Bind address as host:port, for example 0.0.0.0:6007.",
     )
     parser.add_argument(
+        "--listen-to",
+        help="Connect outward to a pycodex-router host:port or ws(s) URL.",
+    )
+    parser.add_argument(
         "--workspace-config",
         default="./workspaces.json",
         help=(
@@ -906,7 +910,10 @@ def create_multi_workspace_app(
     async def workspace_index_redirect(request: Request) -> RedirectResponse:
         workspace_id = request.path_params["workspace_id"]
         _workspace_entry_or_404(registry, workspace_id)
-        return RedirectResponse(url="/w/{0}/".format(workspace_id), status_code=307)
+        return RedirectResponse(
+            url=request.scope.get("root_path", "") + "/w/{0}/".format(workspace_id),
+            status_code=307,
+        )
 
     async def workspace_index(request: Request) -> HTMLResponse:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
@@ -1058,17 +1065,40 @@ def create_multi_workspace_app(
     return app
 
 
-def _install_auth(app: Starlette, password: "typing.Union[str, None]") -> str:
+def _install_auth(
+    app: Starlette, password: "typing.Union[str, None]",
+    cookie_name: str = AUTH_COOKIE_NAME,
+    login_title: str = "pycodex workspace",
+    blocked_ips: "typing.Union[typing.Set[str], None]" = None,
+) -> str:
     password_text = str(password or "")
     if not password_text:
         return ""
     token = secrets.token_urlsafe(32)
+    login_failures = {}
+
+    def ip_blocked_response() -> JSONResponse:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Too many incorrect passwords. This IP is blocked "
+                    "until the router restarts."
+                ),
+            },
+            status_code=403,
+        )
 
     async def auth_middleware(request: Request, call_next):
-        path = request.url.path
+        if blocked_ips is not None and request.client.host in blocked_ips:
+            return ip_blocked_response()
+        path = request.scope["path"]
+        root = request.scope.get("root_path", "")
+        if root and path.startswith(root + "/"):
+            path = path[len(root):]
         if path in {"/favicon.ico", "/login"} or _auth_cookie_matches(
             token,
-            request.cookies.get(AUTH_COOKIE_NAME),
+            request.cookies.get(cookie_name),
         ):
             return await call_next(request)
         if path.startswith("/api/") or "/api/" in path:
@@ -1076,35 +1106,49 @@ def _install_auth(app: Starlette, password: "typing.Union[str, None]") -> str:
                 {"ok": False, "error": "authentication required"},
                 status_code=401,
             )
-        target = path + ("?" + request.url.query if request.url.query else "")
+        target = root + path + ("?" + request.url.query if request.url.query else "")
         return RedirectResponse(
-            url="/login?" + urlencode({"next": target}), status_code=303
+            url=root + "/login?" + urlencode({"next": target}), status_code=303
         )
 
     async def login_page(request: Request) -> HTMLResponse:
-        return _html_response(_render_login_shell())
+        return _html_response(_render_login_shell(login_title))
 
     async def login(request: Request) -> JSONResponse:
         payload = await _json_object_body(request)
+        client_ip = request.client.host if blocked_ips is not None else None
+        # Another login can block this IP while the request body is arriving.
+        if blocked_ips is not None and client_ip in blocked_ips:
+            return ip_blocked_response()
         if not secrets.compare_digest(
             str(payload.get("password") or ""), password_text
         ):
+            if blocked_ips is not None:
+                login_failures[client_ip] = login_failures.get(client_ip, 0) + 1
+                if login_failures[client_ip] >= 3:
+                    blocked_ips.add(client_ip)
+                    del login_failures[client_ip]
+                    return ip_blocked_response()
             return JSONResponse(
                 {"ok": False, "error": "invalid password"},
                 status_code=401,
             )
-        target = request.query_params.get("next", "/")
+        login_failures.pop(client_ip, None)
+        root = request.scope.get("root_path", "")
+        target = request.query_params.get("next", root + "/")
         if (
             not target.startswith("/")
             or target.startswith("//")
             or "\\" in target
             or any(ord(char) < 32 for char in target)
         ):
-            target = "/"
+            target = root + "/"
         response = JSONResponse({"ok": True, "redirect": target})
         response.set_cookie(
-            AUTH_COOKIE_NAME,
+            cookie_name,
             token,
+            path=root + "/",
+            secure=request.url.scheme == "https",
             httponly=True,
             samesite="lax",
         )
@@ -1139,13 +1183,13 @@ def _auth_cookie_matches(token: str, cookie: "typing.Union[str, None]") -> bool:
     return bool(cookie) and secrets.compare_digest(str(cookie), token)
 
 
-def _render_login_shell() -> str:
+def _render_login_shell(title: str = "pycodex workspace") -> str:
     return """<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>pycodex login</title>
+  <title>__LOGIN_TITLE__</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -1187,7 +1231,8 @@ def _render_login_shell() -> str:
 </head>
 <body>
   <form id="loginForm">
-    <h1>pycodex workspace</h1>
+    <h1>__LOGIN_TITLE__</h1>
+    <label for="passwordInput">Password</label>
     <input id="passwordInput" type="password" autocomplete="current-password" autofocus>
     <button type="submit">Open</button>
     <div id="status" class="status" role="status"></div>
@@ -1209,11 +1254,13 @@ def _render_login_shell() -> str:
         window.location.href = result.redirect;
         return;
       }
-      statusEl.textContent = "Invalid password";
+      statusEl.textContent = response.status === 403
+        ? (await response.json()).error
+        : "Invalid password";
     });
   </script>
 </body>
-</html>"""
+</html>""".replace("__LOGIN_TITLE__", html.escape(title))
 
 
 async def _http_exception_response(request: Request, exc: HTTPException) -> JSONResponse:
@@ -1793,6 +1840,10 @@ def run_serve_cli(args: "argparse.Namespace") -> int:
         ),
     )
     app = create_multi_workspace_app(registry, password=args.password)
+    if args.listen_to:
+        from pycodex_router.client import attach_router
+
+        attach_router(app, registry, args.listen_to, port)
 
     print(
         "pycodex workspace listening on http://{0}:{1}".format(host, port),

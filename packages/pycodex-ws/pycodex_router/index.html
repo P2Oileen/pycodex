@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workspaces · pycodex</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f9;
+      --panel: #fff;
+      --soft: #f1f3f7;
+      --ink: #202632;
+      --muted: #687383;
+      --line: #e1e6ed;
+      --accent: #385bc7;
+      --green: #26734f;
+      --green-soft: #eaf5ee;
+      --danger: #b54739;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #11161d;
+        --panel: #1a212b;
+        --soft: #232d3a;
+        --ink: #edf1f7;
+        --muted: #a1adbd;
+        --line: #303c4d;
+        --accent: #a0b8ff;
+        --green: #8ad5ad;
+        --green-soft: #233b31;
+        --danger: #ffa396;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-size: 13px; }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
+    svg { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    h1, h2, h3, p { margin: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .page { width: min(1440px, calc(100% - 48px)); margin: 0 auto; padding-bottom: 32px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+    .brand { display: inline-flex; align-items: center; gap: 10px; }
+    .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--ink); color: var(--panel); }
+    .brand-mark svg { width: 17px; height: 17px; }
+    .brand-name { font-size: 15px; font-weight: 650; letter-spacing: -.4px; }
+    .brand-context { margin-left: 4px; padding-left: 14px; border-left: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .connection { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .connection-dot, .online-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--muted); }
+    .connection[data-state="live"] .connection-dot, .online-dot { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+    .connection[data-state="error"] { color: var(--danger); }
+    .connection[data-state="error"] .connection-dot { background: var(--danger); }
+    .intro { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; padding: 24px 0; }
+    h1 { font-size: 24px; line-height: 1.3; font-weight: 650; letter-spacing: -.7px; }
+    .intro p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+    .layout > * { min-width: 0; }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    h2 { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; }
+    .count { min-width: 23px; padding: 2px 7px; border-radius: 6px; background: var(--soft); color: var(--muted); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
+    #activity { color: var(--green); font-size: 12px; }
+    .workspace-table, .nodes { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
+    .list-head, .workspace-row { display: grid; grid-template-columns: minmax(94px, .85fr) minmax(120px, 1.35fr) minmax(110px, 1fr) 60px 44px; gap: 12px; align-items: center; padding: 10px 14px; }
+    .list-head { position: sticky; top: 0; z-index: 1; border-radius: 9px 9px 0 0; background: var(--soft); color: var(--muted); font-size: 10px; font-weight: 550; letter-spacing: .3px; }
+    .workspace-row { min-height: 62px; border-top: 1px solid var(--line); }
+    .workspace-row > * { min-width: 0; }
+    .workspace-row:hover { background: var(--soft); }
+    .workspace-row:last-child { border-radius: 0 0 9px 9px; }
+    .activity-badge { justify-self: start; display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 500; }
+    .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
+    .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .workspace-title { font-size: 12px; line-height: 1.6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .workspace-path, .state-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .state-path { color: var(--muted); }
+    .workspace-device { color: var(--muted); }
+    .workspace-device code { display: block; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .session-count { color: var(--muted); font-size: 11px; line-height: 1.7; }
+    .open-link, .manage-link { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 28px; color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
+    .open-link svg, .manage-link svg { width: 13px; height: 13px; }
+    .open-link:hover, .manage-link:hover { text-decoration: underline; text-underline-offset: 4px; }
+    .device { min-width: 0; padding: 12px 14px; }
+    .device + .device { border-top: 1px solid var(--line); }
+    .device-heading { display: flex; align-items: start; gap: 9px; }
+    .device-heading svg { width: 17px; height: 17px; margin-top: 1px; color: var(--muted); }
+    .device-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
+    .online-dot { margin-top: 7px; }
+    .device-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; margin-top: 6px; }
+    .device-detail { color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .empty { grid-column: 1 / -1; display: grid; justify-items: center; gap: 8px; padding: 32px 20px; text-align: center; }
+    .empty svg { width: 24px; height: 24px; margin-bottom: 4px; color: var(--muted); }
+    .empty h3 { font-size: 13px; font-weight: 550; }
+    .empty p { max-width: 290px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+    .layout[data-stale="true"] .workspace-table, .layout[data-stale="true"] .nodes { opacity: .6; }
+    @media (max-width: 1000px) {
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    }
+    @media (max-width: 700px) {
+      .page { width: calc(100% - 28px); }
+      .topbar { gap: 16px; padding: 14px 0; }
+      .brand-context { display: none; }
+      .connection { max-width: 160px; font-size: 11px; }
+      .intro { padding: 20px 0; }
+      .list-head { display: none; }
+      .workspace-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 10px; padding: 10px 12px; }
+      .workspace-row:first-child { border-top: 0; border-radius: 9px 9px 0 0; }
+      .workspace-paths { grid-column: 1 / -1; grid-row: 2; }
+      .workspace-device { grid-column: 1 / -1; grid-row: 3; }
+      .activity-badge { grid-column: 2; grid-row: 1; }
+      .open-link { grid-column: 3; grid-row: 1; min-height: 36px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="pycodex workspaces">
+        <span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 6 6 6-6 6m9 0h5"/></svg></span>
+        <span class="brand-name">pycodex</span>
+        <span class="brand-context">router</span>
+      </a>
+      <div id="status" class="connection" role="status" data-state="connecting">
+        <span class="connection-dot" aria-hidden="true"></span>
+        <span id="status-text">Connecting…</span>
+      </div>
+    </header>
+    <main>
+      <div class="intro">
+        <h1>Your workspaces</h1>
+        <p>Across your connected devices.</p>
+      </div>
+      <div class="layout">
+        <section aria-labelledby="workspace-heading">
+          <div class="section-heading">
+            <h2 id="workspace-heading">Workspaces <span id="workspace-count" class="count">—</span></h2>
+            <span id="activity"></span>
+          </div>
+          <div class="workspace-table">
+            <div class="list-head" aria-hidden="true">
+              <span>Workspace</span><span>Directory / state</span><span>Device</span><span>Status</span><span></span>
+            </div>
+            <div id="workspaces" aria-busy="true">
+              <div class="empty"><h3>Loading workspaces…</h3></div>
+            </div>
+          </div>
+        </section>
+        <aside aria-labelledby="device-heading">
+          <div class="section-heading">
+            <h2 id="device-heading">Online devices <span id="device-count" class="count">—</span></h2>
+          </div>
+          <div id="nodes" class="nodes" aria-busy="true"></div>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <template id="workspace-template">
+    <article class="workspace-row">
+      <div class="workspace-main">
+        <h3 class="workspace-title"></h3>
+        <span class="session-count"></span>
+      </div>
+      <div class="workspace-paths">
+        <p class="workspace-path"></p>
+        <p class="state-path"></p>
+      </div>
+      <div class="workspace-device">
+        <code></code>
+      </div>
+      <span class="activity-badge"></span>
+      <a class="open-link">Open <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+    </article>
+  </template>
+  <template id="device-template">
+    <article class="device">
+      <div class="device-heading">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/></svg>
+        <h3 class="device-name"><code></code></h3>
+        <span class="online-dot" aria-label="Online"></span>
+      </div>
+      <div class="device-footer">
+        <p class="device-detail"></p>
+        <a class="manage-link">Manage <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+      </div>
+    </article>
+  </template>
+  <template id="empty-template">
+    <div class="empty">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/></svg>
+      <h3></h3>
+      <p></p>
+    </div>
+  </template>
+  <script type="module">
+    function mountDirectory() {
+      const status = document.getElementById("status");
+      const statusText = document.getElementById("status-text");
+      const layout = document.querySelector(".layout");
+      const workspaces = document.getElementById("workspaces");
+      const nodes = document.getElementById("nodes");
+      const workspaceTemplate = document.getElementById("workspace-template");
+      const deviceTemplate = document.getElementById("device-template");
+      const emptyTemplate = document.getElementById("empty-template");
+      let refreshing = false;
+      let signature = "";
+
+      function countLabel(count, label) {
+        return `${count} ${label}${count === 1 ? "" : "s"}`;
+      }
+
+      function empty(title, description) {
+        const element = emptyTemplate.content.firstElementChild.cloneNode(true);
+        element.querySelector("h3").textContent = title;
+        element.querySelector("p").textContent = description;
+        return element;
+      }
+
+      function setStatus(state, message) {
+        status.dataset.state = state;
+        if (statusText.textContent !== message) statusText.textContent = message;
+        layout.dataset.stale = String(state === "error");
+      }
+
+      function render(data) {
+        const workspaceList = document.createDocumentFragment();
+        for (const workspace of data.workspaces) {
+          const card = workspaceTemplate.content.firstElementChild.cloneNode(true);
+          const title = card.querySelector(".workspace-title");
+          title.textContent = workspace.id;
+          title.title = workspace.id;
+          const path = card.querySelector(".workspace-path");
+          path.textContent = workspace.work_dir;
+          path.title = workspace.work_dir;
+          const statePath = card.querySelector(".state-path");
+          statePath.textContent = workspace.state_path;
+          statePath.title = workspace.state_path;
+          const device = card.querySelector(".workspace-device code");
+          device.textContent = workspace.node_name;
+          device.title = workspace.node_name;
+          const activity = card.querySelector(".activity-badge");
+          activity.dataset.state = workspace.running ? "working" : "ready";
+          activity.textContent = workspace.running ? "Working" : "Ready";
+          card.querySelector(".session-count").textContent = countLabel(workspace.session_count, "session");
+          const link = card.querySelector(".open-link");
+          link.href = workspace.url;
+          link.setAttribute("aria-label", `Open ${workspace.id} on ${workspace.node_name}`);
+          workspaceList.append(card);
+        }
+        if (!data.workspaces.length) {
+          workspaceList.append(empty("No workspaces yet", data.nodes.length
+            ? "Open a device to create your first workspace."
+            : "Your workspaces will appear when a device connects."));
+        }
+
+        const nodeList = document.createDocumentFragment();
+        for (const node of data.nodes) {
+          const card = deviceTemplate.content.firstElementChild.cloneNode(true);
+          card.querySelector(".device-name code").textContent = node.name;
+          const owned = data.workspaces.filter(workspace => workspace.node_id === node.id);
+          const sessions = owned.reduce((total, workspace) => total + workspace.session_count, 0);
+          card.querySelector(".device-detail").textContent = `${countLabel(owned.length, "workspace")} · ${countLabel(sessions, "session")}`;
+          const link = card.querySelector(".manage-link");
+          link.href = node.url;
+          link.setAttribute("aria-label", `Manage workspaces on ${node.name}`);
+          nodeList.append(card);
+        }
+        if (!data.nodes.length) {
+          nodeList.append(empty("No devices connected", "Connected devices will appear here automatically."));
+        }
+        workspaces.replaceChildren(workspaceList);
+        nodes.replaceChildren(nodeList);
+        document.getElementById("workspace-count").textContent = data.workspaces.length;
+        document.getElementById("device-count").textContent = data.nodes.length;
+        const running = data.workspaces.filter(workspace => workspace.running).length;
+        document.getElementById("activity").textContent = running ? `${running} working` : "";
+      }
+
+      async function refresh() {
+        if (refreshing) return;
+        refreshing = true;
+        try {
+          const response = await fetch("api/workspaces", {cache: "no-store"});
+          if (response.status === 401) {
+            window.location.assign("login");
+            return;
+          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          const next = JSON.stringify(data);
+          if (next !== signature) {
+            render(data);
+            signature = next;
+          }
+          statusText.title = "";
+          setStatus("live", "Live · updates automatically");
+        } catch (error) {
+          setStatus("error", "Could not refresh · retrying");
+          statusText.title = error.message;
+          if (!signature) {
+            workspaces.replaceChildren(empty("Unable to load workspaces", "The page will try again automatically."));
+            nodes.replaceChildren();
+          }
+        } finally {
+          refreshing = false;
+          workspaces.setAttribute("aria-busy", "false");
+          nodes.setAttribute("aria-busy", "false");
+        }
+      }
+      refresh();
+      setInterval(refresh, 2000);
+    }
+    mountDirectory();
+  </script>
+</body>
+</html>

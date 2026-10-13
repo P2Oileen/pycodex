@@ -16,12 +16,13 @@ dependencies = [
 
 [project.scripts]
 pycodex-ws = "workspace_server:main"
+pycodex-router = "pycodex_router.server:main"
 
 [tool.uv.sources]
 python-codex = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["workspace_server", "pycodex_ws"]
+packages = ["workspace_server", "pycodex_ws", "pycodex_router"]
 exclude = ["workspace_server/frontend"]
 artifacts = [
     "workspace_server/workspace.html",
@@ -31,8 +32,9 @@ artifacts = [
     "workspace_server/content_views.LICENSE.txt",
     "workspace_server/editor.mjs",
     "workspace_server/editor.css",
+    "pycodex_router/index.html",
 ]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["workspace_server", "pycodex_ws", "pyproject.toml", "README.md", "LICENSE"]
+only-include = ["workspace_server", "pycodex_ws", "pycodex_router", "pyproject.toml", "README.md", "LICENSE"]
 exclude = ["workspace_server/frontend/node_modules"]

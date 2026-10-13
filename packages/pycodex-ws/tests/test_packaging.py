@@ -23,9 +23,10 @@ def test_workspace_distribution_tracks_core_version():
     ]
     assert workspace["project"]["scripts"] == {
         "pycodex-ws": "workspace_server:main",
+        "pycodex-router": "pycodex_router.server:main",
     }
     assert workspace["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
-        "workspace_server", "pycodex_ws",
+        "workspace_server", "pycodex_ws", "pycodex_router",
     ]
 
 
