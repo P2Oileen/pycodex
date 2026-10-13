@@ -307,7 +307,7 @@ class AgentRuntime:
             if not self.agent.history:
                 return {"kind": "compact_empty"}
             result = await self.agent.compact()
-            self.publish_state("history")
+            self.publish_state("compacted")
             return {
                 "kind": "compacted",
                 "original_item_count": result.original_item_count,

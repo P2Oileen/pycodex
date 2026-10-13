@@ -71,6 +71,7 @@ from pycodex.utils.event_helpers import (
     completed_history,
     shorten_title,
 )
+from pycodex.utils.session_persist import load_display_history
 from pycodex_ws import build_runtime
 
 from .workspace_views import WorkspaceViewOpener
@@ -259,7 +260,7 @@ class WebSessionView:
     def load_session_history(
         self,
         title: "typing.Union[str, None]",
-        history: "typing.Iterable[typing.Tuple[str, str]]",
+        history: "typing.Iterable[typing.Union[typing.Tuple[str, str], None]]",
     ) -> None:
         self.finish_stream()
         with self._lock:
@@ -268,7 +269,11 @@ class WebSessionView:
             self._turns_by_submission_id = {}
             self._turns_by_turn_id = {}
             self._events = []
-            for prompt, response in history:
+            for entry in history:
+                if entry is None:
+                    self._add_compaction_marker()
+                    continue
+                prompt, response = entry
                 submission_id = uuid7_string()
                 turn = self._ensure_turn(
                     submission_id, submission_id, str(prompt or "")
@@ -348,8 +353,11 @@ class WebSessionView:
             self._auto_compact_token_limit = state["auto_compact_token_limit"]
             self._usage_tokens = state["usage_tokens"]
             if event.reason in {"attach", "history"}:
-                self.load_session_history(state["title"], completed_history(state))
                 active = state["active_turn"]
+                history = completed_history(state)
+                if active is None and state["recorded_rollout_path"] is not None:
+                    history = load_display_history(state["recorded_rollout_path"])
+                self.load_session_history(state["title"], history)
                 if active is not None:
                     self._apply_runtime_event(
                         TurnStartedEvent(
@@ -371,7 +379,7 @@ class WebSessionView:
                 self._set_title(state["title"])
             return
         if isinstance(event, CommandCompletedEvent):
-            if event.result["kind"] in {"title_changed", "resumed"}:
+            if event.result["kind"] in {"title_changed", "resumed", "compacted"}:
                 return
             message = event.visualize()
             if message:
@@ -401,6 +409,7 @@ class WebSessionView:
             return
         if isinstance(event, (AutoCompactCompletedEvent, CompactCompletedEvent)):
             self._usage_tokens = None
+            self._add_compaction_marker()
         if not isinstance(event, TurnEvent):
             return
         turn_id = event.turn_id
@@ -578,6 +587,11 @@ class WebSessionView:
         turn["thinking"] = ""
         turn["prompt"] = ""
         return turn
+
+    def _add_compaction_marker(self) -> None:
+        turn = self._new_control_turn("")
+        turn["kind"] = "compaction"
+        turn["status"] = "completed"
 
     def _set_title(self, title: "typing.Union[str, None]") -> None:
         self._title = str(title or "").strip()

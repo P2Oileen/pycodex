@@ -446,6 +446,19 @@
       white-space: pre-wrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
+    .entry.compaction {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .entry.compaction::before,
+    .entry.compaction::after {
+      content: "";
+      flex: 1;
+      border-top: 1px solid var(--line);
+    }
     .entry.tool {
       font-size: 12px;
     }
@@ -2136,6 +2149,12 @@
     }
 
     function renderTurn(turn, shouldStick) {
+      if (turn.kind === "compaction") {
+        const marker = addEntry("compact", "Context compacted", "compaction", shouldStick);
+        marker.parentElement.setAttribute("role", "separator");
+        marker.parentElement.setAttribute("aria-label", "Context compacted");
+        return;
+      }
       const isControl = turn.kind === "control";
       if (turn.prompt) {
         addEntry(

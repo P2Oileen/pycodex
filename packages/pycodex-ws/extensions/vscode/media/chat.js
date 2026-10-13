@@ -186,6 +186,13 @@ import { Composer } from "../out/composer.mjs";
     if (existing?.signature === signature) return existing;
     const element = existing?.element || textElement("section", "turn", "");
     element.replaceChildren();
+    element.classList.toggle("compaction", turn.kind === "compaction");
+    if (turn.kind === "compaction") {
+      element.textContent = "上下文已压缩";
+      element.setAttribute("role", "separator");
+      element.setAttribute("aria-label", "上下文已压缩");
+      return { element, signature };
+    }
     if (turn.kind !== "control" && turn.prompt) {
       const user = textElement("div", "user-message", "");
       user.append(textElement("div", "user-bubble", turn.prompt));

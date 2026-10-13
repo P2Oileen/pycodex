@@ -3,6 +3,7 @@ import mmap
 import os
 import re
 import typing
+from collections import deque
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -320,6 +321,33 @@ def conversation_history_to_turns(
             current_assistant_text = item.text
     if current_user_text is not None or current_assistant_text:
         turns.append((current_user_text or "", current_assistant_text))
+    return tuple(turns)
+
+
+def load_display_history(
+    rollout_path: "typing.Union[str, Path]",
+    limit: "int" = 80,
+) -> "typing.Tuple[typing.Union[typing.Tuple[str, str], None], ...]":
+    """Read visible turns across checkpoints; None marks a compaction."""
+    path = Path(rollout_path).expanduser().resolve()
+    turns = deque(maxlen=limit)
+    for entry in _iter_rollout_entries(path):
+        item_type = entry.get("type")
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if item_type == "compacted":
+            turns.append(None)
+        elif item_type == "event_msg" and payload.get("type") == "user_message":
+            turns.append((str(payload.get("message", "")), ""))
+        elif (
+            item_type == "response_item"
+            and payload.get("type") == "message"
+            and payload.get("role") == "assistant"
+        ):
+            if not turns or turns[-1] is None:
+                turns.append(("", ""))
+            turns[-1] = (turns[-1][0], _extract_response_message_text(payload))
     return tuple(turns)
 
 

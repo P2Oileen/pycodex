@@ -227,6 +227,12 @@ read stdin.
 
 Web command output preserves the event's plain text, including resume-list
 numbering and line breaks.
+
+Web and VS Code restore the latest 80 display entries from the saved rollout,
+including compact dividers and earlier questions/replies within that window.
+Compaction adds a divider to the existing conversation list. Display restoration
+reuses the rollout parser; model context still resumes from the latest checkpoint.
+
 Assistant replies render fenced `mermaid` blocks as diagrams. The browser loads
 the renderer on demand, uses strict mode and sanitizes the generated SVG.
 Diagrams fit the chat column; `Expand` opens a larger view with an `Actual size`

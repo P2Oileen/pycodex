@@ -73,6 +73,9 @@ summary::-webkit-details-marker { display: none; }
 .suggestions button { border: 1px solid var(--soft-edge); background: transparent; color: var(--secondary); font-size: 11px; padding: 5px 9px; border-radius: 5px; }
 .suggestions button:hover { border-color: var(--edge); background: var(--raised); }
 .turn + .turn { margin-top: 27px; padding-top: 20px; border-top: 1px solid var(--soft-edge); }
+.turn.compaction { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding: 0; border: 0; color: var(--muted); font-size: 11px; }
+.turn.compaction::before, .turn.compaction::after { content: ""; flex: 1; border-top: 1px solid var(--soft-edge); }
+.turn.compaction + .turn { margin-top: 20px; padding-top: 0; border-top: 0; }
 .user-message { display: flex; justify-content: flex-end; margin: 0 0 18px; padding-left: 22px; }
 .user-bubble { max-width: 100%; background: var(--user); border-radius: 9px 9px 2px 9px; padding: 9px 12px; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; white-space: pre-wrap; }
 .response { font-size: 14px; line-height: 1.85; overflow-wrap: anywhere; }

@@ -19,6 +19,7 @@ from pycodex import (
     ModelResponse,
     ToolCall,
     ToolRegistry,
+    UserMessage,
 )
 from pycodex.events import (
     AssistantDeltaEvent,
@@ -1185,10 +1186,16 @@ def test_workspace_does_not_save_a_fork_destination_owned_by_another_writer(tmp_
     ]
 
 
-def test_workspace_resume_hides_compact_handoff_and_keeps_real_reply(tmp_path):
+@pytest.mark.parametrize("old_turns,pretty", [(1, False), (85, True)])
+def test_workspace_resume_hides_compact_handoff_and_keeps_real_reply(
+    tmp_path, old_turns, pretty
+):
+    prompts = ["original prompt"] + [
+        "old " + str(index) for index in range(old_turns - 1)
+    ]
     model = ScriptedModelClient(
-        [
-            ModelResponse([AssistantMessage("old answer")]),
+        [ModelResponse([AssistantMessage("old answer")]) for _ in prompts]
+        + [
             ModelResponse([AssistantMessage("handoff summary")]),
             ModelResponse([AssistantMessage("continued answer")]),
         ]
@@ -1201,19 +1208,36 @@ def test_workspace_resume_hides_compact_handoff_and_keeps_real_reply(tmp_path):
         session_file_path=rollout_path_for_session(resolve_codex_home(), session_id),
         session_id=session_id,
     )
-    source.ask("original prompt")
+    for prompt in prompts:
+        source.ask(prompt)
     asyncio.run(source.compact())
     asyncio.run(source.run_turn([]))
     source.shutdown()
+    if pretty:
+        path = source.session_file_path
+        entries = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        path.write_text(
+            "\n".join(json.dumps(entry, indent=2) for entry in entries)
+            + '\n{"type":"unfinished"',
+            encoding="utf-8",
+        )
 
-    with TestClient(create_app(make_session, None)) as browser:
+    expected = [(prompt, "old answer") for prompt in prompts] + [
+        ("", ""),
+        ("", "continued answer"),
+    ]
+    next_model = ScriptedModelClient([ModelResponse([AssistantMessage("done")])])
+    with TestClient(create_app(lambda: make_session(next_model), None)) as browser:
         response = browser.post("/api/session/message", json={"prompt": "/resume 1"})
         assert response.status_code == 200
         restored = browser.get("/api/session").json()["snapshot"]
         assert restored["title"] == "original prompt"
-        assert [(turn["prompt"], turn["response"]) for turn in restored["turns"]] == [
-            ("", "continued answer")
-        ]
+        assert [
+            (turn["prompt"], turn["response"]) for turn in restored["turns"]
+        ] == expected[-80:]
+        assert restored["turns"][-2]["kind"] == "compaction"
         assert (
             browser.post(
                 "/api/session/message", json={"prompt": "next prompt"}
@@ -1223,10 +1247,37 @@ def test_workspace_resume_hides_compact_handoff_and_keeps_real_reply(tmp_path):
         state = wait_snapshot(
             browser, lambda item: item["turns"][-1]["response"] == "done"
         )
-        assert [(turn["prompt"], turn["response"]) for turn in state["turns"]] == [
-            ("", "continued answer"),
-            ("next prompt", "done"),
-        ]
+        assert [
+            (turn["prompt"], turn["response"]) for turn in state["turns"]
+        ] == (expected + [("next prompt", "done")])[-80:]
+        assert [
+            item.text
+            for item in next_model.prompts[-1].input
+            if isinstance(item, UserMessage)
+        ] == ["next prompt"]
+
+
+@pytest.mark.asyncio
+async def test_manual_compact_keeps_existing_web_conversation():
+    session = await make_session(
+        ScriptedModelClient(
+            [
+                ModelResponse([AssistantMessage("answer")]),
+                ModelResponse([AssistantMessage("hidden summary")]),
+            ]
+        )
+    ).start()
+    try:
+        receipt = await session.runtime.submit_input("question")
+        await receipt.future
+        receipt = await session.runtime.submit_input("/compact")
+        await receipt.future
+        assert [
+            (turn["kind"], turn["prompt"], turn["response"])
+            for turn in session.snapshot()["turns"]
+        ] == [("assistant", "question", "answer"), ("compaction", "", "")]
+    finally:
+        await session.close()
 
 
 def test_session_list_uses_lightweight_summary(monkeypatch):
@@ -1333,8 +1384,11 @@ def test_web_context_usage_clears_after_compaction(completed):
     )
     view = WebSessionView()
     view.handle_event(SessionStateEvent("attach", runtime.snapshot()))
+    view.load_session_history("old", (("question", "answer"),))
     view.handle_event(TokenCountEvent({"total_tokens": 80000}, "turn"))
     view.handle_event(completed)
+    assert view.snapshot()["turns"][0]["response"] == "answer"
+    assert view.snapshot()["turns"][-1]["kind"] == "compaction"
     assert view.snapshot()["usage_tokens"] is None
     assert view.snapshot()["context_remaining_percent"] == 100
     view.handle_event(TokenCountEvent({"total_tokens": 8000}, "turn"))
