@@ -106,6 +106,8 @@ async function newTabsAndRestore() {
   await flush();
   assert.equal(restored.tabs.activeId, "a");
   assert.equal(restored.tabs.snapshot.id, "a");
+  await restored.tabs.open("b", "/docs/a.md");
+  assert.deepEqual(restored.bodies, [{href: "b", src_path: "/docs/a.md"}]);
 }
 
 async function disabledCanvasKeepsFileViewsAndAnEmptyState() {

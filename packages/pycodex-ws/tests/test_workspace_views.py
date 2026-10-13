@@ -777,6 +777,12 @@ def test_view_routes_are_authenticated_and_workspace_scoped(tmp_path, multi):
         assert response.headers["cache-control"] == "no-store"
         selected = browser.post(prefix + "/api/views/open", json={"href": str(project / "A.py")})
         assert selected.json()["view"]["id"] == view_id
+        relative = browser.post(prefix + "/api/views/open", json={
+            "href": "project/A.py#L1", "src_path": str(tmp_path / "guide.md"),
+        })
+        assert relative.status_code == 200
+        assert relative.json()["view"]["id"] == view_id
+        assert relative.json()["view"]["selection"] == {"document": 0, "line": 1}
         listed = browser.get(prefix + "/api/views").json()
         assert "private source" not in json.dumps(listed)
         assert browser.get(prefix + "/api/views/" + view_id).json()["documents"][0]["text"] == "private source\n"

@@ -2414,7 +2414,9 @@
     function followViewLink(event, href) {
       if (event.defaultPrevented || event.button !== 0) return;
       event.preventDefault();
-      contentTabs.open(href).catch(error => showToast("Unable to open view: " + error.message));
+      const source = event.target.closest(".snapshot-markdown[data-src-path]");
+      const srcPath = source ? source.getAttribute("data-src-path") : undefined;
+      contentTabs.open(href, srcPath).catch(error => showToast("Unable to open view: " + error.message));
     }
 
     function followMarkdownLink(event) {

@@ -109,7 +109,7 @@ export class ContentTabs {
     this.openRequest = null;
   }
 
-  async open(href) {
+  async open(href, srcPath) {
     this.cancelOpen();
     if (/^workspace:\/\/canvas\/?$/i.test(href)) {
       if (!this.enableBoard) throw new Error("Canvas is disabled for this workspace.");
@@ -125,7 +125,7 @@ export class ContentTabs {
       const payload = await this.request("api/views/open", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({href}),
+        body: JSON.stringify({href, src_path: srcPath}),
         signal: request.signal,
       });
       if (this.openRequest !== request) return;
@@ -456,7 +456,9 @@ export class SnapshotDisplay {
     const image = this.content.querySelector(".snapshot-image");
     if (image && image.src !== source.image_url) image.src = source.image_url;
     if (markdown) {
-      this.renderMarkdown(this.content.querySelector(".snapshot-markdown"), source.text);
+      const parent = this.content.querySelector(".snapshot-markdown");
+      if (source.source) parent.setAttribute("data-src-path", source.source.path);
+      this.renderMarkdown(parent, source.text);
     }
     const [left, top] = this.scrollPositions.get(id) || [0, 0];
     this.content.scrollLeft = left;
@@ -636,6 +638,6 @@ export function mountContentViews({
       displayedId = null;
     },
     poll() { return controller.poll(); },
-    open(href) { return controller.open(href); },
+    open(href, srcPath) { return controller.open(href, srcPath); },
   };
 }

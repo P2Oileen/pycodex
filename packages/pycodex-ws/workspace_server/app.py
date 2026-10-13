@@ -1354,7 +1354,9 @@ def _open_view_response(
     manager: WorkspaceSessionManager, work_dir: Path, payload: "typing.Dict[str, object]"
 ) -> JSONResponse:
     try:
-        view = WorkspaceViewOpener(manager.views, work_dir).open(payload.get("href"))
+        view = WorkspaceViewOpener(manager.views, work_dir).open(
+            payload.get("href"), payload.get("src_path")
+        )
         views = manager.views.list_views()
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         raise HTTPException(status_code=400, detail=str(error))

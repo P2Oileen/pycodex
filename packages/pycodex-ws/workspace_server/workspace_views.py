@@ -299,7 +299,7 @@ class WorkspaceViewOpener:
         self._views = views
         self._cwd = Path(cwd).resolve()
 
-    def open(self, href):
+    def open(self, href, src_path=None):
         action, options = self._parse_link(href)
         line = options.get("line")
         if line is not None:
@@ -309,7 +309,12 @@ class WorkspaceViewOpener:
         side = options.get("side", "right")
         if action == "file":
             kind = "file"
-            references = [self._file_reference(options["path"])]
+            path = options["path"]
+            if src_path is not None:
+                if not isinstance(src_path, str):
+                    raise ValueError("src_path must be a file path")
+                path = Path(src_path).parent / path
+            references = [self._file_reference(path)]
         elif action == "git-file":
             kind = "file"
             references = [self._git_object_reference(options["target"])]

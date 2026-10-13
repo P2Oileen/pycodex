@@ -596,7 +596,7 @@ no messages or tool results to the conversation. They also work with an empty
 `--toolset`. Internal `board` IDs and HTTP routes keep their
 existing names.
 
-Ordinary Markdown file links accept absolute or workspace-relative paths.
+Ordinary Markdown file links accept absolute or relative paths.
 Use Git-style expressions for comparisons:
 
 | Markdown link | View |
@@ -646,7 +646,8 @@ match. Without a line target, a missing file can still select its existing tab
 with the last readable contents and an error. A line request reads current content to
 validate the line before changing the selection.
 
-Local paths resolve from the workspace working directory; absolute paths and
+Local paths resolve from the workspace working directory, or from the source
+file's directory when clicked in a local Markdown preview; absolute paths and
 percent-encoded paths with spaces are accepted. Backslashes are preserved for
 Windows paths. Git `revision:path` operands follow Git's object syntax and
 identify blobs; their paths start at the repository root, or at the workspace
@@ -785,7 +786,8 @@ returns to that empty pane, and other pages' opens do not change its selection.
 
 `POST api/views/open` accepts `{"href": "<file path or URI>"}` and returns
 `{"view": <full snapshot>, "views": <metadata list>}`. Relative local paths use the
-workspace's `work_dir`; single-workspace `create_app(..., work_dir=...)` defaults
+workspace's `work_dir`, or the parent of the optional `src_path` (a plain file path).
+Single-workspace `create_app(..., work_dir=...)` defaults
 to the process's working directory. The other routes use view IDs:
 `GET api/views` lists metadata, including content/reveal revisions, a live/fixed
 flag and optional `selection` (`document`: zero-based side, `line`: one-based line);
