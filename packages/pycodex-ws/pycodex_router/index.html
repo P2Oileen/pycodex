@@ -55,6 +55,11 @@
     .intro { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; padding: 24px 0; }
     h1 { font-size: 24px; line-height: 1.3; font-weight: 650; letter-spacing: -.7px; }
     .intro p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .registration { max-width: 640px; margin-bottom: 24px; }
+    .registration summary { width: fit-content; color: var(--accent); cursor: pointer; }
+    .registration-content { display: grid; gap: 8px; margin-top: 12px; }
+    .registration input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .registration p { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
     .layout > * { min-width: 0; }
     .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -130,6 +135,15 @@
         <h1>Your workspaces</h1>
         <p>Across your connected devices.</p>
       </div>
+      <details id="device-connection" class="registration">
+        <summary>Connect a trusted device</summary>
+        <div class="registration-content">
+          <label for="registration-key">Registration key</label>
+          <input id="registration-key" readonly autocomplete="off" spellcheck="false">
+          <p id="registration-status" role="status"></p>
+          <p>On the device, use <code>pycodex-ws --listen-to KEY@ROUTER_ADDRESS:6000</code>. Replace <code>KEY</code> with this key and use your router's device port.</p>
+        </div>
+      </details>
       <div class="layout">
         <section aria-labelledby="workspace-heading">
           <div class="section-heading">
@@ -201,8 +215,29 @@
       const workspaceTemplate = document.getElementById("workspace-template");
       const deviceTemplate = document.getElementById("device-template");
       const emptyTemplate = document.getElementById("empty-template");
+      const deviceConnection = document.getElementById("device-connection");
+      const registrationKey = document.getElementById("registration-key");
+      const registrationStatus = document.getElementById("registration-status");
       let refreshing = false;
       let signature = "";
+
+      registrationKey.addEventListener("focus", () => registrationKey.select());
+      deviceConnection.addEventListener("toggle", async () => {
+        registrationKey.value = "";
+        registrationStatus.textContent = "";
+        if (!deviceConnection.open) return;
+        registrationStatus.textContent = "Loading…";
+        try {
+          const response = await fetch("api/registration-key", {cache: "no-store"});
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          if (!deviceConnection.open) return;
+          registrationKey.value = data.key;
+          registrationStatus.textContent = "Select the key to copy it.";
+        } catch (error) {
+          if (deviceConnection.open) registrationStatus.textContent = `Could not load key · ${error.message}`;
+        }
+      });
 
       function countLabel(count, label) {
         return `${count} ${label}${count === 1 ? "" : "s"}`;

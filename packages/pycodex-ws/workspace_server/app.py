@@ -109,7 +109,10 @@ def build_parser() -> "argparse.ArgumentParser":
     )
     parser.add_argument(
         "--listen-to",
-        help="Connect outward to a pycodex-router host:port or ws(s) URL.",
+        help=(
+            "Connect outward with the router registration key: "
+            "KEY@host[:port] (default port 6000) or ws(s)://KEY@host[:port]."
+        ),
     )
     parser.add_argument(
         "--workspace-config",

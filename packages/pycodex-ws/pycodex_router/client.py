@@ -4,9 +4,10 @@ import secrets
 import socket
 from contextlib import asynccontextmanager
 
-from websockets.exceptions import ConnectionClosed, InvalidHandshake
+from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatusCode
 from websockets.legacy.client import connect
-from .protocol import decode, device_id, encode, send_event, tunnel_url
+
+from .protocol import decode, device_id, encode, parse_target, send_event, tunnel_url
 
 
 class NodeIdInUse(Exception):
@@ -25,8 +26,9 @@ class RouterClient:
         reconnect_seconds=1.0,
     ):
         self.app = app
-        self.control_url = tunnel_url(target, "control")
-        self.data_url = tunnel_url(target, "data")
+        address, self._registration_key = parse_target(target)
+        self.control_url = tunnel_url(address, "control")
+        self.data_url = tunnel_url(address, "data")
         self._identity_key = secrets.token_hex(32)
         self.node_id = device_id(self._identity_key)
         self.name = name
@@ -43,6 +45,7 @@ class RouterClient:
     def _connect(self, url):
         return connect(
             url,
+            extra_headers={"Authorization": "Bearer " + self._registration_key},
             open_timeout=10,
             close_timeout=2,
             ping_interval=20,
@@ -101,6 +104,8 @@ class RouterClient:
             )
             if isinstance(failure, ConnectionClosed) and failure.rcvd is not None:
                 reason += ", close_code={0}".format(failure.rcvd.code)
+            elif isinstance(failure, InvalidStatusCode):
+                reason += ", status_code={0}".format(failure.status_code)
             self._logger.warning(
                 "Router node %s disconnected (%s); retrying in %g seconds",
                 self.name,

@@ -1,5 +1,8 @@
 import argparse
 import asyncio
+import os
+import re
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -9,10 +12,12 @@ from starlette.requests import HTTPConnection
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect, WebSocketState
+from pycodex.portable.client import _base58_encode
+from pycodex.utils.session_persist import resolve_codex_home
 from workspace_server.app import _auth_cookie_matches, _install_auth, parse_listen
 from workspace_server.workspaces import normalize_workspace_id
 
-from .browser import BrowserOrigins, device_url, redirect_device, require_login
+from .browser import BrowserAccess, require_login
 from .protocol import (
     decode,
     device_id,
@@ -25,6 +30,26 @@ from .protocol import (
 
 class TunnelUnavailable(Exception):
     pass
+
+
+def load_registration_key(path):
+    path = Path(path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(
+            str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        )
+    except FileExistsError:
+        value = path.read_bytes().strip()
+    else:
+        value = _base58_encode(os.urandom(16)).encode("ascii")
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(value + b"\n")
+    if not re.fullmatch(b"[1-9A-HJ-NP-Za-km-z]{1,22}", value):
+        raise ValueError("invalid router registration key file")
+    if os.name == "posix" and path.stat().st_mode & 0o077:
+        raise ValueError("router registration key file must have owner-only permissions")
+    return value.decode("ascii")
 
 
 class Node:
@@ -101,7 +126,16 @@ def validate_inventory(workspaces):
 
 
 class Router:
-    def __init__(self, connect_timeout=10, max_connections=64):
+    def __init__(self, connect_timeout=10, max_connections=64, registration_key=None):
+        self.registration_key = (
+            _base58_encode(os.urandom(16))
+            if registration_key is None
+            else registration_key
+        )
+        if not isinstance(self.registration_key, str) or not re.fullmatch(
+            "[1-9A-HJ-NP-Za-km-z]{1,22}", self.registration_key
+        ):
+            raise ValueError("invalid router registration key")
         self.connect_timeout = connect_timeout
         self.max_connections = max_connections
         self.nodes = {}
@@ -109,11 +143,20 @@ class Router:
         self.browser_token = ""
         self.blocked_ips = set()
 
-    async def control(self, websocket):
-        if websocket.headers.get("origin"):
+    async def accept_tunnel(self, websocket):
+        authorization = websocket.headers.get("authorization", "").encode("utf-8")
+        expected = ("Bearer " + self.registration_key).encode("ascii")
+        if websocket.headers.get("origin") or not secrets.compare_digest(
+            authorization, expected
+        ):
             await websocket.close(code=1008)
-            return
+            return False
         await websocket.accept()
+        return True
+
+    async def control(self, websocket):
+        if not await self.accept_tunnel(websocket):
+            return
         node = None
         try:
             message = await asyncio.wait_for(control_message(websocket), 10)
@@ -166,10 +209,8 @@ class Router:
                     stream.done.set()
 
     async def data(self, websocket):
-        if websocket.headers.get("origin"):
-            await websocket.close(code=1008)
+        if not await self.accept_tunnel(websocket):
             return
-        await websocket.accept()
         stream = None
         try:
             message = await asyncio.wait_for(control_message(websocket), 10)
@@ -307,11 +348,7 @@ class Router:
         nodes = []
         workspaces = []
         for node in sorted(self.nodes.values(), key=lambda item: item.id):
-            base = device_url(
-                request,
-                node.id,
-                request.scope.get("root_path", "") + "/n/" + node.id + "/",
-            )
+            base = request.scope.get("root_path", "") + "/n/" + node.id + "/"
             nodes.append({"id": node.id, "name": node.name, "url": base})
             for workspace in node.workspaces:
                 item = dict(workspace)
@@ -330,8 +367,10 @@ class Router:
             await close_websocket(node.websocket, 1001)
 
 
-def create_app(password=None, connect_timeout=10, max_connections=64):
-    router = Router(connect_timeout, max_connections)
+def create_app(
+    password=None, connect_timeout=10, max_connections=64, registration_key=None
+):
+    router = Router(connect_timeout, max_connections, registration_key)
 
     async def index(request):
         return HTMLResponse(
@@ -339,11 +378,21 @@ def create_app(password=None, connect_timeout=10, max_connections=64):
             headers={"Cache-Control": "no-store"},
         )
 
+    async def registration_key_info(request):
+        if not router.browser_token or not _auth_cookie_matches(
+            router.browser_token, request.cookies.get("pycodex_router_auth")
+        ):
+            return JSONResponse({"error": "authentication required"}, status_code=401)
+        return JSONResponse(
+            {"key": router.registration_key},
+            headers={"Cache-Control": "no-store"},
+        )
+
     web = Starlette(
         routes=[
             Route("/", index),
             Route("/api/workspaces", router.workspaces),
-            Mount("/n/{node_id}", app=redirect_device),
+            Route("/api/registration-key", registration_key_info),
         ]
     )
     router.browser_token = _install_auth(
@@ -361,9 +410,14 @@ def create_app(password=None, connect_timeout=10, max_connections=64):
         finally:
             await router.close()
 
-    node_web = Starlette(routes=[Mount("/n/{node_id}", app=router.proxy)])
+    browser = Starlette(
+        routes=[
+            Mount("/n/{node_id}", app=router.proxy),
+            Mount("/", app=web),
+        ]
+    )
     app = Starlette(
-        routes=[Mount("/", app=BrowserOrigins(router, web, node_web))],
+        routes=[Mount("/", app=BrowserAccess(router, browser))],
         lifespan=lifespan,
     )
     app.state.router = router
@@ -384,8 +438,9 @@ def build_parser():
         prog="pycodex-router",
         description="Publish reverse-connected pycodex workspaces.",
         epilog=(
-            "Use a dedicated router domain with wildcard DNS; terminate HTTPS/WSS "
-            "and the wildcard certificate at your reverse proxy."
+            "Sign in to the router page to copy its device registration key. "
+            "Clients connect with --listen-to KEY@host:port; registered devices "
+            "and their pages are trusted and share the router's browser origin."
         ),
     )
     parser.add_argument("--listen", default="0.0.0.0:6007", help="Browser host:port.")
@@ -407,11 +462,18 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.password:
         parser.error("--password must not be empty")
-    app = create_app(args.password)
-    tunnel_app = create_tunnel_app(app.state.router)
     addresses = [parse_listen(args.listen), parse_listen(args.tunnel_listen)]
     if addresses[0][1] != 0 and addresses[0][1] == addresses[1][1]:
         parser.error("browser and device listeners must use different ports")
+    key_path = resolve_codex_home() / "router.key"
+    app = create_app(args.password, registration_key=load_registration_key(key_path))
+    tunnel_app = create_tunnel_app(app.state.router)
+    print(
+        "Device registration key stored in {0}; view it after signing in.".format(
+            key_path
+        ),
+        flush=True,
+    )
     sockets = []
 
     async def dispatch(scope, receive, send):

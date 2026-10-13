@@ -1,18 +1,20 @@
 import asyncio
+import os
 import re
 import secrets
 import signal
 import socket
 import sys
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 import httpx
 import pytest
 import uvicorn
 from pycodex_router.client import RouterClient, attach_router
-from pycodex_router.protocol import decode, device_id, encode, tunnel_url
-from pycodex_router.server import create_app, create_tunnel_app
+from pycodex_router.protocol import decode, device_id, encode, parse_target, tunnel_url
+from pycodex_router.server import create_app, create_tunnel_app, load_registration_key
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route, WebSocketRoute
@@ -22,7 +24,7 @@ from websockets.exceptions import (
     InvalidHandshake,
     InvalidStatusCode,
 )
-from websockets.legacy.client import connect as websocket_connect
+from websockets.legacy.client import connect
 from workspace_server import (
     WorkspaceDefinition,
     WorkspaceEntry,
@@ -101,7 +103,7 @@ async def serve_router(gate, root="", listener=None):
         tunnel = Starlette(routes=[Mount(root, app=tunnel)])
     async with serve(web) as address:
         async with serve(tunnel, listener) as target:
-            yield address.replace("127.0.0.1", "router.localhost"), target + root
+            yield address, client_target(target + root, gate.state.router.registration_key)
 
 
 def workspace_record(name="shared"):
@@ -116,24 +118,23 @@ def workspace_record(name="shared"):
 
 
 def node_url(address, node_id, root=""):
-    return (
-        address.replace("://", "://n-" + node_id + ".", 1)
-        + root
-        + "/n/"
-        + node_id
-        + "/"
-    )
+    return address + root + "/n/" + node_id + "/"
+
+
+def client_target(address, key):
+    return address.replace("://", "://" + key + "@", 1)
+
+
+def tunnel_connect(target, endpoint="control", **options):
+    address, key = parse_target(target)
+    headers = dict(options.pop("extra_headers", {}))
+    headers["Authorization"] = "Bearer " + key
+    return connect(tunnel_url(address, endpoint), extra_headers=headers, **options)
 
 
 def origin(url):
     parsed = urlsplit(url)
     return parsed.scheme + "://" + parsed.netloc
-
-
-def connect(url, **options):
-    if urlsplit(url).hostname.endswith(".localhost"):
-        options["host"] = "127.0.0.1"
-    return websocket_connect(url, **options)
 
 
 @asynccontextmanager
@@ -163,23 +164,10 @@ async def login(browser):
     assert response.status_code == 200
 
 
-class LoopbackTransport(httpx.AsyncHTTPTransport):
-    async def handle_async_request(self, request):
-        if request.url.host.endswith(".localhost"):
-            request = httpx.Request(
-                request.method,
-                request.url.copy_with(host="127.0.0.1"),
-                headers=request.headers,
-                stream=request.stream,
-                extensions=request.extensions,
-            )
-        return await super().handle_async_request(request)
-
-
 def ip_browser(address, ip="127.0.0.1", timeout=5):
     return httpx.AsyncClient(
         base_url=address,
-        transport=LoopbackTransport(local_address=ip),
+        transport=httpx.AsyncHTTPTransport(local_address=ip),
         trust_env=False,
         timeout=timeout,
     )
@@ -336,11 +324,16 @@ async def test_registration_uses_peer_ip_and_reconnect_keeps_assigned_id(monkeyp
             lambda: [],
             reconnect_seconds=0.01,
         )
+        headers = {"Authorization": "Bearer " + gate.state.router.registration_key}
         monkeypatch.setattr(
-            first, "_connect", lambda url: connect(url, local_addr=(source_ip, 0))
+            first, "_connect",
+            lambda url: connect(url, local_addr=(source_ip, 0), extra_headers=headers),
         )
         monkeypatch.setattr(
-            second, "_connect", lambda url: connect(url, local_addr=("127.0.0.3", 0))
+            second, "_connect",
+            lambda url: connect(
+                url, local_addr=("127.0.0.3", 0), extra_headers=headers
+            ),
         )
         await first.start()
         await second.start()
@@ -388,7 +381,7 @@ async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, 
                 redirect = await browser.get(target)
                 assert redirect.status_code == 303
                 assert redirect.headers["location"].startswith(
-                    address + root + "/login?"
+                    root + "/login?"
                 )
                 assert (await browser.get(prefix + "api/session")).status_code == 401
                 assert (
@@ -463,7 +456,9 @@ async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, 
                 )
                 assert (await browser.get(prefix + "api/session")).status_code == 200
                 browser.cookies.delete(
-                    "pycodex_router_auth", domain=".router.localhost", path=root + "/"
+                    "pycodex_router_auth",
+                    domain=urlsplit(address).hostname,
+                    path=root + "/",
                 )
                 assert (await browser.get(prefix + "api/session")).status_code == 401
             async with httpx.AsyncClient(
@@ -877,7 +872,7 @@ async def test_refusals_then_router_failures_keep_reconnecting(
     async with serve(gate) as address:
         client = RouterClient(
             Starlette(),
-            address,
+            client_target(address, router.registration_key),
             "device",
             6007,
             lambda: [],
@@ -928,7 +923,7 @@ async def test_connection_cleanup_failure_keeps_reconnecting(monkeypatch):
     async with serve(create_tunnel_app(gate.state.router)) as address:
         client = RouterClient(
             Starlette(),
-            address,
+            client_target(address, gate.state.router.registration_key),
             "device",
             6007,
             lambda: [],
@@ -976,7 +971,7 @@ async def test_many_failures_before_and_after_registration_keep_the_same_id(
     async with serve(create_tunnel_app(gate.state.router)) as address:
         client = RouterClient(
             app,
-            address,
+            client_target(address, gate.state.router.registration_key),
             "device",
             6007,
             lambda: [],
@@ -1031,8 +1026,10 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
     address = "http://127.0.0.1:{0}".format(port)
+    key_path = tmp_path / "router.key"
+    registration_key = load_registration_key(key_path)
     app, registry = workspace_app(tmp_path / "workspace")
-    attach_router(app, registry, address, 6007)
+    attach_router(app, registry, client_target(address, registration_key), 6007)
     client = app.state.router_client
     client.reconnect_seconds = 0.01
     try:
@@ -1052,7 +1049,7 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
                     lambda: bool(session.snapshot()["turns"])
                     and session.snapshot()["turns"][-1]["response"] == "done"
                 )
-                gate = create_app()
+                gate = create_app(registration_key=load_registration_key(key_path))
                 async with serve_router(gate, listener=listener):
                     await eventually(lambda: client.connected)
                     node_id = client.node_id
@@ -1067,7 +1064,9 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
                     socket.SOL_SOCKET, socket.SO_REUSEADDR, 1
                 )
                 replacement_listener.bind(("127.0.0.1", port))
-                restarted_gate = create_app()
+                restarted_gate = create_app(
+                    registration_key=load_registration_key(key_path)
+                )
                 async with serve_router(
                     restarted_gate, listener=replacement_listener
                 ) as (web, unused):
@@ -1090,13 +1089,15 @@ async def test_offline_start_and_router_restart_preserve_workspace_and_default_i
 
 
 @pytest.mark.parametrize("password", [None, "router-password"])
-async def test_registration_retries_occupied_id_without_credentials(password, caplog):
+async def test_registration_retries_occupied_id_without_browser_credentials(
+    password, caplog
+):
     app = Starlette()
     gate = create_app(password)
     async with serve_router(gate) as (address, target):
         async with device(app, target) as first:
             headers = gate.state.router.nodes[first.node_id].websocket.headers
-            assert "authorization" not in headers
+            assert headers["authorization"] == "Bearer " + gate.state.router.registration_key
             assert "cookie" not in headers
             duplicate = RouterClient(
                 app,
@@ -1148,7 +1149,7 @@ async def test_connection_limits_timeouts_and_inventory_changes():
     async with serve_router(gate) as (address, target):
         async with ip_browser(address, timeout=3) as browser:
             await login(browser)
-            async with connect(tunnel_url(target, "control")) as control:
+            async with tunnel_connect(target) as control:
                 await control.send(
                     encode(
                         {
@@ -1183,7 +1184,10 @@ async def test_connection_limits_timeouts_and_inventory_changes():
                     == "new-workspace"
                 )
                 snapshot = (await browser.get("/api/workspaces")).json()
-                assert snapshot["workspaces"][0]["url"] == prefix + "w/new-workspace/"
+                assert (
+                    snapshot["workspaces"][0]["url"]
+                    == urlsplit(prefix).path + "w/new-workspace/"
+                )
 
 
 async def test_router_can_be_mounted_under_a_path_prefix(tmp_path):
@@ -1199,7 +1203,7 @@ async def test_router_can_be_mounted_under_a_path_prefix(tmp_path):
                 )
                 inventory = (await browser.get("/remote/api/workspaces")).json()
                 destination = node_url(address, client.node_id, "/remote") + "w/shared/"
-                assert inventory["workspaces"][0]["url"] == destination
+                assert inventory["workspaces"][0]["url"] == urlsplit(destination).path
                 assert (await browser.get(destination)).status_code == 200
                 assert (await browser.get(destination + "image.png")).status_code == 200
 
@@ -1264,7 +1268,7 @@ async def test_invalid_inventory_cannot_break_the_directory():
                     for changes in invalid:
                         record = workspace_record()
                         record.update(changes)
-                        async with connect(tunnel_url(target, "control")) as channel:
+                        async with tunnel_connect(target) as channel:
                             await channel.send(
                                 encode(
                                     {
@@ -1309,7 +1313,7 @@ async def test_offline_route_requires_its_original_identity_key():
             node_id = owner.node_id
             await owner.close()
             await eventually(lambda: node_id not in gate.state.router.nodes)
-            async with connect(tunnel_url(target, "control")) as impostor:
+            async with tunnel_connect(target) as impostor:
                 await impostor.send(
                     encode(
                         {
@@ -1361,7 +1365,7 @@ async def test_data_channel_is_bound_to_its_device(monkeypatch):
                 try:
                     await asyncio.wait_for(entered.wait(), 5)
                     stream_id = next(iter(gate.state.router.streams))
-                    async with connect(tunnel_url(target, "data")) as impostor:
+                    async with tunnel_connect(target, "data") as impostor:
                         await impostor.send(
                             encode(
                                 {
@@ -1380,7 +1384,7 @@ async def test_data_channel_is_bound_to_its_device(monkeypatch):
                 assert response.text == "owner"
 
 
-async def test_device_origins_headers_and_raw_ip_boundary():
+async def test_trusted_devices_use_ip_paths_and_keep_browser_header_checks():
     async def page(request):
         response = JSONResponse(
             {"router_cookie_received": "pycodex_router_auth" in request.cookies}
@@ -1397,11 +1401,18 @@ async def test_device_origins_headers_and_raw_ip_boundary():
 
     gate = create_app("router-password")
     async with serve_router(gate) as (address, target):
-        async with device(Starlette(routes=[Route("/", page)]), target) as first:
-            async with device(Starlette(), target) as second:
+        async with device(
+            Starlette(routes=[Route("/", page, methods=["GET", "POST"])]), target
+        ) as first:
+            async with device(
+                Starlette(routes=[Route("/", lambda request: Response("second"))]),
+                target,
+            ) as second:
                 async with ip_browser(address) as browser:
                     await login(browser)
                     first_url = node_url(address, first.node_id)
+                    second_url = node_url(address, second.node_id)
+                    assert origin(first_url) == origin(second_url) == address
                     response = await browser.get(first_url)
                     assert response.json() == {"router_cookie_received": False}
                     assert (
@@ -1413,32 +1424,143 @@ async def test_device_origins_headers_and_raw_ip_boundary():
                     assert len(cookies) == 1
                     assert "Domain=" not in cookies[0]
                     assert "HttpOnly" in cookies[0]
-                    assert (await browser.get("/api/workspaces")).status_code == 200
-                    other_path = urlsplit(node_url(address, second.node_id)).path
-                    assert (
-                        await browser.get(origin(first_url) + other_path)
-                    ).status_code == 404
+                    inventory = await browser.get("/api/workspaces")
+                    assert inventory.status_code == 200
+                    assert {node["url"] for node in inventory.json()["nodes"]} == {
+                        urlsplit(first_url).path,
+                        urlsplit(second_url).path,
+                    }
+                    assert (await browser.get(second_url)).text == "second"
                     for destination in (
                         address + "/api/workspaces",
-                        node_url(address, second.node_id),
+                        second_url,
                     ):
                         assert (
                             await browser.get(
-                                destination, headers={"Origin": origin(first_url)}
+                                destination, headers={"Origin": "https://other.example"}
                             )
                         ).status_code == 403
-                    old_path = urlsplit(first_url).path
-                    redirected = await browser.get(old_path)
-                    assert redirected.status_code == 307
-                    assert redirected.headers["location"] == first_url
-                    assert (await browser.post(old_path)).status_code == 403
-                async with ip_browser(
-                    address.replace("router.localhost", "127.0.0.1")
-                ) as browser:
-                    await login(browser)
-                    response = await browser.get("/api/workspaces")
-                    assert response.status_code == 400
-                    assert "wildcard DNS" in response.text
+                    assert (await browser.get(urlsplit(first_url).path)).status_code == 200
+                    assert (await browser.post(first_url)).status_code == 200
+
+
+def test_registration_key_file_is_private_and_reused(tmp_path):
+    path = tmp_path / "router" / "router.key"
+    first = load_registration_key(path)
+    assert re.fullmatch("[1-9A-HJ-NP-Za-km-z]{16,22}", first)
+    assert load_registration_key(path) == first
+    assert load_registration_key(tmp_path / "another.key") != first
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("contents", [b"", b"invalid", b"\xff", b"0" * 22, b"a" * 23])
+def test_invalid_registration_key_file_is_not_replaced(tmp_path, contents):
+    path = tmp_path / "router.key"
+    path.write_bytes(contents)
+    path.chmod(0o600)
+    with pytest.raises(ValueError, match="invalid router registration key file"):
+        load_registration_key(path)
+    assert path.read_bytes() == contents
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permissions")
+def test_registration_key_file_rejects_shared_permissions(tmp_path):
+    path = tmp_path / "router.key"
+    load_registration_key(path)
+    path.chmod(0o644)
+    with pytest.raises(ValueError, match="owner-only permissions"):
+        load_registration_key(path)
+
+
+@pytest.mark.parametrize("root", ["", "/remote"])
+async def test_registration_key_requires_browser_login_and_is_not_cached(root):
+    gate = create_app("router-password")
+    key = gate.state.router.registration_key
+    async with serve_router(gate, root) as (address, target):
+        async with ip_browser(address) as browser:
+            path = root + "/api/registration-key"
+            assert (await browser.get(path)).status_code == 401
+            assert key not in (await browser.get(root + "/login")).text
+            await browser.post(root + "/login", json={"password": "router-password"})
+            response = await browser.get(path)
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-store"
+            assert response.json()["key"] == key
+            assert key not in (await browser.get(root + "/")).text
+            assert key not in (await browser.get(root + "/api/workspaces")).text
+            assert (
+                await browser.get(path, headers={"Origin": "https://other.example"})
+            ).status_code == 403
+            for _attempt in range(3):
+                await browser.post(root + "/login", json={"password": "incorrect"})
+            assert (await browser.get(path)).status_code == 403
+
+
+async def test_registration_key_is_not_exposed_by_an_app_without_a_password():
+    async with serve_router(create_app()) as (address, target):
+        async with ip_browser(address) as browser:
+            assert (await browser.get("/api/registration-key")).status_code == 401
+
+
+async def test_tunnels_require_registration_key_instead_of_browser_credentials():
+    gate = create_app("router-password")
+    async with serve_router(gate) as (address, target):
+        tunnel, key = parse_target(target)
+        async with ip_browser(address) as browser:
+            await login(browser)
+            headers = [
+                {},
+                {"Authorization": "Bearer incorrect"},
+                {"Authorization": "Bearer router-password"},
+                {"Cookie": "pycodex_router_auth=" + browser.cookies["pycodex_router_auth"]},
+                {"Authorization": "Bearer " + key, "Origin": address},
+            ]
+            for endpoint in ("control", "data"):
+                for invalid_headers in headers:
+                    with pytest.raises(InvalidStatusCode) as rejected:
+                        async with connect(
+                            tunnel_url(tunnel, endpoint), extra_headers=invalid_headers
+                        ):
+                            pass
+                    assert rejected.value.status_code == 403
+                    assert gate.state.router.nodes == {}
+                    assert gate.state.router.streams == {}
+            async with device(Starlette(), target) as client:
+                assert list(gate.state.router.nodes) == [client.node_id]
+
+
+async def test_wrong_registration_key_retries_without_logging_credentials(caplog):
+    gate = create_app("router-password", registration_key="a" * 22)
+    async with serve_router(gate) as (address, target):
+        tunnel, key = parse_target(target)
+        wrong_key = "b" * 22
+        client = RouterClient(
+            Starlette(),
+            client_target(tunnel, wrong_key),
+            "device",
+            6007,
+            lambda: [],
+            reconnect_seconds=0.01,
+        )
+        await client.start()
+        try:
+            await eventually(
+                lambda: sum(
+                    "InvalidStatusCode" in record.getMessage()
+                    for record in caplog.records
+                ) >= 3
+            )
+            assert not client.connected
+            assert not client._task.done()
+            assert not gate.state.router.nodes
+            assert "status_code=403" in caplog.text
+            assert key not in caplog.text
+            assert wrong_key not in caplog.text
+            assert wrong_key not in client.control_url
+            assert wrong_key not in client.data_url
+        finally:
+            await client.close()
 
 
 @pytest.mark.parametrize("password_args", [(), ("--password", "")])
@@ -1496,7 +1618,9 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(tmp_path
             return result
 
         public, tunnel = await asyncio.wait_for(addresses(), 10)
-        public = public.replace("127.0.0.1", "router.localhost")
+        registration_key = (Path(os.environ["CODEX_HOME"]) / "router.key").read_text(
+            encoding="ascii"
+        ).strip()
         workspace = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -1506,7 +1630,7 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(tmp_path
             "--workspace-config",
             str(config),
             "--listen-to",
-            tunnel,
+            client_target(tunnel, registration_key),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -1577,7 +1701,7 @@ async def test_cli_can_exit_normally_while_router_is_offline(tmp_path):
     config.write_text('{"workspaces": []}\n', encoding="utf-8")
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
-    target = "127.0.0.1:{0}".format(listener.getsockname()[1])
+    target = "1" * 22 + "@127.0.0.1:{0}".format(listener.getsockname()[1])
     process = None
     try:
         process = await asyncio.create_subprocess_exec(
@@ -1631,3 +1755,48 @@ def test_router_addresses(target, expected):
 def test_router_addresses_reject_credentials_and_invalid_endpoints(target):
     with pytest.raises(ValueError):
         tunnel_url(target, "control")
+
+
+@pytest.mark.parametrize(
+    "target,expected",
+    [
+        ("{key}@127.0.0.1", "ws://127.0.0.1:6000"),
+        ("{key}@127.0.0.1:7000", "ws://127.0.0.1:7000"),
+        ("{key}@[::1]", "ws://[::1]:6000"),
+        ("ws://{key}@[::1]:7000", "ws://[::1]:7000"),
+        ("ws://{key}@router.example", "ws://router.example"),
+        ("wss://{key}@router.example/remote/", "wss://router.example/remote/"),
+        ("https://{key}@router.example/remote", "https://router.example/remote"),
+    ],
+)
+def test_router_target_separates_key_from_address(target, expected):
+    key = "a" * 22
+    address, parsed_key = parse_target(target.format(key=key))
+    assert address == expected
+    assert parsed_key == key
+    assert key not in tunnel_url(address, "control")
+    assert key not in tunnel_url(address, "data")
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "127.0.0.1:6000",
+        "ws://127.0.0.1:6000",
+        "invalid@127.0.0.1:6000",
+        "{key}x@127.0.0.1:6000",
+        "ws://{key}:password@127.0.0.1:6000",
+        "ws://{key}@",
+        "ftp://{key}@router.example",
+        "ws://{key}@127.0.0.1:70000",
+        "ws://{key}@127.0.0.1:{key}",
+        "ws://{key}@127.0.0.1?key={key}",
+        "ws://{key}@127.0.0.1/#fragment",
+    ],
+)
+def test_invalid_router_target_errors_do_not_include_the_key(target):
+    key = "a" * 22
+    with pytest.raises(ValueError) as error:
+        parse_target(target.format(key=key))
+    assert "router-generated registration key" in str(error.value)
+    assert key not in str(error.value)

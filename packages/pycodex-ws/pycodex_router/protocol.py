@@ -48,6 +48,33 @@ def tunnel_url(target, endpoint):
     )
 
 
+def parse_target(target):
+    """Separate a registration key from the address used on the wire."""
+    try:
+        has_scheme = "://" in target
+        parsed = urlsplit(target if has_scheme else "ws://" + target)
+        key = parsed.username
+        if (
+            not key
+            or not re.fullmatch("[1-9A-HJ-NP-Za-km-z]{1,22}", key)
+            or parsed.password is not None
+        ):
+            raise ValueError("invalid registration key")
+        authority = parsed.netloc.rsplit("@", 1)[1]
+        if not has_scheme and parsed.port is None:
+            authority += ":6000"
+        address = urlunsplit(
+            (parsed.scheme, authority, parsed.path, parsed.query, parsed.fragment)
+        )
+        tunnel_url(address, "control")
+    except ValueError:
+        raise ValueError(
+            "router address must be KEY@host[:port] or ws(s)://KEY@host[:port], "
+            "using the router-generated registration key"
+        ) from None
+    return address, key
+
+
 def encode(value):
     def binary(item):
         if isinstance(item, bytes):
