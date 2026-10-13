@@ -1582,13 +1582,17 @@ async def test_router_cli_requires_a_nonempty_password(password_args):
         assert process.returncode == 2
         assert b"--password" in error
         assert b"Uvicorn running" not in output
+        assert b"pycodex-ws --listen-to" not in output
     finally:
         if process.returncode is None:
             process.terminate()
             await asyncio.wait_for(process.communicate(), 10)
 
 
-async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(tmp_path):
+@pytest.mark.parametrize("tunnel_host", ["localhost", "0.0.0.0"])
+async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(
+    tmp_path, tunnel_host
+):
     config = tmp_path / "workspaces.json"
     config.write_text('{"workspaces": []}\n', encoding="utf-8")
     router = await asyncio.create_subprocess_exec(
@@ -1598,7 +1602,7 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(tmp_path
         "--listen",
         "127.0.0.1:0",
         "--tunnel-listen",
-        "localhost:0",
+        tunnel_host + ":0",
         "--password",
         "router-password",
         stdout=asyncio.subprocess.PIPE,
@@ -1609,18 +1613,34 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(tmp_path
 
         async def addresses():
             result = []
-            while len(result) < 2:
+            target = None
+            while len(result) < 2 or target is None:
                 line = await router.stdout.readline()
                 assert line, "router exited before opening its listeners"
-                match = re.search(rb"http://(?:127\.0\.0\.1|localhost):[0-9]+", line)
+                match = re.search(
+                    rb"http://(?:127\.0\.0\.1|localhost|0\.0\.0\.0):[0-9]+", line
+                )
                 if match:
                     result.append(match.group().decode("ascii"))
-            return result
+                prefix = b"  pycodex-ws --listen-to "
+                if line.startswith(prefix):
+                    target = line[len(prefix) :].decode("ascii").strip()
+            return result, target
 
-        public, tunnel = await asyncio.wait_for(addresses(), 10)
+        (public, tunnel), target = await asyncio.wait_for(addresses(), 10)
         registration_key = (Path(os.environ["CODEX_HOME"]) / "router.key").read_text(
             encoding="ascii"
         ).strip()
+        target_address, target_key = parse_target(target)
+        assert target_key == registration_key
+        assert urlsplit(target_address).port == urlsplit(tunnel).port
+        assert urlsplit(target_address).scheme == "ws"
+        if tunnel_host == "0.0.0.0":
+            assert "ROUTER_HOST" in target
+            target = target.replace("ROUTER_HOST", "127.0.0.1")
+            tunnel = tunnel.replace("0.0.0.0", "127.0.0.1")
+        else:
+            assert urlsplit(target_address).hostname == "localhost"
         workspace = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -1630,7 +1650,7 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(tmp_path
             "--workspace-config",
             str(config),
             "--listen-to",
-            client_target(tunnel, registration_key),
+            target,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

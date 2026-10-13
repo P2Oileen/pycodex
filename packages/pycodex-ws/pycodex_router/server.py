@@ -468,13 +468,35 @@ def main(argv=None):
     key_path = resolve_codex_home() / "router.key"
     app = create_app(args.password, registration_key=load_registration_key(key_path))
     tunnel_app = create_tunnel_app(app.state.router)
-    print(
-        "Device registration key stored in {0}; view it after signing in.".format(
-            key_path
-        ),
-        flush=True,
-    )
     sockets = []
+
+    class RouterServer(uvicorn.Server):
+        async def startup(self, sockets=None):
+            await super().startup(sockets=sockets)
+            if not self.started:
+                return
+            host = addresses[1][0]
+            wildcard = host in {"0.0.0.0", "::"}
+            if wildcard:
+                host = "ROUTER_HOST"
+            elif ":" in host:
+                host = "[" + host + "]"
+            target = "{0}@{1}:{2}".format(
+                app.state.router.registration_key,
+                host,
+                sockets[1].getsockname()[1],
+            )
+            print(
+                "Device registration key stored in {0}\n"
+                "Connect a device:\n"
+                "  pycodex-ws --listen-to {1}".format(key_path, target),
+                flush=True,
+            )
+            if wildcard:
+                print(
+                    "Replace ROUTER_HOST with this router's reachable IP or hostname.",
+                    flush=True,
+                )
 
     async def dispatch(scope, receive, send):
         # The accepted socket's local port cannot be forged with HTTP headers.
@@ -504,7 +526,7 @@ def main(argv=None):
                 config = listener
         if sockets[0].getsockname()[1] == sockets[1].getsockname()[1]:
             raise ValueError("browser and device listeners must use different ports")
-        uvicorn.Server(config).run(sockets=sockets)
+        RouterServer(config).run(sockets=sockets)
     finally:
         for listener_socket in sockets:
             listener_socket.close()
