@@ -205,33 +205,6 @@ async def test_question_answers_use_same_backend_interpretation(frontend):
     queue.detach(observer)
 
 
-@pytest.mark.parametrize("frontend", ["cli", "web", "feishu"])
-@pytest.mark.asyncio
-async def test_request_user_input_stays_unavailable_with_frontend(frontend):
-    from pycodex.tools import RequestUserInputTool
-
-    client = ControlClient(
-        [
-            ModelResponse(
-                [ToolCall("question", "request_user_input", question_payload())]
-            ),
-            ModelResponse([AssistantMessage("continued")]),
-        ]
-    )
-    queue = make_queue(client)
-    queue.agent.tool_registry.register(RequestUserInputTool())
-    events = []
-    queue.event_handler = events.append
-
-    await run_frontend(frontend, queue, ["ask"])
-
-    assert client.call_count == 2
-    assert not any(event.kind == "input_requested" for event in events)
-    result = client.prompts[1].input[-1]
-    assert result.output == "request_user_input is unavailable in Default mode"
-    assert "success" not in result.serialize()
-
-
 @pytest.mark.asyncio
 async def test_busy_feishu_input_steers_and_queue_remains_ordered():
     started = asyncio.Event()

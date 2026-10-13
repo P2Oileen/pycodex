@@ -3,32 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>pycodex workspaces</title>
+  <title>Workspaces · pycodex</title>
   <style>
     :root {
       color-scheme: light dark;
       --bg: #f6f7f9;
       --panel: #ffffff;
-      --panel-soft: #f0f3f6;
-      --text: #17202a;
-      --muted: #687483;
-      --line: #dbe1e8;
-      --accent: #0b6bcb;
-      --accent-strong: #0859a8;
+      --panel-soft: #f1f3f7;
+      --text: #202632;
+      --muted: #687383;
+      --line: #e1e6ed;
+      --accent: #385bc7;
+      --accent-strong: #2c49a6;
       --danger: #b42318;
       --danger-soft: #fff0ed;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #101418;
-        --panel: #171d23;
-        --panel-soft: #202832;
-        --text: #eef3f8;
-        --muted: #9aa7b5;
-        --line: #2d3844;
-        --accent: #5aa9ff;
-        --accent-strong: #83bdff;
+        --bg: #11161d;
+        --panel: #1a212b;
+        --panel-soft: #232d3a;
+        --text: #edf1f7;
+        --muted: #a1adbd;
+        --line: #303c4d;
+        --accent: #a0b8ff;
+        --accent-strong: #bfd0ff;
         --danger: #ff8c7f;
         --danger-soft: #321d1b;
       }
@@ -41,30 +41,31 @@
       min-height: 100vh;
       background: var(--bg);
       color: var(--text);
-      font-size: 14px;
+      font-size: 13px;
     }
     button, input {
       font: inherit;
     }
     button, a.button {
       display: inline-flex;
-      min-height: 38px;
+      min-height: 30px;
       align-items: center;
       justify-content: center;
-      gap: 7px;
+      gap: 6px;
       border: 1px solid var(--line);
-      border-radius: 9px;
-      padding: 8px 14px;
+      border-radius: 6px;
+      padding: 5px 10px;
       background: var(--panel);
       color: var(--text);
       text-decoration: none;
       cursor: pointer;
       white-space: nowrap;
+      font-size: 12px;
     }
     button.primary {
       border-color: var(--accent);
       background: var(--accent);
-      color: #fff;
+      color: var(--panel);
     }
     button.primary:hover {
       background: var(--accent-strong);
@@ -84,10 +85,10 @@
     }
     input {
       width: 100%;
-      min-height: 38px;
+      min-height: 32px;
       border: 1px solid var(--line);
-      border-radius: 9px;
-      padding: 8px 10px;
+      border-radius: 6px;
+      padding: 6px 9px;
       background: var(--panel);
       color: var(--text);
       outline: none;
@@ -96,12 +97,17 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
     }
+    button:focus-visible, a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
     input::placeholder {
       color: var(--muted);
     }
     .checkbox-label {
       display: flex;
       align-items: center;
+      gap: 8px;
     }
     input[type="checkbox"] {
       width: 16px;
@@ -110,89 +116,91 @@
       accent-color: var(--accent);
     }
     .page {
-      width: min(1180px, calc(100vw - 48px));
+      width: min(1440px, calc(100% - 48px));
       margin: 0 auto;
-      padding: 28px 0 40px;
+      padding: 16px 0 32px;
     }
     .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
     }
     .brand {
-      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: -.4px;
     }
-    .brand h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.25;
-      font-weight: 600;
-      letter-spacing: -0.8px;
-    }
-    .eyebrow { margin-bottom: 6px; color: var(--accent); font-size: 13px; font-weight: 600; }
-    .brand p {
-      margin: 10px 0 0;
-      color: var(--muted);
-      line-height: 1.45;
-    }
+    .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--text); color: var(--panel); }
+    svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .brand-context { margin-left: 4px; padding-left: 14px; border-left: 1px solid var(--line); color: var(--muted); font-size: 13px; font-weight: 400; letter-spacing: 0; }
+    .intro { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; padding: 24px 0; }
+    .intro h1 { margin: 0; font-size: 24px; line-height: 1.3; font-weight: 650; letter-spacing: -.7px; }
+    .intro p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
     .status {
-      min-width: 220px;
+      min-width: 0;
       max-width: 420px;
       color: var(--muted);
       text-align: right;
       line-height: 1.4;
+      font-size: 11px;
     }
     .status.error {
       color: var(--danger);
     }
     .layout {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 300px;
-      gap: 28px;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 20px;
       align-items: start;
     }
     .panel {
       min-width: 0;
     }
-    .create-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
-    .create-panel .panel-head { border-bottom: 0; padding-bottom: 0; }
+    .create-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
     .panel-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      border-bottom: 1px solid var(--line);
-      padding: 12px 0;
+      min-height: 30px;
+      margin-bottom: 12px;
     }
-    .create-panel .panel-head { padding: 20px 20px 0; }
+    .create-panel .panel-head { padding: 14px 14px 0; margin-bottom: 0; }
+    .list-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .count { min-width: 23px; padding: 2px 7px; border-radius: 6px; background: var(--panel-soft); color: var(--muted); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
     .panel-title {
       margin: 0;
-      font-size: 17px;
+      font-size: 13px;
       font-weight: 600;
     }
     .panel-subtitle {
-      margin: 8px 0 0;
+      margin: 6px 0 0;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 11px;
       line-height: 1.6;
     }
     form {
       display: grid;
-      gap: 14px;
-      padding: 20px;
+      gap: 12px;
+      padding: 14px;
     }
     label {
       display: grid;
-      gap: 8px;
+      gap: 6px;
       color: var(--text);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
     }
-    label span {
-      color: var(--muted);
-    }
+    .field-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .field-label span { color: var(--muted); font-size: 11px; font-weight: 400; }
     .form-actions {
       display: flex;
       gap: 9px;
@@ -203,87 +211,87 @@
     .form-actions button { width: 100%; }
     .summary {
       display: flex;
-      gap: 24px;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+      gap: 12px;
     }
     .metric {
       min-width: 0;
       display: flex;
       align-items: baseline;
-      gap: 6px;
+      gap: 4px;
     }
     .metric-value {
       display: block;
-      font-size: 14px;
+      font-size: 11px;
       font-weight: 600;
       line-height: 1.1;
     }
     .metric-label {
       display: block;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
     }
-    .workspace-list {
+    .workspace-table { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
+    .list-head, .workspace-row {
       display: grid;
-    }
-    .workspace-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px 20px;
+      grid-template-columns: minmax(100px, .8fr) minmax(160px, 1.8fr) 112px;
+      gap: 14px;
       align-items: center;
-      border-bottom: 1px solid var(--line);
-      padding: 16px 0;
+      padding: 10px 14px;
     }
+    .list-head { position: sticky; top: 0; z-index: 1; border-radius: 9px 9px 0 0; background: var(--panel-soft); color: var(--muted); font-size: 10px; font-weight: 550; letter-spacing: .3px; }
+    .list-head span:last-child { text-align: right; }
+    .workspace-row { min-height: 62px; border-top: 1px solid var(--line); }
+    .workspace-row:hover { background: var(--panel-soft); }
+    .workspace-row:last-child { border-radius: 0 0 9px 9px; }
     .workspace-name {
       min-width: 0;
     }
-    .workspace-name, .paths { grid-column: 1; }
     .workspace-name strong {
       display: block;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 16px;
+      font-size: 12px;
       font-weight: 600;
+      line-height: 1.6;
     }
     .session-count {
       display: inline-flex;
-      margin-top: 6px;
+      margin-top: 2px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 1.5;
     }
     .paths {
       display: grid;
-      gap: 6px;
+      gap: 2px;
       min-width: 0;
     }
     .path-line {
       display: grid;
-      grid-template-columns: 64px minmax(0, 1fr);
+      grid-template-columns: 30px minmax(0, 1fr);
       gap: 8px;
       align-items: baseline;
       min-width: 0;
     }
     .path-label {
       color: var(--muted);
-      font-size: 12px;
-      font-weight: 620;
+      font-size: 10px;
+      font-weight: 500;
     }
     .path-value {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 1.7;
     }
     .actions {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       justify-content: flex-end;
-      flex-wrap: wrap;
-      grid-column: 2;
-      grid-row: 1 / span 2;
     }
     .actions a.button { color: var(--accent); border-color: var(--line); }
     .actions a.button:hover { background: var(--panel-soft); }
@@ -291,107 +299,95 @@
       display: grid;
       justify-items: center;
       gap: 8px;
-      padding: 54px 18px;
+      padding: 36px 18px;
       color: var(--muted);
       text-align: center;
     }
     .empty strong {
       color: var(--text);
-      font-size: 15px;
+      font-size: 13px;
     }
-    @media (max-width: 860px) {
-      .page {
-        width: min(100vw - 40px, 720px);
-        padding-top: 28px;
-      }
-      .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-      .status {
-        min-width: 0;
-        text-align: left;
-      }
-      .layout {
-        grid-template-columns: 1fr;
-      }
-      .workspace-row {
-        align-items: stretch;
-      }
-      .actions {
-        justify-content: flex-start;
-      }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      .create-panel { max-width: 440px; width: 100%; }
     }
-    @media (max-width: 520px) {
-      .brand h1 { font-size: 28px; }
-      .topbar { margin-bottom: 24px; }
-      .layout { gap: 32px; }
-      .summary { gap: 16px; }
-      .workspace-row { grid-template-columns: 1fr; }
-      .actions { grid-column: 1; grid-row: auto; }
-      .path-line {
-        grid-template-columns: 1fr;
-      }
-      .path-value {
-        white-space: normal;
-        overflow-wrap: anywhere;
-      }
+    @media (max-width: 700px) {
+      .page { width: calc(100% - 28px); padding-top: 14px; }
+      .brand-context { display: none; }
+      .intro { padding: 20px 0; }
+      .list-heading { gap: 6px 8px; }
+      .summary { gap: 8px; }
+      .list-head { display: none; }
+      .workspace-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 12px; }
+      .workspace-row:first-child { border-top: 0; border-radius: 9px 9px 0 0; }
+      .paths { grid-column: 1 / -1; grid-row: 2; }
+      .actions { grid-column: 2; grid-row: 1; }
+      .actions button, .actions .button { min-height: 36px; }
     }
   </style>
 </head>
 <body>
   <main class="page">
     <header class="topbar">
-      <div class="brand">
-        <div class="eyebrow">pycodex</div>
-        <h1>Your workspaces</h1>
-        <p>A place for each project. Pick up where you left off.</p>
-      </div>
+      <a class="brand" href="./">
+        <span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 6 6 6-6 6m9 0h5"/></svg></span>
+        <span>pycodex</span>
+        <span class="brand-context">workspaces</span>
+      </a>
       <div id="status" class="status" role="status"></div>
     </header>
-
+    <div class="intro">
+      <h1>Your workspaces</h1>
+      <p>Manage workspaces on this device.</p>
+    </div>
     <div class="layout">
       <section class="panel" aria-labelledby="listTitle">
         <div class="panel-head">
-          <h2 id="listTitle" class="panel-title">Workspaces</h2>
+          <div class="list-heading">
+            <h2 id="listTitle" class="panel-title">Workspaces</h2>
+            <span id="workspaceCount" class="count">0</span>
+            <div class="summary" aria-label="Workspace summary">
+              <div class="metric">
+                <span id="sessionCount" class="metric-value">0</span>
+                <span class="metric-label">sessions</span>
+              </div>
+              <div class="metric">
+                <span id="activeCount" class="metric-value">0</span>
+                <span class="metric-label">running</span>
+              </div>
+            </div>
+          </div>
           <button id="refreshButton" type="button">Refresh</button>
         </div>
-        <div class="summary" aria-label="Workspace summary">
-          <div class="metric">
-            <span id="workspaceCount" class="metric-value">0</span>
-            <span class="metric-label">workspaces</span>
+        <div class="workspace-table">
+          <div class="list-head" aria-hidden="true">
+            <span>Workspace</span><span>Paths</span><span>Actions</span>
           </div>
-          <div class="metric">
-            <span id="sessionCount" class="metric-value">0</span>
-            <span class="metric-label">sessions</span>
-          </div>
-          <div class="metric">
-            <span id="activeCount" class="metric-value">0</span>
-            <span class="metric-label">running</span>
-          </div>
+          <div id="workspaceRows" class="workspace-list"></div>
         </div>
-        <div id="workspaceRows" class="workspace-list"></div>
       </section>
       <section class="panel create-panel" aria-labelledby="addTitle">
         <div class="panel-head">
           <div>
             <h2 id="addTitle" class="panel-title">New workspace</h2>
-            <p class="panel-subtitle">Choose a working directory and where to save your workspace.</p>
+            <p class="panel-subtitle">Create a workspace on this device.</p>
           </div>
         </div>
         <form id="workspaceForm">
-          <label>State file prefix <span>optional</span>
+          <label>Directory
+            <input id="dirInput" name="dir" placeholder="./" spellcheck="false">
+          </label>
+          <label>
+            <span class="field-label">Name <span>optional</span></span>
+            <input id="nameInput" name="name" autocomplete="off" placeholder="workspace-1" spellcheck="false">
+          </label>
+          <label>
+            <span class="field-label">State file prefix <span>optional</span></span>
             <input id="statePathInput" name="state_path" placeholder="/tmp/pcws-xxxx" spellcheck="false">
           </label>
           <label class="checkbox-label">
             <input id="enableBoardInput" name="enable_board" type="checkbox" checked>
             Enable Canvas
-          </label>
-          <label>Directory
-            <input id="dirInput" name="dir" placeholder="./" spellcheck="false">
-          </label>
-          <label>Name <span>optional</span>
-            <input id="nameInput" name="name" autocomplete="off" placeholder="workspace-1" spellcheck="false">
           </label>
           <div class="form-actions">
             <button id="addButton" class="primary" type="submit">Create workspace</button>
@@ -402,7 +398,7 @@
     </div>
   </main>
 
-  <script>
+  <script type="module">
     const rows = document.getElementById("workspaceRows");
     const form = document.getElementById("workspaceForm");
     const statusEl = document.getElementById("status");
@@ -466,15 +462,16 @@
 
       const name = document.createElement("div");
       name.className = "workspace-name";
-      name.appendChild(textNode("strong", "", workspace.id || ""));
+      const title = textNode("strong", "", workspace.id || "");
+      title.title = workspace.id || "";
+      name.appendChild(title);
       const sessions = Array.isArray(workspace.sessions) ? workspace.sessions : [];
       name.appendChild(textNode("span", "session-count", `${sessions.length} session${sessions.length === 1 ? "" : "s"}`));
 
       const paths = document.createElement("div");
       paths.className = "paths";
-      paths.appendChild(pathLine("Directory", workspace.work_dir || ""));
+      paths.appendChild(pathLine("Dir", workspace.work_dir || ""));
       paths.appendChild(pathLine("State", workspace.state_path));
-      paths.appendChild(pathLine("Canvas", workspace.enable_board ? workspace.board_path : "Disabled"));
 
       const actions = document.createElement("div");
       actions.className = "actions";
