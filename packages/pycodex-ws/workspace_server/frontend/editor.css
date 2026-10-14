@@ -56,6 +56,24 @@
 .editor-context-action[hidden] { display: none; }
 .editor-body { min-height: 0; flex: 1; overflow: hidden; position: relative; }
 .editor-body .monaco-editor .inputarea { min-height: 0; padding: 0; border: 0; border-radius: 0; }
+.editor-selection-boundary { width: 2px; background: #0078d4; pointer-events: none; }
+.editor-selection-handle {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: -9px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #0078d4;
+  box-shadow: 0 1px 3px #0003;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .workspace-editor[data-layout="unified"] .editor-change-count { display: none; }
 @media (max-width: 760px) {
   .editor-toolbar { padding-left: 8px; gap: 4px; }

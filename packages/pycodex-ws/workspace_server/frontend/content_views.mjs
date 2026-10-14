@@ -478,7 +478,7 @@ export class SnapshotDisplay {
 }
 
 export function mountContentViews({
-  tabs, frame, content, status, request, storage, storageKey, renderMarkdown, onInsertContext,
+  tabs, frame, content, status, request, renderMarkdown, onInsertContext,
   enableBoard = true,
 }) {
   const document = tabs.ownerDocument;
@@ -619,12 +619,9 @@ export function mountContentViews({
     enableBoard,
     onChange: render,
     onSelect: id => {
-      if (id) storage.setItem(storageKey, id);
-      else storage.removeItem(storageKey);
       content.closest(".workspace").dataset.mobilePane = "board";
       focusTab(id);
     },
-    selected: storage.getItem(storageKey),
   });
   render(controller);
   return {

@@ -109,7 +109,8 @@ def wait_snapshot(client, predicate, path="/api/session"):
 
 
 @pytest.mark.parametrize("late_poll", ["none", "success", "error"])
-def test_closing_active_tab_restores_visited_tab(late_poll):
+@pytest.mark.parametrize("initial_pane", ["chat", "board"])
+def test_closing_active_tab_restores_visited_tab(late_poll, initial_pane):
     source = (
         Path(__file__).parents[1]
         / "workspace_server" / "workspace.html"
@@ -117,6 +118,7 @@ def test_closing_active_tab_restores_visited_tab(late_poll):
     fragments = []
     for start, end in [
         ("    let pollTimer = null;", "    const markdownRenderer ="),
+        ("    function isNearBottom(", "    function resizePrompt("),
         ("    function stateForSession(", "    function renderTabs("),
         ("    function messageSignature(", "    function startPolling("),
         ("    function renderSnapshot(", "    function renderConversation("),
@@ -130,8 +132,16 @@ class AbortController {
   constructor() { this.signal = {aborted: false}; }
   abort() { this.signal.aborted = true; }
 }
+let logVisible = process.argv[3] === "chat";
+let scrollTop = 0;
 const log = {
-  textContent: "", scrollTop: 0, scrollHeight: 1000, clientHeight: 100,
+  textContent: "",
+  get scrollTop() { return logVisible ? scrollTop : 0; },
+  set scrollTop(value) {
+    if (logVisible) scrollTop = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight));
+  },
+  get scrollHeight() { return logVisible ? (this.textContent ? 1000 : 100) : 0; },
+  get clientHeight() { return logVisible ? 100 : 0; },
   children: [], getBoundingClientRect: () => ({top: 0}),
 };
 const prompt = {};
@@ -153,8 +163,6 @@ const updateContextMeter = () => {};
 const updatePromptPlaceholder = () => {};
 const updateSpinnerNotifyUi = () => {};
 const notifySessionDone = () => {};
-const isNearBottom = () => false;
-const scrollToBottom = () => {};
 const setSpinner = text => { spinnerText = text; };
 const addEntry = (_role, text) => { log.textContent += text; };
 const renderConversation = turns => { log.textContent = turns.map(turn => turn.response).join(""); };
@@ -194,19 +202,33 @@ const fetch = async (path, options = {}) => {
   return reply;
 };
 (async () => {
-  sessions = tabs.slice();
-  activeSessionId = "a";
   updateSessions([{id: "a", running: false}, {id: "b", running: true}]);
+  assert.equal(activeSessionId, "a");
   assert.equal(document.title, "● Workspace");
   updateSessions([{id: "a", running: false}, {id: "b", running: true}]);
   assert.equal(document.title, "● Workspace");
   renderSnapshot(snapshot("a"));
+  if (!logVisible) {
+    assert.equal(log.scrollTop, 0);
+    assert.equal(stateForSession("a").scrollTop, null);
+    renderSnapshot(snapshot("a"));
+    logVisible = true;
+    restoreSessionScroll();
+  }
+  assert.equal(log.scrollTop, 900);
   const draftA = {parts: [
     {type: "text", text: "draft a"},
     {type: "context", id: "a-code", label: "sample.py:1", text: "captured code"},
   ], selection: {start: 7, end: 7}};
   composer.set(draftA);
   log.scrollTop = 123;
+  saveActiveSessionUiState();
+  logVisible = false;
+  renderSnapshot({turns: [{prompt: "prompt a", response: "answer a updated"}]});
+  assert.equal(stateForSession("a").scrollTop, 123);
+  logVisible = true;
+  restoreSessionScroll();
+  assert.equal(log.scrollTop, 123);
   await switchSession("b");
   assert.equal(log.textContent, "answer b");
   assert.equal(document.title, "Workspace");
@@ -214,7 +236,13 @@ const fetch = async (path, options = {}) => {
   log.scrollTop = 9;
   delayOldPoll = process.argv[2] !== "none";
   const oldPoll = delayOldPoll ? pollSession() : null;
+  logVisible = process.argv[3] === "chat";
   await closeSession("b");
+  if (!logVisible) {
+    assert.equal(stateForSession("a").scrollTop, 123);
+    logVisible = true;
+    restoreSessionScroll();
+  }
   assert.equal(activeSessionId, "a");
   assert.equal(log.textContent, "answer a");
   assert.deepEqual(composer.read(), draftA);
@@ -239,7 +267,7 @@ const fetch = async (path, options = {}) => {
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     result = subprocess.run(
-        ["node", "-", late_poll],
+        ["node", "-", late_poll, initial_pane],
         input=script,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

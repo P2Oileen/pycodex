@@ -1763,6 +1763,16 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    function restoreSessionScroll() {
+      if (!activeSessionId || !log.clientHeight) return;
+      const state = stateForSession(activeSessionId);
+      if (!state.lastRenderedSignature) return;
+      if (state.scrollTop === null) scrollToBottom();
+      else log.scrollTop = state.scrollTop;
+      restoreScrollTop = null;
+      state.scrollTop = log.scrollTop;
+    }
+
     function resizePrompt() {
       prompt.style.height = "auto";
       const borderHeight = prompt.offsetHeight - prompt.clientHeight;
@@ -2143,7 +2153,7 @@
       }
       state.lastRenderedSignature = signature;
       lastRenderedSignature = signature;
-      const shouldStick = isNearBottom();
+      const shouldStick = state.scrollTop === null || isNearBottom();
       const previousScrollTop = log.scrollTop;
       const viewportTop = log.getBoundingClientRect().top;
       const anchor = !shouldStick && restoreScrollTop === null
@@ -2156,6 +2166,8 @@
         renderConversation(turns, state.inputRequest);
         setSpinner(snapshot.spinner || "");
         updateContextMeter(snapshot);
+        // Hidden mobile panes have no layout; restore their scroll when shown.
+        if (!log.clientHeight) return;
         if (restoreScrollTop !== null) {
           log.scrollTop = Math.min(
             restoreScrollTop,
@@ -2420,7 +2432,7 @@
     });
 
     log.addEventListener("scroll", () => {
-      if (suppressScrollSave) return;
+      if (suppressScrollSave || !log.clientHeight || !lastRenderedSignature) return;
       if (!activeSessionId) return;
       stateForSession(activeSessionId).scrollTop = log.scrollTop;
       requestAnimationFrame(markVisibleFinalRead);
@@ -2455,7 +2467,10 @@
     document.querySelectorAll("[data-pane]").forEach((button) => {
       button.addEventListener("click", () => {
         workspace.dataset.mobilePane = button.dataset.pane;
-        if (button.dataset.pane === "chat") resizePrompt();
+        if (button.dataset.pane === "chat") {
+          resizePrompt();
+          restoreSessionScroll();
+        }
         requestAnimationFrame(markVisibleFinalRead);
       });
     });
@@ -2463,6 +2478,7 @@
       const current = Number(window.localStorage.getItem("pycodex.workspace.chatWidth") || 0);
       if (current > 0) setChatWidth(current);
       resizePrompt();
+      restoreSessionScroll();
       requestAnimationFrame(markVisibleFinalRead);
     });
     window.addEventListener("focus", () => requestAnimationFrame(markVisibleFinalRead));
@@ -2493,8 +2509,6 @@
       frame: document.getElementById("boardFrame"),
       content: document.getElementById("contentView"),
       status: document.getElementById("viewStatus"),
-      storage: window.localStorage,
-      storageKey: "pycodex.workspace.contentTab:" + window.location.pathname,
       renderMarkdown: renderMarkdownInto,
       onInsertContext: insertEditorContext,
       enableBoard,

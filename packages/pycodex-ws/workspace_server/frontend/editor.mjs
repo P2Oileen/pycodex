@@ -1,6 +1,5 @@
 import * as monaco from "monaco-editor/editor/editor.api.js";
 import "monaco-editor/features/bracketMatching/register.js";
-import "monaco-editor/features/clipboard/register.js";
 import "monaco-editor/features/codeEditor/register.js";
 import "monaco-editor/features/codicon/register.js";
 import "monaco-editor/features/contextmenu/register.js";
@@ -23,8 +22,10 @@ import {createTokenizationSupport} from "monaco-editor/languages/features/json/t
 import {CommonFindController} from "monaco-editor/editor/contrib/find/browser/findController.js";
 import {IEditorWorkerService} from "monaco-editor/editor/common/services/editorWorker.js";
 import {StandaloneServices} from "monaco-editor/editor/standalone/browser/standaloneServices.js";
+import {IClipboardService} from "monaco-editor/platform/clipboard/common/clipboardService.js";
 import workerSource from "workspace-editor-worker";
 import {editorContext} from "./editor_context.mjs";
+import {TouchSelection} from "./touch_selection.mjs";
 import "./editor.css";
 
 function editorWorkerFactory() {
@@ -130,6 +131,36 @@ class SnapshotEditor {
       this.codeEditors = {file: this.editor};
     }
     for (const [side, editor] of Object.entries(this.codeEditors)) {
+      this.disposables.push(new TouchSelection(editor, monaco.editor.ContentWidgetPositionPreference.EXACT));
+      this.disposables.push(editor.addAction({
+        id: "pycodex.selectAll",
+        label: "Select All",
+        contextMenuGroupId: "9_cutcopypaste",
+        contextMenuOrder: 1,
+        run: () => {
+          editor.setSelection(editor.getModel().getFullModelRange());
+          editor.focus();
+        },
+      }));
+      this.disposables.push(editor.addAction({
+        id: "pycodex.copy",
+        label: "Copy",
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC],
+        keybindingContext: "editorTextFocus",
+        contextMenuGroupId: "9_cutcopypaste",
+        contextMenuOrder: 2,
+        run: () => {
+          const model = editor.getModel();
+          const selections = editor.getSelections().slice().sort((a, b) =>
+            a.startLineNumber - b.startLineNumber || a.startColumn - b.startColumn);
+          const eol = model.getEOL();
+          const text = selections.every(selection => selection.isEmpty()) ?
+            Array.from(new Set(selections.map(selection => selection.startLineNumber)),
+              line => model.getLineContent(line)).join(eol) + eol :
+            selections.map(selection => model.getValueInRange(selection)).join(eol);
+          return StandaloneServices.get(IClipboardService).writeText(text);
+        },
+      }));
       this.disposables.push(editor.onDidFocusEditorWidget(() => {
         this.activeSide = side;
         if (side === "modified" && this.revealOriginal) {
