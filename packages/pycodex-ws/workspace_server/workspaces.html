@@ -15,6 +15,8 @@
       --line: #e1e6ed;
       --accent: #385bc7;
       --accent-strong: #2c49a6;
+      --green: #26734f;
+      --green-soft: #eaf5ee;
       --danger: #b42318;
       --danger-soft: #fff0ed;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -29,6 +31,8 @@
         --line: #303c4d;
         --accent: #a0b8ff;
         --accent-strong: #bfd0ff;
+        --green: #8ad5ad;
+        --green-soft: #233b31;
         --danger: #ff8c7f;
         --danger-soft: #321d1b;
       }
@@ -155,6 +159,9 @@
     .status.error {
       color: var(--danger);
     }
+    .action-status { max-width: none; margin: 0 0 16px; text-align: left; }
+    .action-status:empty { display: none; }
+    .workspace-list.stale { opacity: .6; }
     .layout {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 280px;
@@ -263,6 +270,16 @@
       font-size: 11px;
       line-height: 1.5;
     }
+    .activity-badge { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--panel-soft); font-size: 10px; font-weight: 500; }
+    .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
+    .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    @keyframes spinner-pulse {
+      0%, 100% { opacity: .45; transform: scale(.82); }
+      50% { opacity: 1; transform: scale(1.08); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .activity-badge[data-state="working"]::before { animation: none; opacity: .8; transform: none; }
+    }
     .paths {
       display: grid;
       gap: 2px;
@@ -334,12 +351,13 @@
         <span>pycodex</span>
         <span class="brand-context">workspaces</span>
       </a>
-      <div id="status" class="status" role="status"></div>
+      <div id="status" class="status" role="status">Connecting…</div>
     </header>
     <div class="intro">
       <h1>Your workspaces</h1>
       <p>Manage workspaces on this device.</p>
     </div>
+    <p id="actionStatus" class="status action-status" role="status"></p>
     <div class="layout">
       <section class="panel" aria-labelledby="listTitle">
         <div class="panel-head">
@@ -353,7 +371,7 @@
               </div>
               <div class="metric">
                 <span id="activeCount" class="metric-value">0</span>
-                <span class="metric-label">running</span>
+                <span class="metric-label">working</span>
               </div>
             </div>
           </div>
@@ -402,6 +420,7 @@
     const rows = document.getElementById("workspaceRows");
     const form = document.getElementById("workspaceForm");
     const statusEl = document.getElementById("status");
+    const actionStatus = document.getElementById("actionStatus");
     const nameInput = document.getElementById("nameInput");
     const dirInput = document.getElementById("dirInput");
     const statePathInput = document.getElementById("statePathInput");
@@ -417,8 +436,8 @@
     }
 
     function setStatus(text, isError = false) {
-      statusEl.textContent = text || "";
-      statusEl.classList.toggle("error", Boolean(isError));
+      actionStatus.textContent = text || "";
+      actionStatus.classList.toggle("error", Boolean(isError));
     }
 
     function textNode(tag, className, text) {
@@ -445,7 +464,9 @@
       });
       workspaceCount.textContent = String(workspaces.length);
       sessionCount.textContent = String(sessions.length);
-      activeCount.textContent = String(sessions.filter((session) => session.running).length);
+      activeCount.textContent = String(workspaces.filter(
+        workspace => workspace.sessions.some(session => session.running)
+      ).length);
     }
 
     function renderEmpty() {
@@ -459,6 +480,7 @@
     function renderWorkspace(workspace) {
       const row = document.createElement("article");
       row.className = "workspace-row";
+      row.dataset.workspaceId = workspace.id;
 
       const name = document.createElement("div");
       name.className = "workspace-name";
@@ -467,6 +489,7 @@
       name.appendChild(title);
       const sessions = Array.isArray(workspace.sessions) ? workspace.sessions : [];
       name.appendChild(textNode("span", "session-count", `${sessions.length} session${sessions.length === 1 ? "" : "s"}`));
+      name.appendChild(textNode("span", "activity-badge", ""));
 
       const paths = document.createElement("div");
       paths.className = "paths";
@@ -491,28 +514,59 @@
       row.appendChild(paths);
       row.appendChild(actions);
       rows.appendChild(row);
+      return row;
     }
 
     function render(workspaces) {
-      rows.textContent = "";
+      const existing = new Map(
+        Array.from(rows.querySelectorAll(".workspace-row"), row => [row.dataset.workspaceId, row])
+      );
       renderSummary(workspaces);
       if (!workspaces.length) {
+        rows.textContent = "";
         renderEmpty();
         return;
       }
-      workspaces.forEach(renderWorkspace);
+      const empty = rows.querySelector(".empty");
+      if (empty) empty.remove();
+      workspaces.forEach((workspace, index) => {
+        const row = existing.get(workspace.id) || renderWorkspace(workspace);
+        existing.delete(workspace.id);
+        const count = workspace.sessions.length;
+        row.querySelector(".session-count").textContent = `${count} session${count === 1 ? "" : "s"}`;
+        const running = workspace.sessions.some(session => session.running);
+        const activity = row.querySelector(".activity-badge");
+        activity.dataset.state = running ? "working" : "ready";
+        activity.textContent = running ? "Working" : "Ready";
+        if (rows.children[index] !== row) rows.insertBefore(row, rows.children[index] || null);
+      });
+      existing.forEach(row => row.remove());
     }
 
-    async function refresh() {
-      setStatus("Refreshing...");
-      const response = await fetch(api("api/workspaces"));
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || `HTTP ${response.status}`);
-      }
-      render(Array.isArray(payload.workspaces) ? payload.workspaces : []);
-      setStatus("");
-    }
+    const refresh = (() => {
+      let refreshing = false;
+      return async () => {
+        if (refreshing) return;
+        refreshing = true;
+        try {
+          const response = await fetch(api("api/workspaces"), {cache: "no-store"});
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+          render(payload.workspaces);
+          statusEl.textContent = "Live · updates automatically";
+          statusEl.title = "";
+          statusEl.classList.remove("error");
+          rows.classList.remove("stale");
+        } catch (error) {
+          statusEl.textContent = "Could not refresh · retrying";
+          statusEl.title = error.message;
+          statusEl.classList.add("error");
+          rows.classList.add("stale");
+        } finally {
+          refreshing = false;
+        }
+      };
+    })();
 
     async function addWorkspace(event) {
       event.preventDefault();
@@ -558,8 +612,9 @@
     }
 
     form.addEventListener("submit", addWorkspace);
-    refreshButton.addEventListener("click", () => refresh().catch((error) => setStatus(error.message, true)));
-    refresh().catch((error) => setStatus(error.message, true));
+    refreshButton.addEventListener("click", refresh);
+    refresh();
+    setInterval(refresh, 2000);
   </script>
 </body>
 </html>

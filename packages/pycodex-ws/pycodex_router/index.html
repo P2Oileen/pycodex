@@ -81,7 +81,14 @@
     .workspace-row:last-child { border-radius: 0 0 9px 9px; }
     .activity-badge { justify-self: start; display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 500; }
     .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
-    .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    @keyframes spinner-pulse {
+      0%, 100% { opacity: .45; transform: scale(.82); }
+      50% { opacity: 1; transform: scale(1.08); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .activity-badge[data-state="working"]::before { animation: none; opacity: .8; transform: none; }
+    }
     .workspace-title { font-size: 12px; line-height: 1.6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .workspace-path, .state-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .state-path { color: var(--muted); }

@@ -529,6 +529,12 @@ The entire left workspace pane is the board. When `enable_board` is true, it sta
 with a permanent Canvas tab for live HTML, followed by read-only file/diff tabs.
 All tabs scroll together horizontally.
 
+Session tabs, the workspace list and the router use the same activity rule:
+a workspace is Working while any session is running, including background waits,
+and Ready otherwise. Working indicators use the session tab's breathing animation
+and honor reduced motion. The workspace list refreshes every two seconds and
+preserves existing rows while updating their status and session counts.
+
 A workspace has one `state_path` filename prefix and an `enable_board` boolean
 that defaults to true. The prefix identifies the workspace and appends
 `.pycodex-ws.json`, `.pycodex-views.json` and `.html` for session state, file views
