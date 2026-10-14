@@ -233,6 +233,7 @@ class WorkspaceSessionManager:
         self._session_order: "typing.List[str]" = []
         self._state_watchers: "typing.Dict[str, asyncio.Task]" = {}
         self._tab_states: "typing.Dict[str, typing.Dict[str, object]]" = {}
+        self._read_final_ids: "typing.Dict[str, str]" = {}
         self._lock = None
         self._state_store = WorkspaceStateStore(
             workspace_file_path(state_path, ".pycodex-ws.json")
@@ -285,6 +286,7 @@ class WorkspaceSessionManager:
             self._session_order = []
             self._state_watchers.clear()
             self._tab_states.clear()
+            self._read_final_ids.clear()
 
     async def create_session(
         self,
@@ -342,6 +344,7 @@ class WorkspaceSessionManager:
                 raise KeyError(session_id)
             watcher = self._state_watchers.pop(session_id, None)
             self._tab_states.pop(session_id, None)
+            self._read_final_ids.pop(session_id, None)
             self._session_order = [
                 item for item in self._session_order if item != session_id
             ]
@@ -398,16 +401,28 @@ class WorkspaceSessionManager:
             raise KeyError("no sessions")
         return self._session_order[0]
 
+    def mark_read(self, session_id: str, final_id: str) -> None:
+        if not isinstance(final_id, str) or not 0 < len(final_id) <= 128:
+            raise ValueError("final_id must be a nonempty string of at most 128 characters")
+        session = self._sessions[session_id]
+        if final_id == session_summary(session).get("last_final_id"):
+            self._read_final_ids[session_id] = final_id
+
     def list_sessions(self) -> "typing.List[typing.Dict[str, object]]":
         result = []
         for session_id in self._session_order:
             session = self._sessions[session_id]
             summary = session_summary(session)
+            final_id = summary.get("last_final_id") or ""
             result.append(
                 {
                     "id": session_id,
                     "title": summary.get("title") or "pycodex",
                     "running": bool(summary.get("running")),
+                    "last_final_id": final_id,
+                    "unread": bool(
+                        final_id and final_id != self._read_final_ids.get(session_id)
+                    ),
                     "spinner": summary.get("spinner") or "",
                     "turn_count": summary.get("turn_count") or 0,
                     "last_assistant": summary.get("last_assistant") or "",
@@ -581,6 +596,7 @@ def session_summary(session) -> "typing.Dict[str, object]":
     return {
         "title": snapshot.get("title") or "",
         "running": bool(snapshot.get("running")),
+        "last_final_id": snapshot.get("last_final_id") or "",
         "spinner": snapshot.get("spinner") or "",
         "turn_count": len(snapshot.get("turns") or []),
         "last_assistant": _last_assistant_text(snapshot.get("turns") or []),

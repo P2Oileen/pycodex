@@ -248,12 +248,14 @@
     }
     .list-head { position: sticky; top: 0; z-index: 1; border-radius: 9px 9px 0 0; background: var(--panel-soft); color: var(--muted); font-size: 10px; font-weight: 550; letter-spacing: .3px; }
     .list-head span:last-child { text-align: right; }
-    .workspace-row { min-height: 62px; border-top: 1px solid var(--line); }
+    .workspace-row { position: relative; min-height: 62px; border-top: 1px solid var(--line); }
     .workspace-row:hover { background: var(--panel-soft); }
     .workspace-row:last-child { border-radius: 0 0 9px 9px; }
     .workspace-name {
       min-width: 0;
     }
+    .workspace-status { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: middle; }
+    .unread-dot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--danger); }
     .workspace-name strong {
       display: block;
       overflow: hidden;
@@ -270,7 +272,7 @@
       font-size: 11px;
       line-height: 1.5;
     }
-    .activity-badge { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--panel-soft); font-size: 10px; font-weight: 500; }
+    .activity-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--panel-soft); font-size: 10px; font-weight: 500; }
     .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
     .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
     @keyframes spinner-pulse {
@@ -312,6 +314,8 @@
     }
     .actions a.button { color: var(--accent); border-color: var(--line); }
     .actions a.button:hover { background: var(--panel-soft); }
+    .actions a.button::after { content: ""; position: absolute; inset: 0; }
+    .actions button { position: relative; z-index: 1; }
     .empty {
       display: grid;
       justify-items: center;
@@ -489,7 +493,14 @@
       name.appendChild(title);
       const sessions = Array.isArray(workspace.sessions) ? workspace.sessions : [];
       name.appendChild(textNode("span", "session-count", `${sessions.length} session${sessions.length === 1 ? "" : "s"}`));
-      name.appendChild(textNode("span", "activity-badge", ""));
+      const status = textNode("span", "workspace-status", "");
+      const unread = textNode("span", "unread-dot", "");
+      unread.title = "Unread reply";
+      unread.setAttribute("role", "img");
+      unread.setAttribute("aria-label", "Unread reply");
+      status.appendChild(unread);
+      status.appendChild(textNode("span", "activity-badge", ""));
+      name.appendChild(status);
 
       const paths = document.createElement("div");
       paths.className = "paths";
@@ -538,6 +549,7 @@
         const activity = row.querySelector(".activity-badge");
         activity.dataset.state = running ? "working" : "ready";
         activity.textContent = running ? "Working" : "Ready";
+        row.querySelector(".unread-dot").hidden = !workspace.sessions.some(session => session.unread);
         if (rows.children[index] !== row) rows.insertBefore(row, rows.children[index] || null);
       });
       existing.forEach(row => row.remove());

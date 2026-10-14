@@ -307,6 +307,13 @@
     .tab-label[hidden] {
       display: none;
     }
+    .unread-dot {
+      flex: 0 0 6px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--danger);
+    }
     .tab-label {
       min-width: 0;
       overflow: hidden;
@@ -1774,6 +1781,7 @@
           notifyWhenDone: false,
           wasRunning: false,
           inputRequest: null,
+          readingFinalId: "",
         });
       }
       return sessionState.get(key);
@@ -1828,6 +1836,13 @@
           tab.setAttribute("role", "tab");
           tab.addEventListener("click", () => switchSession(sessionId));
 
+          const unread = document.createElement("span");
+          unread.className = "unread-dot";
+          unread.title = "Unread reply";
+          unread.setAttribute("role", "img");
+          unread.setAttribute("aria-label", "Unread reply");
+          tab.appendChild(unread);
+
           const status = document.createElement("span");
           status.className = "tab-status";
           status.setAttribute("aria-hidden", "true");
@@ -1866,6 +1881,7 @@
         tab.setAttribute("aria-selected", sessionId === activeSessionId ? "true" : "false");
         tab.setAttribute("aria-busy", String(Boolean(session.running)));
         tab.querySelector(".tab-status").hidden = !session.running;
+        tab.querySelector(".unread-dot").hidden = !session.unread;
         const label = tab.querySelector(".tab-label");
         label.textContent = session.title || `Session ${index + 1}`;
         label.title = sessionId === activeSessionId ? "Click to rename session" : tab.title;
@@ -2008,6 +2024,7 @@
         turns.map((item) => [
           item.submission_id || "",
           item.turn_id || "",
+          item.final_id || "",
           item.prompt || "",
           item.response || "",
           item.thinking || "",
@@ -2117,6 +2134,7 @@
       const state = stateForSession(activeSessionId);
       state.inputRequest = snapshot.input_request || null;
       renderQueueHint(snapshot.queued_inputs);
+      requestAnimationFrame(markVisibleFinalRead);
       const signature = messageSignature(snapshot);
       if (signature === state.lastRenderedSignature) {
         setSpinner(snapshot.spinner || "");
@@ -2216,10 +2234,51 @@
         renderEntry(`${key}:prompt`, turn.prompt, isControl ? "control" : "user");
       }
       if (turn.response) {
-        renderEntry(`${key}:response`, turn.response, isControl ? "control" : "response", !isControl);
+        const response = renderEntry(
+          `${key}:response`, turn.response, isControl ? "control" : "response", !isControl
+        );
+        response.dataset.finalId = isControl ? "" : (turn.final_id || "");
+        response.dataset.sessionId = activeSessionId;
       }
       if (turn.thinking) renderEntry(`${key}:thinking`, turn.thinking, "thinking");
       if (turn.error) renderEntry(`${key}:error`, turn.error, "error");
+    }
+
+    async function markVisibleFinalRead() {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      const sessionId = activeSessionId;
+      const session = sessionById(sessionId);
+      if (!session || !session.unread || !session.last_final_id) return;
+      const state = stateForSession(sessionId);
+      if (state.readingFinalId || !log.getClientRects().length) return;
+      const finalId = session.last_final_id;
+      const final = Array.from(log.querySelectorAll("[data-final-id]"))
+        .find(element => element.dataset.finalId === finalId && element.dataset.sessionId === sessionId);
+      if (!final) return;
+      const viewport = log.getBoundingClientRect();
+      const rect = final.getBoundingClientRect();
+      if (Math.min(rect.bottom, viewport.bottom, window.innerHeight) <= Math.max(rect.top, viewport.top, 0) ||
+          Math.min(rect.right, viewport.right, window.innerWidth) <= Math.max(rect.left, viewport.left, 0)) return;
+      state.readingFinalId = finalId;
+      try {
+        const response = await fetch(relativeUrl(`api/sessions/${encodeURIComponent(sessionId)}/read`), {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({final_id: finalId}),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const current = sessionById(sessionId);
+        const saved = payload.sessions.find(item => item.id === sessionId);
+        if (current && saved && current.last_final_id === saved.last_final_id) {
+          current.unread = saved.unread;
+          renderTabs();
+        }
+      } catch (error) {
+        showToast("Unable to mark reply as read: " + error.message);
+      } finally {
+        state.readingFinalId = "";
+      }
     }
 
     async function submitPrompt(text) {
@@ -2364,6 +2423,7 @@
       if (suppressScrollSave) return;
       if (!activeSessionId) return;
       stateForSession(activeSessionId).scrollTop = log.scrollTop;
+      requestAnimationFrame(markVisibleFinalRead);
     });
 
     splitter.addEventListener("pointerdown", startResize);
@@ -2396,17 +2456,21 @@
       button.addEventListener("click", () => {
         workspace.dataset.mobilePane = button.dataset.pane;
         if (button.dataset.pane === "chat") resizePrompt();
+        requestAnimationFrame(markVisibleFinalRead);
       });
     });
     window.addEventListener("resize", () => {
       const current = Number(window.localStorage.getItem("pycodex.workspace.chatWidth") || 0);
       if (current > 0) setChatWidth(current);
       resizePrompt();
+      requestAnimationFrame(markVisibleFinalRead);
     });
+    window.addEventListener("focus", () => requestAnimationFrame(markVisibleFinalRead));
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
       pollSession();
       pollBoard();
+      requestAnimationFrame(markVisibleFinalRead);
     });
 
     loadChatWidth();

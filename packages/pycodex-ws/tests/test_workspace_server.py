@@ -38,6 +38,7 @@ from pycodex.events import (
     TurnStartedEvent,
 )
 from pycodex.protocol import ToolResult
+from pycodex.model import ResponsesIncompleteError
 from pycodex.runtime import SubmissionInterrupted
 from pycodex.utils import uuid7_string
 from pycodex.utils.session_persist import resolve_codex_home, rollout_path_for_session
@@ -141,6 +142,8 @@ class Composer {
   set(value) { this.value = value; }
 }
 const document = {title: "Workspace"};
+const requestAnimationFrame = () => {};
+const markVisibleFinalRead = () => {};
 const workspaceTitle = document.title;
 const relativeUrl = path => path;
 const resizePrompt = () => {};
@@ -583,6 +586,9 @@ def test_password_protects_http_and_websocket(tmp_path, multi):
         assert response.history[0].status_code == 303
         login_url = response.history[0].headers["location"]
         assert browser.get(prefix + "/api/session").status_code == 401
+        assert browser.post(
+            prefix + "/api/sessions/missing/read", json={"final_id": "final"}
+        ).status_code == 401
         assert browser.post(login_url, json={"password": "wrong"}).status_code == 401
         with pytest.raises(WebSocketDisconnect):
             with browser.websocket_connect(prefix + "/ws/session"):
@@ -623,6 +629,7 @@ def test_workspace_json_body_validation(tmp_path, multi):
         ]
         endpoints = [
             "/login", prefix + "/api/views/open", prefix + "/api/session/message",
+            prefix + "/api/sessions/missing/read",
         ]
         if multi:
             endpoints.append("/api/workspaces")
@@ -1297,6 +1304,160 @@ def test_session_list_uses_lightweight_summary(monkeypatch):
         response = browser.get("/api/sessions")
         assert response.status_code == 200
         assert response.json()["sessions"][0]["turn_count"] == 0
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_unread_is_shared_and_old_read_cannot_clear_new_final(tmp_path, multi):
+    model = ScriptedModelClient(
+        response_factory=lambda prompt, count: ModelResponse([AssistantMessage("same reply")])
+    )
+    manager = WorkspaceSessionManager(lambda: make_session(model), tmp_path / "state")
+    if multi:
+        app = create_multi_workspace_app(WorkspaceRegistry([
+            WorkspaceEntry(WorkspaceDefinition("first", tmp_path / "state", tmp_path), manager),
+        ]))
+        prefix = "/w/first"
+    else:
+        app = create_app(manager, tmp_path / "state")
+        prefix = ""
+    with TestClient(app) as desktop:
+        # A second client shares the running app without starting its lifespan again.
+        phone = TestClient(app)
+        try:
+            assert not desktop.get(prefix + "/api/sessions").json()["sessions"][0]["unread"]
+            desktop.post(prefix + "/api/session/message", json={"prompt": "first"})
+            first = wait_snapshot(desktop, lambda s: s["last_final_id"], prefix + "/api/session")
+            session_id = desktop.get(prefix + "/api/session").json()["session_id"]
+            read_path = prefix + "/api/sessions/" + session_id + "/read"
+            first_id = first["last_final_id"]
+            assert first["turns"][-1]["final_id"] == first_id
+            assert phone.get(prefix + "/api/sessions").json()["sessions"][0]["unread"]
+            assert not phone.post(read_path, json={"final_id": first_id}).json()["sessions"][0]["unread"]
+            assert not desktop.get(prefix + "/api/sessions").json()["sessions"][0]["unread"]
+
+            desktop.post(prefix + "/api/session/message", json={"prompt": "second"})
+            second = wait_snapshot(
+                desktop, lambda s: s["last_final_id"] != first_id, prefix + "/api/session"
+            )
+            second_id = second["last_final_id"]
+            assert second["turns"][-1]["response"] == first["turns"][-1]["response"]
+            assert second_id != first_id
+            state_path = tmp_path / "state.pycodex-ws.json"
+            saved = state_path.read_bytes()
+            stamp = state_path.stat().st_mtime_ns
+            assert phone.post(read_path, json={"final_id": first_id}).json()["sessions"][0]["unread"]
+            assert not phone.post(read_path, json={"final_id": second_id}).json()["sessions"][0]["unread"]
+            phone.post(read_path, json={"final_id": second_id})
+            assert state_path.read_bytes() == saved
+            assert state_path.stat().st_mtime_ns == stamp
+            assert not desktop.get(prefix + "/api/sessions").json()["sessions"][0]["unread"]
+            if multi:
+                assert not desktop.get("/api/workspaces").json()["workspaces"][0]["sessions"][0]["unread"]
+            for value in (None, "", 1, [], "x" * 129):
+                assert phone.post(read_path, json={"final_id": value}).status_code == 400
+            assert phone.post(
+                prefix + "/api/sessions/missing/read", json={"final_id": second_id}
+            ).status_code == 404
+            assert model.call_count == 2
+        finally:
+            phone.close()
+
+
+@pytest.mark.parametrize("threaded", [False, True])
+@pytest.mark.parametrize("read", [False, True])
+def test_unread_survives_compact_but_clears_on_restart(tmp_path, threaded, read):
+    def factory():
+        if threaded:
+            return ThreadedWorkspaceInteractiveSession(make_session, asyncio.get_running_loop())
+        return make_session()
+
+    state_path = tmp_path / "state"
+    store = WorkspaceStateStore(tmp_path / "state.pycodex-ws.json")
+    with TestClient(create_app(factory, state_path)) as browser:
+        browser.post("/api/session/message", json={"prompt": "question"})
+        state = wait_snapshot(browser, lambda s: s["last_final_id"])
+        final_id = state["last_final_id"]
+        session_id = browser.get("/api/session").json()["session_id"]
+        if read:
+            browser.post("/api/sessions/" + session_id + "/read", json={"final_id": final_id})
+        browser.post("/api/session/message", json={"prompt": "/compact"})
+        state = wait_snapshot(browser, lambda s: s["turns"][-1]["kind"] == "compaction")
+        assert state["last_final_id"] == final_id
+        assert browser.get("/api/sessions").json()["sessions"][0]["unread"] is (not read)
+        assert store.load_tabs() == [
+            {"title": "question", "rollout_path": state["rollout_path"]}
+        ]
+    with TestClient(create_app(factory, state_path)) as browser:
+        payload = browser.get("/api/session").json()
+        assert payload["session_id"] != session_id
+        assert payload["snapshot"]["last_final_id"] == ""
+        assert all(not turn["final_id"] for turn in payload["snapshot"]["turns"])
+        assert not payload["sessions"][0]["unread"]
+        browser.post("/api/session/message", json={"prompt": "another question"})
+        state = wait_snapshot(browser, lambda s: s["last_final_id"])
+        assert state["last_final_id"] != final_id
+        assert browser.get("/api/sessions").json()["sessions"][0]["unread"]
+
+
+def test_partial_output_does_not_create_unread(tmp_path):
+    def respond(prompt, count):
+        if count == 2:
+            raise ResponsesIncompleteError(
+                "incomplete", [AssistantMessage("partial")], reason="max_output_tokens"
+            )
+        return ModelResponse([AssistantMessage("final reply")])
+
+    state_path = tmp_path / "state"
+    with TestClient(create_app(
+        lambda: make_session(ScriptedModelClient(response_factory=respond)), state_path
+    )) as browser:
+        browser.post("/api/session/message", json={"prompt": "question"})
+        first = wait_snapshot(browser, lambda s: s["last_final_id"])
+        session_id = browser.get("/api/session").json()["session_id"]
+        browser.post(
+            "/api/sessions/" + session_id + "/read",
+            json={"final_id": first["last_final_id"]},
+        )
+        browser.post("/api/session/message", json={"prompt": "unfinished"})
+        state = wait_snapshot(browser, lambda s: s["turns"][-1]["status"] == "error")
+        assert state["last_final_id"] == first["last_final_id"]
+        assert not state["turns"][-1]["final_id"]
+        assert not browser.get("/api/sessions").json()["sessions"][0]["unread"]
+
+
+def test_only_final_creates_unread_independently_of_running():
+    session = make_session()
+    manager = WorkspaceSessionManager(lambda: session)
+    view = session.view
+    with TestClient(create_app(manager, None)) as browser:
+        view.handle_event(TurnStartedEvent("first", ("question",)))
+        view.handle_event(AssistantDeltaEvent("commentary", "first"))
+        assert not manager.list_sessions()[0]["unread"]
+        view.handle_event(TurnCompletedEvent("first", 1, "final", 1))
+        assert manager.list_sessions()[0]["running"]
+        assert manager.list_sessions()[0]["unread"]
+        session_id = manager.list_sessions()[0]["id"]
+        browser.post("/api/sessions/" + session_id + "/read", json={"final_id": "first"})
+        assert manager.list_sessions()[0]["running"]
+        for event in (
+            TurnStartedEvent("next", ("next question",)),
+            AssistantDeltaEvent("thinking", "next"),
+            ToolStartedEvent("next", ToolCall("call", "echo", {})),
+            ToolCompletedEvent(
+                "next", ToolCall("call", "echo", {}), ToolResult("call", "echo", "tool result")
+            ),
+            TurnInterruptedEvent("next", 1, "partial", 1),
+            TurnFailedEvent("next", 1, "failed", "RuntimeError", 0),
+            TurnCompletedEvent("next", 1, None, 0),
+            CompactCompletedEvent("compact", "manual", None, None, 10, 1, 0, 0),
+        ):
+            view.handle_event(event)
+            assert not manager.list_sessions()[0]["unread"]
+            assert manager.list_sessions()[0]["last_final_id"] == "first"
+        view.handle_event(TurnStartedEvent("last", ("last question",)))
+        view.handle_event(TurnCompletedEvent("last", 1, "final", 0))
+        assert manager.list_sessions()[0]["unread"]
+        assert not manager.list_sessions()[0]["running"]
 
 
 @pytest.mark.asyncio

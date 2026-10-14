@@ -235,6 +235,7 @@ def attach_router(app, registry, target, port):
                 "enable_board": workspace["enable_board"],
                 "session_count": len(workspace["sessions"]),
                 "running": any(session["running"] for session in workspace["sessions"]),
+                "unread": any(session["unread"] for session in workspace["sessions"]),
             }
             for workspace in registry.list_workspaces()
         ]

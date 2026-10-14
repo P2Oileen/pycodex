@@ -198,6 +198,7 @@ class WebSessionView:
         self._turns_by_submission_id: "typing.Dict[str, typing.Dict[str, object]]" = {}
         self._turns_by_turn_id: "typing.Dict[str, typing.Dict[str, object]]" = {}
         self._title = ""
+        self._last_final_id = ""
         self._model = "pycodex"
         self._rollout_path = ""
         self._recorded_rollout_path = ""
@@ -276,6 +277,7 @@ class WebSessionView:
             self._turns_by_submission_id = {}
             self._turns_by_turn_id = {}
             self._events = []
+            self._last_final_id = ""
             for entry in history:
                 if entry is None:
                     self._add_compaction_marker()
@@ -318,6 +320,7 @@ class WebSessionView:
         with self._lock:
             return {
                 "running": bool(self._spinner_status),
+                "last_final_id": self._last_final_id,
                 "status": self._spinner_status,
                 "status_kind": "spinner" if self._spinner_status else "idle",
                 "spinner": self._spinner_status,
@@ -341,6 +344,7 @@ class WebSessionView:
             return {
                 "model": self._model,
                 "running": bool(self._spinner_status),
+                "last_final_id": self._last_final_id,
                 "spinner": self._spinner_status,
                 "title": self._title,
                 "turn_count": len(self._turns),
@@ -462,6 +466,8 @@ class WebSessionView:
             response = event.visualize()
             if response:
                 turn["response"] = response
+                turn["final_id"] = event.turn_id
+                self._last_final_id = event.turn_id
             elif turn.get("thinking"):
                 turn["response"] = str(turn.get("thinking") or "")
             turn["thinking"] = ""
@@ -979,6 +985,13 @@ def create_multi_workspace_app(
             entry.manager, request.path_params["session_id"]
         )
 
+    async def workspace_read_session(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return _read_session_response(
+            entry.manager, request.path_params["session_id"], payload
+        )
+
     async def workspace_session(request: Request) -> JSONResponse:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _session_response(entry.manager, request.query_params.get("session_id"))
@@ -1053,6 +1066,10 @@ def create_multi_workspace_app(
         Route(
             "/w/{workspace_id}/api/sessions/{session_id}",
             workspace_delete_session, methods=["DELETE"],
+        ),
+        Route(
+            "/w/{workspace_id}/api/sessions/{session_id}/read",
+            workspace_read_session, methods=["POST"],
         ),
         Route("/w/{workspace_id}/api/session", workspace_session, methods=["GET"]),
         Route(
@@ -1348,6 +1365,10 @@ def _install_workspace_routes(
     async def delete_session(request: Request) -> JSONResponse:
         return await _delete_session_response(manager, request.path_params["session_id"])
 
+    async def read_session(request: Request) -> JSONResponse:
+        payload = await _json_object_body(request)
+        return _read_session_response(manager, request.path_params["session_id"], payload)
+
     async def session(request: Request) -> JSONResponse:
         return _session_response(manager, request.query_params.get("session_id"))
 
@@ -1385,6 +1406,7 @@ def _install_workspace_routes(
         Route("/api/sessions", sessions, methods=["GET"]),
         Route("/api/sessions", new_session, methods=["POST"]),
         Route("/api/sessions/{session_id}", delete_session, methods=["DELETE"]),
+        Route("/api/sessions/{session_id}/read", read_session, methods=["POST"]),
         Route("/api/session", session, methods=["GET"]),
         Route("/api/session/message", message, methods=["POST"]),
         WebSocketRoute("/ws/session", websocket_session),
@@ -1534,6 +1556,18 @@ def _sessions_response(manager: "WorkspaceSessionManager") -> JSONResponse:
     return JSONResponse({"sessions": manager.list_sessions()})
 
 
+def _read_session_response(
+    manager: "WorkspaceSessionManager", session_id: str, payload: "typing.Dict[str, object]"
+) -> JSONResponse:
+    try:
+        manager.mark_read(session_id, payload.get("final_id"))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _sessions_response(manager)
+
+
 async def _new_session_response(manager: "WorkspaceSessionManager") -> JSONResponse:
     session_id = await manager.create_session()
     return JSONResponse(
@@ -1670,6 +1704,7 @@ def _public_turn(turn: "typing.Dict[str, object]") -> "typing.Dict[str, object]"
             {
                 "submission_id": turn.get("submission_id", ""),
                 "turn_id": turn.get("turn_id", ""),
+                "final_id": turn.get("final_id", ""),
                 "prompt": turn.get("prompt", ""),
                 "response": turn.get("response", ""),
                 "thinking": turn.get("thinking", ""),

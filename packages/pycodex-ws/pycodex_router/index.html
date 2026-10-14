@@ -73,13 +73,13 @@
     .workspace-group-heading { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
     .workspace-group-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
     .workspace-group-heading .count { flex: 0 0 auto; }
-    .list-head, .workspace-row { display: grid; grid-template-columns: minmax(94px, .85fr) minmax(120px, 1.85fr) 60px 44px; gap: 12px; align-items: center; padding: 10px 14px; }
+    .list-head, .workspace-row { display: grid; grid-template-columns: minmax(94px, .85fr) minmax(120px, 1.85fr) 76px 44px; gap: 12px; align-items: center; padding: 10px 14px; }
     .list-head { position: sticky; top: 0; z-index: 1; background: var(--soft); color: var(--muted); font-size: 10px; font-weight: 550; letter-spacing: .3px; }
-    .workspace-row { min-height: 62px; border-top: 1px solid var(--line); }
+    .workspace-row { position: relative; min-height: 62px; border-top: 1px solid var(--line); }
     .workspace-row > * { min-width: 0; }
     .workspace-row:hover { background: var(--soft); }
     .workspace-row:last-child { border-radius: 0 0 9px 9px; }
-    .activity-badge { justify-self: start; display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 500; }
+    .activity-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 500; }
     .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
     .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
     @keyframes spinner-pulse {
@@ -89,12 +89,15 @@
     @media (prefers-reduced-motion: reduce) {
       .activity-badge[data-state="working"]::before { animation: none; opacity: .8; transform: none; }
     }
+    .workspace-status { display: inline-flex; align-items: center; gap: 6px; justify-self: start; }
+    .unread-dot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--danger); }
     .workspace-title { font-size: 12px; line-height: 1.6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .workspace-path, .state-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .state-path { color: var(--muted); }
     .session-count { color: var(--muted); font-size: 11px; line-height: 1.7; }
     .open-link, .manage-link { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 28px; color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
     .open-link svg, .manage-link svg { width: 13px; height: 13px; }
+    .open-link::after { content: ""; position: absolute; inset: 0; }
     .open-link:hover, .manage-link:hover { text-decoration: underline; text-underline-offset: 4px; }
     .device { min-width: 0; padding: 12px 14px; }
     .device + .device { border-top: 1px solid var(--line); }
@@ -124,7 +127,7 @@
       .list-head { display: none; }
       .workspace-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 10px; padding: 10px 12px; }
       .workspace-paths { grid-column: 1 / -1; grid-row: 2; }
-      .activity-badge { grid-column: 2; grid-row: 1; }
+      .workspace-status { grid-column: 2; grid-row: 1; }
       .open-link { grid-column: 3; grid-row: 1; min-height: 36px; }
     }
   </style>
@@ -198,7 +201,10 @@
         <p class="workspace-path"></p>
         <p class="state-path"></p>
       </div>
-      <span class="activity-badge"></span>
+      <span class="workspace-status">
+        <span class="unread-dot" role="img" aria-label="Unread reply" title="Unread reply"></span>
+        <span class="activity-badge"></span>
+      </span>
       <a class="open-link">Open <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
     </article>
   </template>
@@ -353,6 +359,7 @@
           const title = card.querySelector(".workspace-title");
           title.textContent = workspace.id;
           title.title = workspace.id;
+          card.querySelector(".unread-dot").hidden = !workspace.unread;
           const path = card.querySelector(".workspace-path");
           path.textContent = workspace.work_dir;
           path.title = workspace.work_dir;

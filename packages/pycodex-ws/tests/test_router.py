@@ -115,6 +115,7 @@ def workspace_record(name="shared"):
         "enable_board": True,
         "session_count": 0,
         "running": False,
+        "unread": False,
     }
 
 
@@ -1239,6 +1240,7 @@ async def test_lifespan_attachment_keeps_runtime_alive_across_reconnect(tmp_path
     gate = create_app("router-password")
     async with serve_router(gate) as (address, target):
         attach_router(app, registry, target, 6007)
+        app.state.router_client.refresh_seconds = 0.02
         async with app.router.lifespan_context(app):
             await eventually(lambda: app.state.router_client.connected)
             node_id = app.state.router_client.node_id
@@ -1263,8 +1265,22 @@ async def test_lifespan_attachment_keeps_runtime_alive_across_reconnect(tmp_path
                 finally:
                     finish.set()
                 await eventually(lambda: not session.runtime.agent.is_running)
-                state = (await browser.get(prefix + "api/session")).json()["snapshot"]
+                payload = (await browser.get(prefix + "api/session")).json()
+                state = payload["snapshot"]
                 assert state["turns"][-1]["response"] == "finished after reconnect"
+                await eventually(
+                    lambda: gate.state.router.nodes[node_id].workspaces[0]["unread"]
+                )
+                directory = (await browser.get("/api/workspaces")).json()
+                assert directory["workspaces"][0]["unread"]
+                response = await browser.post(
+                    prefix + "api/sessions/" + payload["session_id"] + "/read",
+                    json={"final_id": state["last_final_id"]},
+                )
+                assert response.status_code == 200
+                await eventually(
+                    lambda: not gate.state.router.nodes[node_id].workspaces[0]["unread"]
+                )
         assert session.runtime.agent.is_shutdown
         await eventually(lambda: not gate.state.router.nodes)
 
@@ -1276,6 +1292,7 @@ async def test_invalid_inventory_cannot_break_the_directory():
         {"state_path": "\ud800"},
         {"session_count": True},
         {"running": {}},
+        {"unread": 1},
         {"extra": b"\x00"},
     ]
     async with serve_router(gate) as (address, target):

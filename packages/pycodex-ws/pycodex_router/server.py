@@ -114,6 +114,7 @@ def validate_inventory(workspaces):
         "enable_board",
         "session_count",
         "running",
+        "unread",
     }
     seen = set()
     for workspace in workspaces:
@@ -136,6 +137,7 @@ def validate_inventory(workspaces):
         if (
             type(workspace["enable_board"]) is not bool
             or type(workspace["running"]) is not bool
+            or type(workspace["unread"]) is not bool
             or type(workspace["session_count"]) is not int
             or not 0 <= workspace["session_count"] <= 1000000
         ):

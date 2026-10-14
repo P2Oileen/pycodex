@@ -534,6 +534,17 @@ a workspace is Working while any session is running, including background waits,
 and Ready otherwise. Working indicators use the session tab's breathing animation
 and honor reduced motion. The workspace list refreshes every two seconds and
 preserves existing rows while updating their status and session counts.
+In both lists, the existing Open link covers the entire workspace row; Delete
+remains a separate action.
+
+A separate red dot marks an unread final reply, including replies produced while
+background work remains active. A focused, visible page marks the selected
+session's latest final as read only when that reply enters the chat viewport.
+Hidden pages, the mobile Canvas pane and scrolling above the reply keep it unread.
+Unread state is kept in workspace server memory and shared by all clients, the
+workspace list and the router. Refreshing a page preserves it; restarting the
+workspace server clears all unread dots. A read confirmation names the final it
+displayed, so a delayed confirmation cannot clear a newer reply.
 
 A workspace has one `state_path` filename prefix and an `enable_board` boolean
 that defaults to true. The prefix identifies the workspace and appends
