@@ -2457,7 +2457,7 @@
 
     function followCanvasLink(event) {
       const anchor = event.target.closest("a[href]");
-      if (anchor && isWorkspaceLink(anchor.getAttribute("href"), false)) {
+      if (anchor && isWorkspaceLink(anchor.getAttribute("href"))) {
         followViewLink(event, anchor.getAttribute("href"));
       }
     }

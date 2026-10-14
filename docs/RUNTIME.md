@@ -623,9 +623,9 @@ plain file links use `:line` or `#Lline`. Zero, negative or out-of-range lines,
 images and missing target files are errors and do not change the selection.
 Line targets do not affect a tab's identity or title.
 
-These links work in chat Markdown, rendered Markdown file views and, for the
-explicit `git:`, `diff:` and `workspace://canvas` forms, Canvas HTML anchors.
-Canvas's ordinary HTML navigation keeps its existing behavior. Linking the
+These links work in chat Markdown, rendered Markdown file views and Canvas HTML
+anchors. Canvas accepts absolute and relative file paths, including line targets;
+relative paths resolve from the workspace working directory. Linking the
 Canvas HTML file path opens a preview tab; adding a line number opens its source.
 `workspace://canvas` selects the existing live page. External URLs, `mailto:` links and plain `#anchor` links keep their browser
 behavior. The renderer preserves recognized view destinations through sanitizing
