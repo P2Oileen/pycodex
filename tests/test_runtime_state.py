@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -12,6 +13,7 @@ from pycodex import (
     ModelResponse,
     ToolCall,
     ToolRegistry,
+    ToolResult,
     TurnInterrupted,
     UserMessage,
 )
@@ -19,9 +21,24 @@ from pycodex.bootstrap import get_tools
 from pycodex.events import TokenCountEvent
 from pycodex.runtime import SubmissionInterrupted
 from pycodex.tools.runtime_services import AgentRuntimeEnvironment, SubAgentManager
-from pycodex.tools import ClockManager, ClockTool, ExecCommandTool, UnifiedExecManager
+from pycodex.tools import (
+    ClockManager,
+    ClockTool,
+    ExecCommandTool,
+    UnifiedExecManager,
+    WaitAgentTool,
+)
 from pycodex.tools.unified_exec_manager import UnifiedExecSession
 from tests.fakes import ScriptedModelClient
+
+
+def _subagent_notifications(history):
+    return [
+        json.loads(item.text.split("\n", 1)[1].rsplit("\n", 1)[0])
+        for item in history
+        if isinstance(item, UserMessage)
+        and item.text.startswith("<subagent_notification>\n")
+    ]
 
 
 def test_agent_and_tools_share_a_session_local_runtime():
@@ -217,6 +234,163 @@ async def test_subagent_status_result_does_not_expose_mutable_state():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("wait_first", [False, True])
+async def test_subagent_result_is_delivered_after_tool_batch_once(wait_first):
+    release_child = asyncio.Event()
+    tools = ToolRegistry()
+    manager = tools.runtime_environment.subagent_manager
+
+    async def finish_child(prompt, call_count):
+        await release_child.wait()
+        return ModelResponse([AssistantMessage("child result")])
+
+    manager.set_runtime_builder(
+        lambda model, effort, history, agent_id: AgentRuntime(
+            Agent(
+                ScriptedModelClient(response_factory=finish_child),
+                ToolRegistry(),
+                ContextConfig(),
+            )
+        )
+    )
+    spawned = await manager.spawn_agent("work", None, None, False, None, None, ())
+    agent_id = spawned["agent_id"]
+
+    class OrdinaryTool(BaseTool):
+        name = "ordinary"
+        description = "An ordinary tool that finishes after the child."
+        supports_parallel = False
+
+        async def run(self, context, args):
+            assert not _subagent_notifications(context.history)
+            result = await manager.wait_agents([agent_id], 1000)
+            assert result["status"] == {agent_id: {"completed": "child result"}}
+            return "ordinary result"
+
+    tools.register(OrdinaryTool())
+    tools.register(WaitAgentTool(manager))
+
+    def respond(prompt, call_count):
+        if call_count == 1:
+            release_child.set()
+            first = (
+                ToolCall("first", "wait_agent", {"ids": [agent_id]})
+                if wait_first
+                else ToolCall("first", "ordinary", {})
+            )
+            return ModelResponse([first, ToolCall("second", "ordinary", {})])
+        if call_count == 2:
+            return ModelResponse([ToolCall("again", "wait_agent", {"ids": [agent_id]})])
+        return ModelResponse([AssistantMessage("parent result")])
+
+    model = ScriptedModelClient(response_factory=respond)
+    parent = Agent(model, tools, ContextConfig())
+    try:
+        await parent.run_turn(["work while the child runs"])
+        expected = [{"agent_id": agent_id, "status": {"completed": "child result"}}]
+        assert model.call_count == 3
+        assert _subagent_notifications(model.prompts[1].input) == expected
+        assert _subagent_notifications(model.prompts[2].input) == expected
+        assert _subagent_notifications(parent.history) == expected
+        first_follow_up = model.prompts[1].input
+        notification_index = next(
+            index
+            for index, item in enumerate(first_follow_up)
+            if _subagent_notifications([item])
+        )
+        assert all(
+            index < notification_index
+            for index, item in enumerate(first_follow_up)
+            if isinstance(item, ToolResult)
+        )
+        assert manager.take_pending_notifications() == ()
+    finally:
+        release_child.set()
+        await manager.shutdown()
+        parent.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during_reply", [False, True])
+async def test_late_subagent_result_waits_for_next_parent_turn(during_reply):
+    release_child = asyncio.Event()
+    tools = ToolRegistry()
+    manager = tools.runtime_environment.subagent_manager
+
+    async def finish_child(prompt, call_count):
+        await release_child.wait()
+        return ModelResponse([AssistantMessage("late result")])
+
+    manager.set_runtime_builder(
+        lambda model, effort, history, agent_id: AgentRuntime(
+            Agent(
+                ScriptedModelClient(response_factory=finish_child),
+                ToolRegistry(),
+                ContextConfig(),
+            )
+        )
+    )
+    spawned = await manager.spawn_agent("work", None, None, False, None, None, ())
+    agent_id = spawned["agent_id"]
+
+    async def respond(prompt, call_count):
+        if call_count == 1 and during_reply:
+            release_child.set()
+            await manager.wait_agents([agent_id], 1000)
+        return ModelResponse([AssistantMessage("parent result")])
+
+    model = ScriptedModelClient(response_factory=respond)
+    parent = Agent(model, tools, ContextConfig())
+    try:
+        await parent.run_turn(["first"])
+        release_child.set()
+        assert (await manager.wait_agents([agent_id], 1000))["status"] == {
+            agent_id: {"completed": "late result"}
+        }
+        await asyncio.sleep(0)
+        assert model.call_count == 1
+        assert not _subagent_notifications(parent.history)
+
+        await parent.run_turn(["next"])
+        expected = [{"agent_id": agent_id, "status": {"completed": "late result"}}]
+        assert _subagent_notifications(model.prompts[1].input) == expected
+        assert model.prompts[1].input[-1] == UserMessage("next")
+        await parent.run_turn(["third"])
+        assert _subagent_notifications(parent.history) == expected
+        assert model.call_count == 3
+    finally:
+        release_child.set()
+        await manager.shutdown()
+        parent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_subagent_notifications_preserve_identical_completed_turns():
+    manager = SubAgentManager()
+    model = ScriptedModelClient(
+        [ModelResponse([AssistantMessage("same result")]) for _ in range(2)]
+    )
+    manager.set_runtime_builder(
+        lambda model_name, effort, history, agent_id: AgentRuntime(
+            Agent(model, ToolRegistry(), ContextConfig())
+        )
+    )
+    spawned = await manager.spawn_agent("first", None, None, False, None, None, ())
+    agent_id = spawned["agent_id"]
+    try:
+        await manager.wait_agents([agent_id], 1000)
+        await manager.send_input(agent_id, "second", False)
+        await manager.wait_agents([agent_id], 1000)
+        assert _subagent_notifications(manager.take_pending_notifications()) == [
+            {"agent_id": agent_id, "status": {"completed": "same result"}},
+            {"agent_id": agent_id, "status": {"completed": "same result"}},
+        ]
+        assert manager.take_pending_notifications() == ()
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_subagent_status_tracks_background_invocation_and_shutdown():
     background_started = asyncio.Event()
     release_background = asyncio.Event()
@@ -307,6 +481,13 @@ async def test_subagent_waiter_is_notified_by_direct_turn_failure_or_stop(interr
         assert result["status"] == {
             agent_id: {"errored": error_type.__name__ + ": " + message}
         }
+        assert _subagent_notifications(manager.take_pending_notifications()) == [
+            {
+                "agent_id": agent_id,
+                "status": {"errored": error_type.__name__ + ": " + message},
+            }
+        ]
+        assert manager.take_pending_notifications() == ()
     finally:
         await manager.close_agent(agent_id)
 

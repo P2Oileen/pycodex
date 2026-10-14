@@ -788,7 +788,9 @@ event JSON format.
   The global `get_agent_runtime_environment()` and
   separate `Agent(..., runtime_environment=...)` entry points are removed.
 - Each sub-agent gets its own context manager and runtime services. The sub-agent
-  service retains terminal event status, rather than inspecting Task results.
+  service retains terminal event status and queues one notification per terminal
+  event. The parent consumes these notifications before its next normal model
+  request, without requiring `wait_agent`; an idle parent waits for its next turn.
 - Every Agent records its session, including direct and child Agents; external
   callers no longer construct or inject `SessionRolloutRecorder`. The outer queue
   remains optional and no worker starts implicitly. Empty initial history and a

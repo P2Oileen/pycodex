@@ -998,10 +998,18 @@ must be resolved before continuing from a partially recorded call/result group.
 
 Tools may provide `follow_up_messages(output)`. These hooks receive untruncated
 outputs after all tool results have been committed, so a notification cannot
-split an outstanding call/result group. For example,
-`WaitAgentTool` creates sub-agent notifications; the Agent does not decode that
-tool's JSON output.
+split an outstanding call/result group.
 This local hook does not change tool request schemas or result serialization.
+
+Sub-agent notifications come from `SubAgentManager`, which queues a status
+snapshot for each terminal event. Before each normal sampling iteration, after
+auto-compaction and before appending a new turn's user messages, the parent
+consumes pending snapshots as `<subagent_notification>` user messages. Tool
+batches finish before this boundary. Each event is delivered once, even if
+successive turns return identical text; repeated `wait_agent` calls do not
+generate additional notifications. Results arriving while the parent is idle
+or producing its final reply wait for the next normal turn, without starting a
+turn automatically. `wait_agent` keeps its existing status result format.
 
 Tools with background work implement the small `BaseTool.bind_agent`,
 `handle_agent_event`, `shutdown`, and `background_work_count` hooks.

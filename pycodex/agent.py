@@ -253,6 +253,10 @@ class Agent:
             while True:
                 phase = "pre_turn" if turn.iteration == 0 else "mid_turn"
                 await self._maybe_auto_compact(turn.turn_id, phase)
+                manager = self.tool_registry.runtime_environment.subagent_manager
+                notifications = manager.take_pending_notifications()
+                if notifications:
+                    self._append_history(notifications)
                 if turn.iteration == 0:
                     self._append_history(UserMessage(text=text) for text in texts)
                 response = await self._sample(turn)

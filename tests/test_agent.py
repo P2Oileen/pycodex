@@ -616,7 +616,7 @@ async def test_agent_does_not_auto_compact_without_token_limit() -> "None":
 
 
 @pytest.mark.asyncio
-async def test_wait_agent_injects_subagent_notification_into_history() -> "None":
+async def test_wait_agent_does_not_create_notifications_from_its_result() -> "None":
     model = ScriptedModelClient(
         [
             ModelResponse(
@@ -639,16 +639,10 @@ async def test_wait_agent_injects_subagent_notification_into_history() -> "None"
     result = await agent.run_turn(["check subagent"])
 
     assert result.output_text == "done"
-    notification = next(
-        item
-        for item in result.history
-        if isinstance(item, UserMessage)
+    assert not any(
+        isinstance(item, UserMessage)
         and item.text.startswith("<subagent_notification>\n")
-    )
-    assert (
-        notification.text == "<subagent_notification>\n"
-        '{"agent_id":"019d0000-0000-7000-8000-000000000000","status":{"completed":"subagent done"}}\n'
-        "</subagent_notification>"
+        for item in result.history
     )
 
 
@@ -760,13 +754,12 @@ async def test_agent_keeps_small_structured_tool_output_for_follow_up() -> "None
 
     tool_result = next(item for item in agent.history if isinstance(item, ToolResult))
     assert isinstance(tool_result.output, dict)
-    notification = next(
-        item
-        for item in agent.history
-        if isinstance(item, UserMessage)
-        and item.text.startswith("<subagent_notification>\n")
-    )
-    assert "019d0000-0000-7000-8000-000000000000" in notification.text
+    assert tool_result.output["status"] == {
+        "019d0000-0000-7000-8000-000000000000": {"completed": "subagent done"}
+    }
+    assert next(
+        item for item in model.prompts[1].input if isinstance(item, ToolResult)
+    ).output == tool_result.output
 
 
 @pytest.mark.asyncio

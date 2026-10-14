@@ -15,7 +15,7 @@ from ..events import (
     TurnInterruptedEvent,
     TurnStartedEvent,
 )
-from ..protocol import ConversationItem, ToolCall, ToolResult
+from ..protocol import ConversationItem, ToolCall, ToolResult, UserMessage
 from ..utils import uuid7_string
 from ..utils.compat import Literal
 
@@ -221,6 +221,7 @@ class SubAgentManager:
     def __init__(self) -> "None":
         self._runtime_builder: "typing.Union[AgentRuntimeBuilder, None]" = None
         self._agents: "typing.Dict[str, ManagedAgent]" = {}
+        self._pending_notifications: "typing.List[UserMessage]" = []
         self._condition = None
         self._available_nicknames: "typing.List[str]" = []
         self._nickname_random = random.Random()
@@ -234,6 +235,11 @@ class SubAgentManager:
         self, builder: "typing.Union[AgentRuntimeBuilder, None]"
     ) -> "None":
         self._runtime_builder = builder
+
+    def take_pending_notifications(self) -> "typing.Tuple[UserMessage, ...]":
+        messages = tuple(self._pending_notifications)
+        self._pending_notifications.clear()
+        return messages
 
     async def spawn_agent(
         self,
@@ -396,8 +402,27 @@ class SubAgentManager:
             }
         elif isinstance(event, TurnInterruptedEvent):
             managed.last_status = {"errored": "TurnInterrupted: turn interrupted"}
-        elif not isinstance(event, (TurnStartedEvent, CompactStartedEvent)):
+        elif isinstance(event, (TurnStartedEvent, CompactStartedEvent)):
+            asyncio.create_task(self._notify_waiters())
             return
+        else:
+            return
+        self._pending_notifications.append(
+            UserMessage(
+                text=(
+                    "<subagent_notification>\n"
+                    + json.dumps(
+                        {
+                            "agent_id": managed.agent_id,
+                            "status": managed.last_status,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    + "\n</subagent_notification>"
+                )
+            )
+        )
         asyncio.create_task(self._notify_waiters())
 
     async def _notify_waiters(self) -> "None":

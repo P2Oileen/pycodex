@@ -452,10 +452,14 @@ schema 一致的工具有：
   - 这 6 个 sub-agent tool schema 现在来自类内 `BaseTool` spec，并由 CLI
     serialization 测试覆盖；`pycodex/prompts/subagent_tools.json` 已删除
 - `sub-agent notification`
-  - 在 `wait_agent` 之后，upstream 会向 parent thread history 额外注入一条
-    `user` message：
+  - parent thread history 中的通知使用 `user` message：
     `<subagent_notification>\n{...}\n</subagent_notification>`
-  - 这条 higher-level history shape 当前也已经在 `pycodex` 里补齐
+  - `pycodex` 按子 Agent 的每次终结事件保存状态快照，在父 Agent 下一次正常
+    sampling 前消费一次，不再依赖 `wait_agent`；重复 wait 不会重复生成通知，
+    两轮相同答案仍各保留一次通知
+  - 本地脚本模型回归覆盖普通工具批次后的投递、完整 call/result 分组、
+    wait 去重、失败/中断通知，以及 idle 或 final 生成期间完成后在下一 turn
+    投递；这次改动不涉及自动唤醒父 Agent 或变更 wait 的返回结构
 - `write_stdin`
   - `function_call` item schema 一致
   - 下一轮里的 `function_call_output` schema 一致

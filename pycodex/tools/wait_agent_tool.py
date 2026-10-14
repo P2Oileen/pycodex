@@ -9,10 +9,7 @@ Expected behavior:
   wait times out.
 """
 
-import json
-import typing
-
-from ..protocol import JSONDict, JSONValue, UserMessage
+from ..protocol import JSONDict, JSONValue
 from .agent_tool_schemas import AGENT_STATUS_SCHEMA
 from .base_tool import BaseTool, ToolContext
 from .runtime_services import SubAgentManager
@@ -79,26 +76,6 @@ class WaitAgentTool(BaseTool):
             return "Error: `ids` must include at least one non-empty id."
         timeout_ms = self._timeout_ms(args)
         return await self._subagent_manager.wait_agents(agent_ids, timeout_ms)
-
-    def follow_up_messages(
-        self, output: "JSONValue"
-    ) -> "typing.Tuple[UserMessage, ...]":
-        if not isinstance(output, dict):
-            return ()
-        return tuple(
-            UserMessage(
-                text=(
-                    "<subagent_notification>\n"
-                    + json.dumps(
-                        {"agent_id": agent_id, "status": status},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    )
-                    + "\n</subagent_notification>"
-                )
-            )
-            for agent_id, status in output["status"].items()
-        )
 
     def _timeout_ms(self, args: "JSONDict") -> "int":
         value = int(args.get("timeout_ms", DEFAULT_WAIT_AGENT_TIMEOUT_MS))
