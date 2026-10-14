@@ -2075,14 +2075,15 @@
           return;
         }
         const signature = `${payload.mtime_ns || ""}:${payload.size || ""}`;
+        // Automatic Canvas refreshes must not add browser Back history entries.
         if (lastBoardSignature === null) {
           lastBoardSignature = signature;
-          boardFrame.src = `board?t=${Date.now()}`;
+          boardFrame.contentWindow.location.replace(relativeUrl(`board?t=${Date.now()}`));
           return;
         }
         if (signature !== lastBoardSignature) {
           lastBoardSignature = signature;
-          boardFrame.src = `board?t=${Date.now()}`;
+          boardFrame.contentWindow.location.replace(relativeUrl(`board?t=${Date.now()}`));
         }
       } catch (_error) {
         return;

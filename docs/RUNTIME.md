@@ -561,7 +561,9 @@ the strip actually moves.
 The file/diff toolbar beneath the tabs keeps its complete path labels in a
 horizontal scroll area with no visible scrollbar. It uses the same wheel
 behavior as the tab strips; the action buttons stay outside the scrolling area.
-Canvas keeps its existing live HTML and image routes. Clicking a Markdown file
+Canvas keeps its existing live HTML and image routes. Automatic refreshes replace
+the iframe's current history entry, so they do not add browser Back steps.
+Clicking a Markdown file
 or diff link selects the existing tab for that target, or appends a new read-only
 tab when the target is not already open. Rendering a link does not open a view.
 Reusing a tab keeps its ID, order and reading state. On mobile, selecting a view reveals the content pane. Switching
