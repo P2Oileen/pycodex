@@ -67,6 +67,11 @@ class ModelClient(Protocol):
 
 class ModelControl(Protocol):
     model: "str"
+    reasoning_effort: "typing.Union[str, None]"
+
+    @property
+    def endpoint(self) -> "str":
+        """Return the active API base URL, safe for display."""
 
     async def list_models(self) -> "typing.List[str]":
         """List the models available to an interactive session."""
@@ -397,6 +402,27 @@ class ResponsesModelClient:
     @model.setter
     def model(self, model: "str") -> "None":
         self._config = replace(self._config, model=model)
+
+    @property
+    def reasoning_effort(self) -> "typing.Union[str, None]":
+        """Return the effective effort; assign None to restore the model default."""
+        return self._config.effective_reasoning_effort()
+
+    @reasoning_effort.setter
+    def reasoning_effort(self, effort: "typing.Union[str, None]") -> "None":
+        if effort is not None and (
+            not effort or any(char.isspace() for char in effort)
+        ):
+            raise ValueError("reasoning effort must be a single non-empty value")
+        self._config = replace(self._config, reasoning_effort=effort)
+
+    @property
+    def endpoint(self) -> "str":
+        """Return the active API base URL without credentials, query or fragment."""
+        url = urllib.parse.urlsplit(self._config.base_url)
+        return urllib.parse.urlunsplit(
+            (url.scheme, url.netloc.rsplit("@", 1)[-1], url.path, "", "")
+        )
 
     @classmethod
     def from_codex_config(

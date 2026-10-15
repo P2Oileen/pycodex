@@ -144,6 +144,7 @@ def test_model_bootstrap_selects_transport(config_path, monkeypatch, mode):
         options["managed_responses_base_url"] = server.base_url
     client = build_model(str(config_path), timeout_seconds=17, **options)
     assert client._config.base_url == server.base_url
+    assert client.endpoint == server.base_url
     assert client._config.responses_lite_override is False
     assert client._originator == "codex-tui"
     assert client._config.api_key_env == "PYCODEX_LOCAL_RESPONSES_SERVER_KEY"
@@ -303,13 +304,13 @@ async def test_cli_steer_and_queue_feedback(queued):
     async def before_input(text):
         if text.endswith("second"):
             await asyncio.wait_for(started.wait(), 1)
-        if text == "/exit":
+        if text == "":
             release.set()
 
     client = ScriptedModelClient(response_factory=respond)
     queue = AgentRuntime(Agent(client, ToolRegistry(), ContextConfig()))
     view = InputView(
-        ["first", "/queue second" if queued else "second", "/exit"], before_input
+        ["first", "/queue second" if queued else "second", ""], before_input
     )
     try:
         assert (
@@ -329,7 +330,7 @@ async def test_cli_steer_and_queue_feedback(queued):
 async def test_cli_receipt_and_empty_input_without_result_tasks(monkeypatch, json_mode):
     client = ScriptedModelClient([ModelResponse([AssistantMessage("done")])])
     queue = AgentRuntime(Agent(client, ToolRegistry(), ContextConfig()))
-    view = InputView(["", "/queue hello", "/exit"])
+    view = InputView(["", "/queue hello"])
     await queue.start()
     tasks = []
     create_task = asyncio.create_task
@@ -341,6 +342,15 @@ async def test_cli_receipt_and_empty_input_without_result_tasks(monkeypatch, jso
     monkeypatch.setattr(asyncio, "create_task", record_task)
     previous_sigint = signal.getsignal(signal.SIGINT)
     assert await run_interactive_session(queue, json_mode, view=view) == 0
+    assert view.lines[:3] == [
+        "Welcome to PyCodex",
+        "model: scripted | effort: provider default",
+        "endpoint: in-process",
+    ]
+    assert view.lines[3] == (
+        "Extra commands: /help, /history, /title, /model, /effort, /resume, "
+        "/compact, /fork, /queue"
+    )
     assert signal.getsignal(signal.SIGINT) == previous_sigint
     results = [json.loads(line) for line in view.lines if line.startswith("{")]
     assert [result["output_text"] for result in results] == (
@@ -492,7 +502,7 @@ def test_cli_input_exit_closes_without_cancelling_work(tmp_path, busy, exit_inpu
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT")
 @pytest.mark.parametrize("ignore_sigint", [False, True])
-@pytest.mark.parametrize("exit_input", ["ctrl_c", "eof", "command"])
+@pytest.mark.parametrize("exit_input", ["ctrl_c", "eof"])
 def test_cli_sigint_while_closing_exits_with_running_tool(
     tmp_path, ignore_sigint, exit_input
 ):
@@ -543,7 +553,7 @@ def test_cli_sigint_while_closing_exits_with_running_tool(
                 while not view.prompter._prompt_session.app.is_running:
                     await asyncio.sleep(0.01)
                 pipe.send_text({
-                    "ctrl_c": "\\x03", "eof": "\\x04", "command": "/exit\\n",
+                    "ctrl_c": "\\x03", "eof": "\\x04",
                 }[sys.argv[2]])
                 while runtime.accepts_input:
                     await asyncio.sleep(0.01)

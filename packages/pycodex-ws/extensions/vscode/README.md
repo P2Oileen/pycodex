@@ -180,8 +180,9 @@ code --extensionDevelopmentPath="$PWD" /absolute/path/to/your/project
 - **Enter** sends; **Shift+Enter** adds a line. Input-method composition does not
   send prematurely. **Send** submits through the backend's normal steer path.
   **Queue** uses `/queue`, so the message waits for the current task. Session commands such as
-  `/model`, `/title`, `/history`, `/compact`, `/resume`, and `/exit` use the same
+  `/model`, `/effort`, `/title`, `/history`, `/compact`, and `/resume` use the same
   backend command handling as the other frontends.
+  The model label shows `model:effort`.
 - **Pycodex: New Session** creates another backend session for the current
   or most recently focused editor's project. Without an editor, it uses the sole
   workspace folder or lets you choose one in a multi-root workspace.

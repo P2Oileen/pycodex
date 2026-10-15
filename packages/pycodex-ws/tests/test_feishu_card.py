@@ -330,7 +330,7 @@ def test_feishu_card_restores_snapshot_without_replaying_active_turn_twice() -> 
     card = PycodexCard()
     request = InputRequestedEvent("request", "questions", True)
     state = {
-        "model": "restored-model",
+        "model": "restored-model:high",
         "title": "Restored",
         "closed": False,
         "accepts_input": True,
@@ -379,7 +379,7 @@ def test_feishu_card_restores_snapshot_without_replaying_active_turn_twice() -> 
     assert _answer_markdown_content(card.render()) == "Ready."
     assert (
         _prompt_input(card.render())["placeholder"]["content"]
-        == "pycodex> restored-model"
+        == "pycodex> restored-model:high"
     )
 
 

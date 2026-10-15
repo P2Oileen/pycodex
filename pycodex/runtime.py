@@ -25,6 +25,7 @@ from .events import (
     TurnInterruptedEvent,
     TurnStartedEvent,
 )
+from .model import ModelControl
 from .protocol import TurnResult
 from .utils import uuid7_string
 from .utils.event_helpers import shorten_title
@@ -124,12 +125,13 @@ class AgentRuntime:
                 "history",
                 "title",
                 "model",
+                "effort",
                 "resume",
                 "compact",
                 "fork",
             )
             + tuple(self.command_handlers)
-            + ("queue", "exit", "quit")
+            + ("queue",)
         )
 
     def snapshot(self):
@@ -141,7 +143,10 @@ class AgentRuntime:
             "recorded_rollout_path": (
                 str(recorded_path) if recorded_path is not None else None
             ),
-            "model": self.agent.model_name,
+            "model": "{0}:{1}".format(
+                self.agent.model_name,
+                getattr(self.agent.model_client, "reasoning_effort", None) or "default",
+            ),
             "title": self.title,
             "history": conversation_history_to_turns(self.agent.history),
             "busy": self.is_busy,
@@ -250,13 +255,10 @@ class AgentRuntime:
         submission_id = uuid7_string()
         future = asyncio.get_running_loop().create_future()
         try:
-            if command in {"/exit", "/quit"}:
+            async with self._get_command_lock():
+                if not self.agent.accepts_input:
+                    raise RuntimeError("agent is shutting down")
                 result = await self._execute_command(command[1:], argument.strip())
-            else:
-                async with self._get_command_lock():
-                    if not self.agent.accepts_input:
-                        raise RuntimeError("agent is shutting down")
-                    result = await self._execute_command(command[1:], argument.strip())
         except Exception as exc:
             future.set_exception(exc)
             self._publish(CommandFailedEvent(submission_id, command, str(exc), sender))
@@ -267,10 +269,7 @@ class AgentRuntime:
         return SubmittedInput(submission_id, "command", future)
 
     async def _execute_command(self, command, argument):
-        if (
-            command in {"help", "history", "compact", "fork", "exit", "quit"}
-            and argument
-        ):
+        if command in {"help", "history", "compact", "fork"} and argument:
             raise ValueError("Usage: /{0}".format(command))
         if command == "help":
             return {"kind": "help", "commands": self.commands()}
@@ -292,6 +291,17 @@ class AgentRuntime:
                 "model": self.agent.model_name,
                 "models": await self.agent.model_client.list_models(),
             }
+        if command == "effort":
+            client = typing.cast(ModelControl, self.agent.model_client)
+            effort = client.reasoning_effort
+            if argument:
+                if len(argument.split()) != 1:
+                    raise ValueError("Usage: /effort [<value>|default]")
+                self.require_idle("change reasoning effort")
+                client.reasoning_effort = None if argument == "default" else argument
+                effort = client.reasoning_effort
+                self.publish_state("effort")
+            return {"kind": "effort", "reasoning_effort": effort}
         if command == "resume":
             if not argument:
                 return {
@@ -317,9 +327,6 @@ class AgentRuntime:
         if command == "fork":
             self.fork()
             return {"kind": "forked", "session_id": self.agent.session_id}
-        if command in {"exit", "quit"}:
-            await self.close()
-            return {"kind": "closed"}
         handler = self.command_handlers.get(command)
         if handler is None:
             raise ValueError("Unknown command: /{0}".format(command))

@@ -400,8 +400,8 @@ def test_compact_progress_and_failures():
     "result,text",
     [
         (
-            {"kind": "help", "commands": ["help", "exit"]},
-            "Extra commands: /help, /exit",
+            {"kind": "help", "commands": ["help", "effort"]},
+            "Extra commands: /help, /effort",
         ),
         ({"kind": "title", "title": ""}, "Session: untitled"),
         ({"kind": "title_changed", "title": "demo"}, "Session: demo"),
@@ -410,6 +410,14 @@ def test_compact_progress_and_failures():
             "Current model: current\nAvailable models: current, next",
         ),
         ({"kind": "model_changed", "model": "next"}, "Switched model to next."),
+        (
+            {"kind": "effort", "reasoning_effort": "high"},
+            "Reasoning effort: high",
+        ),
+        (
+            {"kind": "effort", "reasoning_effort": None},
+            "Reasoning effort: provider default",
+        ),
         ({"kind": "sessions", "sessions": []}, "No resumable sessions found."),
         (
             {
@@ -439,7 +447,6 @@ def test_compact_progress_and_failures():
         ),
         ({"kind": "compact_empty"}, "Nothing to compact."),
         ({"kind": "forked", "session_id": "fork"}, "Forked session: fork"),
-        ({"kind": "closed"}, ""),
         ({"kind": "linked", "lines": ["first", "second"]}, "first\nsecond"),
     ],
 )
@@ -755,14 +762,14 @@ def test_admission_render_explains_graceful_close_without_finishing_output(
 
 def test_non_event_presentation_and_status_frames():
     display, operations = make_display(True)
-    display.start(["help", "exit"])
+    display.start(
+        "example-model", "high", "https://example.invalid/v1", ["help", "effort"]
+    )
     assert operations == [
-        (
-            "log",
-            "pycodex interactive mode. Type /exit or press Ctrl+C to quit; "
-            "press Ctrl+C again while closing to force exit.",
-        ),
-        ("log", "Extra commands: /help, /exit"),
+        ("log", "Welcome to PyCodex"),
+        ("log", "model: example-model | effort: high"),
+        ("log", "endpoint: https://example.invalid/v1"),
+        ("log", "Extra commands: /help, /effort"),
     ]
     result = TurnResult("turn", "answer", 1, (), ())
     render_result("turn", result, True, display.log)
@@ -770,9 +777,6 @@ def test_non_event_presentation_and_status_frames():
     assert "\x1b" not in operations[-1][1]
     render_result("turn", result, False, display.log)
     assert operations[-1] == ("log", "answer")
-    count = len(operations)
-    render_result("command", {"kind": "closed"}, False, display.log)
-    assert len(operations) == count
     assert format_error("first\nsecond") == "Error: first\n  second"
     assert format_error("first\nsecond", False) == "Error: first\nsecond"
     assert EventDisplay.status_frame(None, 1) is None

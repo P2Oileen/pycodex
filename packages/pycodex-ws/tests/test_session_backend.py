@@ -13,6 +13,8 @@ from pycodex import (
     BaseTool,
     ContextConfig,
     ModelResponse,
+    ResponsesModelClient,
+    ResponsesProviderConfig,
     ToolCall,
     ToolRegistry,
     UserMessage,
@@ -115,6 +117,7 @@ async def test_frontends_share_all_session_commands(frontend):
             "/compact",
             "/unknown",
             "/exit",
+            "/quit",
         ],
     )
 
@@ -130,8 +133,9 @@ async def test_frontends_share_all_session_commands(frontend):
         "history",
         "forked",
         "compacted",
-        "closed",
     ]
+    assert "exit" not in results[0]["commands"]
+    assert "quit" not in results[0]["commands"]
     assert results[7]["state"]["history"] == (("old prompt", "old answer"),)
     assert queue.title == "Shared title"
     assert queue.agent.model_name == "changed"
@@ -144,7 +148,9 @@ async def test_frontends_share_all_session_commands(frontend):
         if isinstance(item, UserMessage)
     )
     assert [event.command for event in events if event.kind == "command_failed"] == [
-        "/unknown"
+        "/unknown",
+        "/exit",
+        "/quit",
     ]
 
 
@@ -158,8 +164,16 @@ async def test_state_changes_reach_every_frontend_and_detach_is_not_close():
     card_id = queue.attach(card.apply_event)
     try:
         await queue.submit_input("/model changed")
+        await queue.submit_input("/effort high")
         await queue.submit_input("/title Shared")
-        assert web.snapshot()["model"] == card.model_name == "changed"
+        assert web.snapshot()["model"] == card.model_name == "changed:high"
+        assert "reasoning_effort" not in web.snapshot()
+        assert queue.agent.model_name == "changed"
+        prompt_input = next(
+            element for element in card.render()["body"]["elements"]
+            if element["element_id"] == "prompt_input"
+        )
+        assert prompt_input["placeholder"]["content"].endswith("changed:high")
         assert (
             web.snapshot()["title"]
             == cli.display.title
@@ -170,13 +184,47 @@ async def test_state_changes_reach_every_frontend_and_detach_is_not_close():
         web.detach()
         assert queue.agent.accepts_input
         await queue.submit_input("/model scripted")
-        assert card.model_name == "scripted"
-        assert web.snapshot()["model"] == "changed"
+        await queue.submit_input("/effort low")
+        assert card.model_name == "scripted:low"
+        assert web.snapshot()["model"] == "changed:high"
     finally:
         queue.detach(cli_id)
         queue.detach(card_id)
         cli.close()
         await queue.close()
+
+
+@pytest.mark.parametrize("frontend", ["cli", "web", "feishu"])
+@pytest.mark.asyncio
+async def test_frontends_share_effort_command(frontend):
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            "gpt-6-astra",
+            "demo",
+            "https://example.invalid/v1",
+            None,
+            reasoning_effort="medium",
+        )
+    )
+    queue = make_queue(client)
+    events = []
+    queue.event_handler = events.append
+    await run_frontend(
+        frontend, queue, ["/effort", "/effort high", "/effort default"]
+    )
+    results = [
+        event.result
+        for event in events
+        if event.kind == "command_completed" and event.command == "/effort"
+    ]
+    assert [result["reasoning_effort"] for result in results] == [
+        "medium",
+        "high",
+        "low",
+    ]
+    assert not any(event.kind == "command_failed" for event in events)
+    assert not queue.agent.history
+    assert client.reasoning_effort == "low"
 
 
 @pytest.mark.parametrize("frontend", ["cli", "web", "feishu"])

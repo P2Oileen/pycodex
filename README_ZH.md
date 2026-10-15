@@ -304,12 +304,14 @@ pycodex doctor
 
 - 没有 argv prompt 且 stdin 是 TTY 时，进入交互模式
 - 有 argv prompt 或 stdin 管道输入时，执行单轮请求
-- 交互模式通过 `/exit`、`/quit`、空提示符上的 Ctrl+D 或一次 Ctrl+C 正常退出；
+- 交互模式通过空提示符上的 Ctrl+D 或一次 Ctrl+C 正常退出；
   `[closing]` 提示表示正在等待已接收的工作结束并清理资源，不取消模型或工具调用。
 - 交互模式下会显示简洁阶段事件流，例如工具执行状态和模型回看工具结果
+- 开场保留欢迎语，显示 model、effort、endpoint 和命令列表。
 - assistant 文本会按流式 delta 直接打印
-- 交互模式下支持 `/history`、`/title`、`/model` 和 `/resume`
+- 交互模式下支持 `/history`、`/title`、`/model`、`/effort` 和 `/resume`
 - `/model <name>` 会切换当前交互会话后续请求使用的模型；`/model` 会显示当前模型和可选模型
+- `/effort low` 在空闲时切换 effort，`/effort` 查看当前值，`/effort default` 恢复模型默认值；前端模型标签显示 `model:effort`。
 - `/resume` 不带参数时会按首条用户消息预览列出当前可恢复的 session；`/resume 1`
   会恢复列表里的第 1 个 session
 - `/resume <数字>` 会从 `CODEX_HOME/sessions` 读取选中的已记录 Codex rollout，

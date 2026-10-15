@@ -19,7 +19,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from .bootstrap import build_agent, build_model, build_runtime, configure_loguru
 from .events import DEFAULT_MAIN_PROMPT, EventDisplay
-from .model import DEFAULT_CODEX_CONFIG_PATH
+from .model import DEFAULT_CODEX_CONFIG_PATH, ModelControl
 from .portable import bootstrap_called_home, upload_codex_home
 from .utils import get_debug_dir
 from .utils.event_helpers import format_error, render_result
@@ -216,7 +216,10 @@ async def run_interactive_session(runtime, json_mode, config_path=None, view=Non
         if not future.cancelled() and future.exception() is None:
             render_result("turn", future.result(), True, view.write_line)
 
-    view.display.start(runtime.commands())
+    client = typing.cast(ModelControl, runtime.agent.model_client)
+    view.display.start(
+        client.model, client.reasoning_effort, client.endpoint, runtime.commands()
+    )
     with _cli_sigint_handler(runtime) as install_sigint_handler:
         try:
             while not view.display.closed:

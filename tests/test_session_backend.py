@@ -12,7 +12,10 @@ from pycodex import (
     BaseTool,
     ContextConfig,
     ModelResponse,
+    ResponsesModelClient,
+    ResponsesProviderConfig,
     ToolRegistry,
+    UserMessage,
 )
 from pycodex.utils import uuid7_string
 from pycodex.utils.session_persist import resolve_codex_home, rollout_path_for_session
@@ -37,6 +40,112 @@ def make_queue(client=None):
             session_id=session_id,
         )
     )
+
+
+@pytest.mark.parametrize(
+    "model,default_effort", [("gpt-6-astra", "low"), ("custom-model", None)]
+)
+@pytest.mark.asyncio
+async def test_effort_commands_update_next_request_and_broadcast(
+    model, default_effort, monkeypatch
+):
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            model,
+            "demo",
+            "https://example.invalid/v1",
+            None,
+            reasoning_effort="medium",
+        )
+    )
+    queue = make_queue(client)
+    payloads = []
+
+    async def respond(prompt, event_handler):
+        payloads.append(client._build_payload(prompt))
+        return ModelResponse([AssistantMessage("done")])
+
+    monkeypatch.setattr(client, "complete", respond)
+    observers = [[], []]
+    for events in observers:
+        queue.attach(events.append)
+    await queue.start()
+    try:
+        receipt = await queue.submit_input("/effort")
+        assert (await receipt.future)["reasoning_effort"] == "medium"
+        for value, expected in [
+            ("high", "high"),
+            ("adaptive", "adaptive"),
+            ("none", "none"),
+            ("default", default_effort),
+        ]:
+            receipt = await queue.submit_input("/effort " + value)
+            result = await receipt.future
+            assert result == {"kind": "effort", "reasoning_effort": expected}
+            for events in observers:
+                assert events[-1].kind == "command_completed"
+                assert events[-1].result == result
+            assert queue.agent.model_client is client
+            receipt = await queue.submit_input("reply")
+            await receipt.future
+            reasoning = payloads[-1].get("reasoning", {})
+            if expected is None:
+                assert "effort" not in reasoning
+            else:
+                assert reasoning["effort"] == expected
+        assert all(
+            not item.text.startswith("/effort")
+            for item in queue.agent.history
+            if isinstance(item, UserMessage)
+        )
+        receipt = await queue.submit_input("/effort high extra")
+        with pytest.raises(ValueError, match="Usage: /effort"):
+            await receipt.future
+        assert client.reasoning_effort == default_effort
+    finally:
+        await queue.close()
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await queue.submit_input("/effort high")
+    assert client.reasoning_effort == default_effort
+
+
+@pytest.mark.parametrize("active", [False, True])
+@pytest.mark.asyncio
+async def test_effort_changes_reject_queued_or_active_work(active, monkeypatch):
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            "custom-model",
+            "demo",
+            "https://example.invalid/v1",
+            None,
+            reasoning_effort="low",
+        )
+    )
+    queue = make_queue(client)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(prompt, event_handler):
+        started.set()
+        await release.wait()
+        return ModelResponse([AssistantMessage("done")])
+
+    monkeypatch.setattr(client, "complete", respond)
+    receipt = await queue.submit_input("pending")
+    try:
+        if active:
+            await queue.start()
+            await asyncio.wait_for(started.wait(), 1)
+        read = await queue.submit_input("/effort")
+        assert (await read.future)["reasoning_effort"] == "low"
+        change = await queue.submit_input("/effort high")
+        with pytest.raises(RuntimeError, match="running or queued"):
+            await change.future
+        assert client.reasoning_effort == "low"
+    finally:
+        release.set()
+        await queue.close()
+        await receipt.future
 
 
 def question_payload():

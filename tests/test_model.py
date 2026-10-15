@@ -473,6 +473,54 @@ def test_provider_config_omits_service_tier_for_unknown_model() -> "None":
     assert provider.effective_service_tier() is None
 
 
+def test_effort_updates_preserve_client_identity_and_child_overrides():
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            "gpt-6-astra",
+            "demo",
+            "https://example.invalid/v1",
+            None,
+            reasoning_effort="medium",
+        )
+    )
+    headers = client._build_headers(Prompt(input=[], tools=[]))
+    existing_child = client.with_overrides()
+    client.reasoning_effort = "high"
+    assert existing_child.reasoning_effort == "medium"
+    assert client.with_overrides().reasoning_effort == "high"
+    assert client.with_overrides(reasoning_effort="low").reasoning_effort == "low"
+    assert client._build_headers(Prompt(input=[], tools=[])) == headers
+    client.reasoning_effort = None
+    assert client.reasoning_effort == "low"
+    assert client.with_overrides(model="gpt-oss-120b").reasoning_effort == "medium"
+    client.model = "custom-model"
+    assert client.reasoning_effort is None
+
+
+@pytest.mark.parametrize(
+    "base_url,expected",
+    [
+        (
+            "https://user:example-password@example.invalid/v1?key=example-key#private",
+            "https://example.invalid/v1",
+        ),
+        ("http://user:example-password@[::1]:8000/v1", "http://[::1]:8000/v1"),
+    ],
+)
+def test_client_endpoint_omits_credentials(base_url, expected):
+    client = ResponsesModelClient(
+        ResponsesProviderConfig(
+            "custom-model",
+            "demo",
+            base_url,
+            None,
+            query_params={"api-key": "example-query-key"},
+        )
+    )
+    assert client.endpoint == expected
+    assert client._config.base_url == base_url
+
+
 def test_responses_model_client_builds_responses_payload() -> "None":
     provider = ResponsesProviderConfig(
         model="demo-model",

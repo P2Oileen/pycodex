@@ -48,11 +48,14 @@ class EventDisplay:
         self.closed = False
         self.set_context_window_tokens(context_window_tokens)
 
-    def start(self, commands):
+    def start(self, model, reasoning_effort, endpoint, commands):
+        self.log("Welcome to PyCodex")
         self.log(
-            "pycodex interactive mode. Type /exit or press Ctrl+C to quit; "
-            "press Ctrl+C again while closing to force exit."
+            "model: {0} | effort: {1}".format(
+                model, reasoning_effort or "provider default"
+            )
         )
+        self.log("endpoint: " + endpoint)
         self.log(format_command_result({"kind": "help", "commands": commands}))
 
     def write(self, text, kind=""):

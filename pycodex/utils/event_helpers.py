@@ -35,6 +35,10 @@ def format_command_result(result: "typing.Dict[str, object]") -> "str":
         )
     if kind == "model_changed":
         return "Switched model to {0}.".format(result["model"])
+    if kind == "effort":
+        return "Reasoning effort: {0}".format(
+            result["reasoning_effort"] or "provider default"
+        )
     if kind == "sessions":
         if not result["sessions"]:
             return "No resumable sessions found."
@@ -67,8 +71,6 @@ def format_command_result(result: "typing.Dict[str, object]") -> "str":
         )
     if kind == "forked":
         return "Forked session: " + result["session_id"]
-    if kind == "closed":
-        return ""
     return "\n".join(result["lines"])
 
 

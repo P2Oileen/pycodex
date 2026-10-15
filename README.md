@@ -349,18 +349,22 @@ Current behavior:
   Open views survive reloads and server restarts. See
   [workspace content views](docs/RUNTIME.md#workspace-content-views) for the
   complete syntax and limits.
-- interactive mode exits through `/exit`, `/quit`, Ctrl+D on an empty prompt,
-  or a single Ctrl+C; accepted work finishes before cleanup and normal exit.
+- interactive mode exits through Ctrl+D on an empty prompt or a single Ctrl+C;
+  accepted work finishes before cleanup and normal exit.
   A `[closing]` message explains the wait. Press Ctrl+C again while closing
   to immediately exit the CLI with status 130. This skips remaining cleanup;
   external tool processes may keep running.
 - interactive mode shows a compact event stream for user-visible phases such as
   tool execution and model follow-up after tool results
+- startup shows a welcome, model, effort, endpoint and available commands.
 - assistant text is printed from streaming deltas directly
-- interactive mode supports `/history`, `/title`, `/model`, `/resume`, `/compact`,
-  and `/fork`
+- interactive mode supports `/history`, `/title`, `/model`, `/effort`, `/resume`,
+  `/compact`, and `/fork`
 - `/model <name>` switches the model used by later turns in the current
   interactive session; `/model` shows the current model and available choices
+- `/effort low` switches effort while idle; `/effort` shows the current value,
+  and `/effort default` restores the model default. Frontend labels show
+  `model:effort`.
 - `/resume` with no argument lists the currently resumable sessions by their
   first user-message preview; `/resume 1` resumes the first listed session
 - `/resume <number>` replaces the in-memory history with the selected recorded

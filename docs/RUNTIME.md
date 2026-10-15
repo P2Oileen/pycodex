@@ -141,7 +141,7 @@ See the [vendored source notes](../pycodex/utils/_aes_gcm/README.md).
 Every frontend calls `await runtime.submit_input(text, sender)`. The returned
 `SubmittedInput` carries a submission id, kind and future. Normal text uses
 steer; `/queue <text>` uses the ordinary queue. The backend parses `/help`,
-`/history`, `/title`, `/model`, `/resume`, `/compact`, `/fork`, `/exit` and `/quit`.
+`/history`, `/title`, `/model`, `/effort`, `/resume`, `/compact` and `/fork`.
 Each queued request is one private record of submission id, turn id, texts and
 futures. The unused public `Submission` / `UserTurnOp` wrappers are removed;
 callers submit text through `submit_input` or `enqueue_user_turn`.
@@ -367,14 +367,14 @@ before `start()`. A cancelled close caller does not cancel the worker.
 Cleanup visits every child and connection handler even if one fails; the first
 error is propagated and additional errors are reported through the event loop.
 The interactive prompt treats Ctrl+C as end-of-input, just like Ctrl+D on an empty
-prompt, and follows the same `runtime.close()` path as `/exit`. The prompt toolkit
+prompt, and calls `runtime.close()`. The prompt toolkit
 `c-c` and `<sigint>` bindings exit with `EOFError`, including on version 3.0.36
 which has no `interrupt_exception` constructor parameter, so an input task cannot
 leak `KeyboardInterrupt` into the event-loop runner. One Ctrl+C initiates normal exit;
 the admission event renders a `[closing]` notice while accepted work and cleanup
 finish. It does not interrupt model/tool calls or bypass their completion.
 While closing, another Ctrl+C immediately terminates the CLI process with status
-130. This also works after `/exit`, `/quit` or Ctrl+D starts closing. The CLI
+130. This also works after Ctrl+D starts closing. The CLI
 installs a SIGINT handler for its interactive session and reinstalls it after
 input and at the close boundary because older prompt_toolkit versions reset it.
 It therefore does not depend on an inherited handler that may ignore SIGINT.
@@ -1066,6 +1066,29 @@ types at construction instead of allowing the loop to silently discard invalid
 internal values. Clients used for interactive model controls additionally expose
 `ModelControl`. Switching through `Agent.set_model` updates both the client and
 context; `ResponsesModelClient.model` uses the same provider config as metadata.
+
+The CLI startup header reads the client's model, effective reasoning effort and
+display-safe `endpoint` directly. `endpoint` is the active API base URL with
+userinfo, query and fragment removed; locally managed compatibility transports
+therefore show their local forwarding address. `EventDisplay.start` renders
+`Welcome to PyCodex`, these settings and the available commands. `/help` repeats
+the command listing.
+
+`ResponsesModelClient.reasoning_effort` reads the effective effort and replaces
+only the effort field of its immutable provider config on assignment. Assigning
+`None` clears the override and restores the current model's metadata default;
+without a metadata default the request omits effort. `/effort [<value>|default]`
+uses this property directly, checks that work is neither running nor queued
+before changing it, and broadcasts the effective value through the existing
+`CommandCompletedEvent` rendering path. Changes also publish session state whose
+existing `model` field carries the `model:effort` display label. Web, VS Code and
+Feishu reuse that field without additional transport fields or formatting.
+The Agent/client model identifier remains unchanged; labels show `default` when
+no effort is sent.
+It does not write config files or add
+Agent/bootstrap parameters. Existing child clients retain their settings; newly
+spawned children inherit the parent's current override unless explicitly changed.
+Values remain provider-specific, with no local `adaptive` selection policy.
 
 Only the Responses provider classifies external error text:
 

@@ -24,6 +24,8 @@ class ScriptedModelClient:
         self._responses = iter(responses or [])
         self._response_factory = response_factory
         self.model = model
+        self.reasoning_effort = None
+        self.endpoint = "in-process"
         self.prompts: "typing.List[Prompt]" = []
         self.call_count = 0
 
