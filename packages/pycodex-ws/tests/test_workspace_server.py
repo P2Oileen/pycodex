@@ -745,6 +745,50 @@ def test_workspace_json_body_validation(tmp_path, multi):
 
 
 @pytest.mark.parametrize("multi", [False, True])
+def test_login_limits_body_without_limiting_messages(tmp_path, multi):
+    if multi:
+        app = create_multi_workspace_app(
+            WorkspaceRegistry([
+                make_entry(WorkspaceDefinition("first", tmp_path / "state", tmp_path)),
+            ]),
+            password="test-password",
+        )
+        prefix = "/w/first"
+    else:
+        app = create_app(make_session, None, password="test-password")
+        prefix = ""
+    body = b'{"password":"test-password"}'
+    at_limit = body + b" " * (4096 - len(body))
+    multibyte_body = json.dumps(
+        {"password": "test-password", "padding": "é" * 2048}, ensure_ascii=False,
+    ).encode("utf-8")
+    with TestClient(app) as browser:
+        for oversized in (at_limit + b" ", b"[" * 4097, multibyte_body):
+            response = browser.post(
+                "/login", content=oversized,
+                headers={"Content-Type": "application/json"},
+            )
+            assert response.status_code == 413
+            assert response.headers["connection"] == "close"
+            assert "set-cookie" not in response.headers
+        assert browser.post(
+            "/login", content=at_limit,
+            headers={"Content-Type": "application/json"},
+        ).status_code == 200
+        prompt = "message body " * 1024 + "end"
+        response = browser.post(
+            prefix + "/api/session/message", json={"prompt": prompt},
+        )
+        assert response.status_code == 200
+        snapshot = wait_snapshot(
+            browser,
+            lambda state: state["turns"] and state["turns"][-1]["status"] == "completed",
+            path=prefix + "/api/session",
+        )
+        assert snapshot["turns"][-1]["prompt"] == prompt
+
+
+@pytest.mark.parametrize("multi", [False, True])
 def test_workspace_http_errors_remain_json(tmp_path, multi):
     if multi:
         app = create_multi_workspace_app(WorkspaceRegistry([

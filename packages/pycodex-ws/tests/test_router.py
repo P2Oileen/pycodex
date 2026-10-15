@@ -418,6 +418,11 @@ async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, 
                         websocket_url, extra_headers=cookies, origin=origin(base)
                     ):
                         pass
+                oversized = await browser.post(
+                    workspace_login_url, content=b" " * 4097,
+                    headers={"Content-Type": "application/json"},
+                )
+                assert oversized.status_code == 413
                 for _ in range(3):
                     assert (
                         await browser.post(
@@ -550,6 +555,58 @@ async def test_router_login_ip_lock_blocks_browser_access(root):
                     )
                 ).status_code == 200
                 assert (await other_browser.get(base)).status_code == 200
+
+
+@pytest.mark.parametrize("root", ["", "/remote"])
+@pytest.mark.parametrize("chunked", [False, True])
+async def test_router_rejects_oversized_login_before_upload_finishes(root, chunked):
+    gate = create_app("router-password")
+    web = Starlette(routes=[Mount(root, app=gate)]) if root else gate
+    reading = asyncio.Event()
+
+    async def observed(scope, receive, send):
+        async def observed_receive():
+            message = await receive()
+            if message.get("body"):
+                reading.set()
+            return message
+
+        await web(scope, observed_receive, send)
+
+    async with serve(observed) as address:
+        parsed = urlsplit(address)
+        reader, writer = await asyncio.open_connection(
+            parsed.hostname, parsed.port, local_addr=("127.0.0.2", 0),
+        )
+        framing = (
+            "Transfer-Encoding: chunked" if chunked else "Content-Length: 1048576"
+        )
+        headers = (
+            "POST {0}/login HTTP/1.1\r\nHost: {1}\r\n"
+            "Content-Type: application/json\r\n{2}\r\n\r\n"
+        ).format(root, parsed.netloc, framing).encode("ascii")
+        try:
+            if chunked:
+                writer.write(headers + b"800\r\n" + b" " * 2048 + b"\r\n")
+                await writer.drain()
+                await asyncio.wait_for(reading.wait(), 3)
+                writer.write(b"801\r\n" + b" " * 2049 + b"\r\n")
+            else:
+                writer.write(headers + b" " * 4097)
+            await writer.drain()
+            # Neither upload is complete: no final chunk or remaining body is sent.
+            response = await asyncio.wait_for(reader.read(), 3)
+            assert response.startswith(b"HTTP/1.1 413 ")
+            assert b"\r\nconnection: close\r\n" in response.lower()
+            assert b"set-cookie:" not in response.lower()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+        async with ip_browser(address, "127.0.0.2") as browser:
+            response = await browser.post(
+                root + "/login", json={"password": "router-password"},
+            )
+            assert response.status_code == 200
 
 
 async def test_router_login_ip_lock_resets_on_success_and_restart():

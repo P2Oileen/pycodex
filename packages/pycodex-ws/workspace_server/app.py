@@ -1135,7 +1135,7 @@ def _install_auth(
         return _html_response(_render_login_shell(login_title))
 
     async def login(request: Request) -> JSONResponse:
-        payload = await _json_object_body(request)
+        payload = await _json_object_body(request, max_bytes=4096)
         client_ip = request.client.host if blocked_ips is not None else None
         # Another login can block this IP while the request body is arriving.
         if blocked_ips is not None and client_ip in blocked_ips:
@@ -1182,14 +1182,25 @@ def _install_auth(
     return token
 
 
-async def _json_object_body(request: Request) -> "typing.Dict[str, object]":
+async def _json_object_body(
+    request: Request, max_bytes: "typing.Union[int, None]" = None,
+) -> "typing.Dict[str, object]":
     media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     if media_type != "application/json" and not (
         media_type.startswith("application/") and media_type.endswith("+json")
     ):
         raise HTTPException(status_code=422, detail="request body must be JSON")
+    body = bytearray()
+    async for chunk in request.stream():
+        if max_bytes is not None and len(body) + len(chunk) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="request body exceeds {0} bytes".format(max_bytes),
+                headers={"Connection": "close"},
+            )
+        body.extend(chunk)
     try:
-        payload = await request.json()
+        payload = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(status_code=422, detail="invalid JSON body")
     if not isinstance(payload, dict):
