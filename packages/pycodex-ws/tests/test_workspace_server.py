@@ -612,6 +612,8 @@ def test_password_protects_http_and_websocket(tmp_path, multi):
         assert response.status_code == 200
         assert len(response.history) == 1
         assert response.history[0].status_code == 303
+        assert "<h1>Log in to pycodex workspace</h1>" in response.text
+        assert "<code>http://testserver/</code>" in response.text
         login_url = response.history[0].headers["location"]
         assert browser.get(prefix + "/api/session").status_code == 401
         assert browser.post(

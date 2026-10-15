@@ -7,6 +7,7 @@ import json
 import mimetypes
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import threading
@@ -1134,7 +1135,12 @@ def _install_auth(
         )
 
     async def login_page(request: Request) -> HTMLResponse:
-        return _html_response(_render_login_shell(login_title))
+        address = str(request.url.replace(
+            path=request.scope.get("root_path", "") + "/", query="",
+        ))
+        return _html_response(_render_login_shell(
+            login_title, socket.gethostname(), address,
+        ))
 
     async def login(request: Request) -> JSONResponse:
         payload = await _json_object_body(request, max_bytes=4096)
@@ -1216,13 +1222,13 @@ def _auth_cookie_matches(token: str, cookie: "typing.Union[str, None]") -> bool:
     return bool(cookie) and secrets.compare_digest(str(cookie), token)
 
 
-def _render_login_shell(title: str = "pycodex workspace") -> str:
+def _render_login_shell(title: str, hostname: str, address: str) -> str:
     return """<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>__LOGIN_TITLE__</title>
+  <title>Log in to __LOGIN_TITLE__</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -1245,6 +1251,12 @@ def _render_login_shell(title: str = "pycodex workspace") -> str:
       margin: 0;
       font-size: 22px;
     }
+    .login-target {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
     input, button {
       min-height: 38px;
       border-radius: 7px;
@@ -1264,10 +1276,11 @@ def _render_login_shell(title: str = "pycodex workspace") -> str:
 </head>
 <body>
   <form id="loginForm">
-    <h1>__LOGIN_TITLE__</h1>
+    <h1>Log in to __LOGIN_TITLE__</h1>
+    <p class="login-target">Server: <strong>__LOGIN_HOST__</strong><br><code>__LOGIN_ADDRESS__</code></p>
     <label for="passwordInput">Password</label>
     <input id="passwordInput" type="password" autocomplete="current-password" autofocus>
-    <button type="submit">Open</button>
+    <button type="submit">Log in</button>
     <div id="status" class="status" role="status"></div>
   </form>
   <script>
@@ -1293,7 +1306,9 @@ def _render_login_shell(title: str = "pycodex workspace") -> str:
     });
   </script>
 </body>
-</html>""".replace("__LOGIN_TITLE__", html.escape(title))
+</html>""".replace("__LOGIN_TITLE__", html.escape(title)).replace(
+        "__LOGIN_HOST__", html.escape(hostname),
+    ).replace("__LOGIN_ADDRESS__", html.escape(address))
 
 
 async def _http_exception_response(request: Request, exc: HTTPException) -> JSONResponse:

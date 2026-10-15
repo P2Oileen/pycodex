@@ -545,6 +545,14 @@ with workspaces in configuration order. They start collapsed on page load and
 preserve their expanded state through inventory updates. Each device's heading
 includes Manage, even when collapsed or empty. A red dot on that heading and in
 the Online devices list indicates that any of the device's workspaces is unread.
+Both places show `n working` while any of the device's workspaces are working.
+Click the device name to rename it; the surrounding group heading toggles its
+disclosure. Aliases must be nonblank, single-line text of 1 to 128 characters.
+
+Login pages identify the service being unlocked (`pycodex router` or
+`pycodex workspace`) and show its hostname and access address, including any
+router or device path prefix. A device's password remains a separate login
+after the router password when both services require authentication.
 
 A separate red dot marks an unread final reply or failed turn, including results
 produced while background work remains active. A focused, visible page marks the

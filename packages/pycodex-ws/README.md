@@ -88,10 +88,14 @@ The router directory collects unread workspace shortcuts and their device names
 in a distinct Unread panel at the top. Read workspaces leave that panel; the
 complete device groups keep their device id and workspace configuration order.
 Device groups start collapsed, retain their expanded state during updates, and
-show Manage in their headings. Device headings and the Online devices list share
-an unread dot whenever any of that device's workspaces is unread. Final replies
-and failed turns both trigger shared unread dots; viewing the reply or error
-marks it as read.
+show Manage and the number of working workspaces in their headings. Click the
+device name to rename it; aliases must be nonblank and contain 1 to 128
+characters. Device headings and the Online devices list share an unread dot
+whenever any of that device's workspaces is unread. Final replies and failed
+turns both trigger shared unread dots; viewing the reply or error marks it as read.
+
+Login pages state whether you are logging in to the router or workspace service
+and show the server hostname and access address.
 
 `enable_board` defaults to `true`. Setting it to `false` disables the Canvas
 tab, HTML/image/status routes, polling and Canvas context injection. Sessions

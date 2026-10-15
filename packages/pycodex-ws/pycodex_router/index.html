@@ -94,6 +94,8 @@
     #unread-workspaces .workspace-row { border-color: var(--unread-line); }
     #unread-workspaces .workspace-row:hover { background: var(--panel); }
     .activity-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 500; }
+    .activity-badge[hidden] { display: none; }
+    .workspace-group-name .device-working { margin-left: 8px; white-space: nowrap; }
     .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
     .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
     @keyframes spinner-pulse {
@@ -118,7 +120,7 @@
     .device-heading { display: flex; align-items: start; gap: 9px; }
     .device-heading svg { width: 17px; height: 17px; margin-top: 1px; color: var(--muted); }
     .device-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
-    .device-label { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: left; overflow-wrap: anywhere; cursor: text; }
+    .device-label { display: inline-block; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: left; overflow-wrap: anywhere; cursor: text; }
     .device-label[hidden] { display: none; }
     .device-alias-input { width: 100%; min-width: 0; padding: 3px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; outline: none; }
     .online-dot { margin-top: 7px; }
@@ -208,7 +210,10 @@
     <details class="workspace-table workspace-group">
       <summary class="workspace-group-heading">
         <svg class="disclosure-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-        <h3 class="workspace-group-name"><button type="button" class="device-label"></button></h3>
+        <h3 class="workspace-group-name">
+          <button type="button" class="device-label"></button>
+          <span class="activity-badge device-working" data-state="working" hidden></span>
+        </h3>
         <span class="unread-dot device-unread" hidden role="img" aria-label="Unread workspaces" title="Unread workspaces"></span>
         <span class="count"></span>
         <a class="manage-link">Manage <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
@@ -246,6 +251,7 @@
       </div>
       <div class="device-footer">
         <p class="device-detail"></p>
+        <span class="activity-badge device-working" data-state="working" hidden></span>
       </div>
     </article>
   </template>
@@ -326,9 +332,11 @@
         const input = document.createElement("input");
         input.type = "text";
         input.className = "device-alias-input";
+        input.minLength = 1;
         input.maxLength = 128;
+        input.required = true;
         input.setAttribute("aria-label", "Device alias");
-        input.title = "Leave empty to use the original device name.";
+        input.title = "Use 1 to 128 characters.";
         input.value = node.alias || "";
         input.placeholder = node.name;
         label.hidden = true;
@@ -341,6 +349,7 @@
           input.remove();
           label.hidden = false;
           try {
+            if (save && !alias) throw new Error("Device alias must contain at least one character.");
             if (save && alias !== (node.alias || "")) {
               const response = await fetch(`api/nodes/${encodeURIComponent(node.id)}/alias`, {
                 method: "POST",
@@ -450,6 +459,12 @@
           card.querySelector(".device-unread").hidden = !owned.some(workspace => workspace.unread);
           const sessions = owned.reduce((total, workspace) => total + workspace.session_count, 0);
           card.querySelector(".device-detail").textContent = `${countLabel(owned.length, "workspace")} · ${countLabel(sessions, "session")}`;
+          const working = owned.filter(workspace => workspace.running).length;
+          for (const container of [groups.get(node.id).group, card]) {
+            const badge = container.querySelector(".device-working");
+            badge.hidden = !working;
+            badge.textContent = working ? `${working} working` : "";
+          }
           nodeList.append(card);
         }
         if (!data.nodes.length) {

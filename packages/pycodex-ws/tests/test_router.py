@@ -368,7 +368,8 @@ async def test_registration_uses_peer_ip_and_reconnect_keeps_assigned_id(monkeyp
 
 
 @pytest.mark.parametrize("root", ["", "/remote"])
-async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, root):
+async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, root, monkeypatch):
+    monkeypatch.setattr("workspace_server.app.socket.gethostname", lambda: "test<device>")
     gate = create_app("router-password")
     app, registry = workspace_app(tmp_path / "workspace", "local-password")
     async with serve_router(gate, root) as (address, target):
@@ -392,7 +393,9 @@ async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, 
                     )
                 ).status_code == 401
                 router_login = (await browser.get(root + "/login")).text
-                assert "<h1>pycodex router</h1>" in router_login
+                assert "<h1>Log in to pycodex router</h1>" in router_login
+                assert "<strong>test&lt;device&gt;</strong>" in router_login
+                assert "<code>" + address + root + "/</code>" in router_login
                 assert (
                     await browser.post(
                         root + "/login", json={"password": "router-password"}
@@ -404,10 +407,10 @@ async def test_router_and_workspace_passwords_protect_remote_visitors(tmp_path, 
                 workspace_login_url = redirect.headers["location"]
                 assert workspace_login_url.startswith(urlsplit(base).path + "/login?")
                 workspace_login_url = origin(base) + workspace_login_url
-                assert (
-                    "<h1>pycodex workspace</h1>"
-                    in (await browser.get(workspace_login_url)).text
-                )
+                workspace_login_page = (await browser.get(workspace_login_url)).text
+                assert "<h1>Log in to pycodex workspace</h1>" in workspace_login_page
+                assert "<strong>test&lt;device&gt;</strong>" in workspace_login_page
+                assert "<code>" + base + "/</code>" in workspace_login_page
                 assert (await browser.get(prefix + "api/session")).status_code == 401
                 websocket_url = (prefix + "ws/session").replace("http:", "ws:")
                 cookies = {
@@ -1586,12 +1589,15 @@ async def test_device_aliases_are_authenticated_and_do_not_change_identity(
                     }
                     if os.name == "posix":
                         assert path.stat().st_mode & 0o777 == 0o600
+                    saved = path.read_bytes()
 
                     for payload in [
                         {},
                         [],
                         {"alias": None},
                         {"alias": 1},
+                        {"alias": ""},
+                        {"alias": "   "},
                         {"alias": "a" * 129},
                         {"alias": "two\nlines"},
                     ]:
@@ -1619,11 +1625,16 @@ async def test_device_aliases_are_authenticated_and_do_not_change_identity(
                         )
                     ).status_code == 404
                     assert gate.state.router.aliases == {first.node_id: "开发机"}
+                    assert path.read_bytes() == saved
 
-                    response = await browser.post(endpoint, json={"alias": ""})
-                    assert response.json() == {"alias": ""}
-                    assert (await browser.get(root + "/api/workspaces")).json() == before
-                    assert json.loads(path.read_text(encoding="utf-8")) == {}
+                    response = await browser.post(endpoint, json={"alias": "机"})
+                    assert response.json() == {"alias": "机"}
+                    updated = (await browser.get(root + "/api/workspaces")).json()
+                    updated_nodes = {node["id"]: node for node in updated["nodes"]}
+                    assert updated_nodes[first.node_id] == dict(original, alias="机")
+                    assert json.loads(path.read_text(encoding="utf-8")) == {
+                        first.node_id: "机"
+                    }
 
 
 async def test_device_aliases_cannot_be_changed_without_a_router_password():

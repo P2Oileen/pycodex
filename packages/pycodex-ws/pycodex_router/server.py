@@ -63,10 +63,11 @@ def load_registration_key(path):
 def normalize_alias(value):
     if (
         not isinstance(value, str)
+        or not value.strip()
         or len(value) > 128
         or any(ord(char) < 32 for char in value)
     ):
-        raise ValueError("Device alias must be a single line of at most 128 characters.")
+        raise ValueError("Device alias must be a single line of 1 to 128 characters.")
     value.encode("utf-8")
     return value.strip()
 
@@ -214,10 +215,7 @@ class Router:
         except ValueError as exc:
             raise HTTPException(422, str(exc))
         aliases = dict(self.aliases)
-        if alias:
-            aliases[node_id] = alias
-        else:
-            aliases.pop(node_id, None)
+        aliases[node_id] = alias
         self._save_aliases(aliases)
         return JSONResponse({"alias": alias})
 
