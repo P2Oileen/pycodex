@@ -634,6 +634,69 @@ def test_password_protects_http_and_websocket(tmp_path, multi):
 
 
 @pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("password", [None, "test-password"])
+def test_workspace_websocket_rejects_cross_origin(tmp_path, multi, password):
+    if multi:
+        app = create_multi_workspace_app(
+            WorkspaceRegistry([
+                make_entry(WorkspaceDefinition("first", tmp_path / "state", tmp_path)),
+            ]),
+            password=password,
+        )
+        prefix = "/w/first"
+    else:
+        app = create_app(make_session, None, password=password)
+        prefix = ""
+    with TestClient(app) as browser:
+        if password:
+            assert browser.post("/login", json={"password": password}).status_code == 200
+        for origin in (
+            "https://outside.example",
+            "http://testserver:6007",
+            "https://testserver",
+            "null",
+            "",
+        ):
+            with pytest.raises(WebSocketDisconnect) as rejected:
+                with browser.websocket_connect(
+                    prefix + "/ws/session", headers={"Origin": origin},
+                ):
+                    pass
+            assert rejected.value.code == 1008
+        assert browser.get(prefix + "/api/session").json()["snapshot"]["turns"] == []
+
+
+@pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("scheme, host, origin", [
+    ("ws", "127.0.0.1:6007", "http://127.0.0.1:6007"),
+    ("ws", "LOCALHOST:80", "http://localhost"),
+    ("wss", "router.example:443", "https://router.example"),
+    ("wss", "[::1]:8443", "https://[::1]:8443"),
+    ("ws", "testserver", None),
+])
+def test_workspace_websocket_accepts_its_origin(tmp_path, multi, scheme, host, origin):
+    if multi:
+        app = create_multi_workspace_app(WorkspaceRegistry([
+            make_entry(WorkspaceDefinition("first", tmp_path / "state", tmp_path)),
+        ]))
+        prefix = "/w/first"
+    else:
+        app = create_app(make_session, None)
+        prefix = ""
+    headers = {"Host": host}
+    if origin is not None:
+        headers["Origin"] = origin
+    with TestClient(app) as browser:
+        with browser.websocket_connect(
+            scheme + "://testserver" + prefix + "/ws/session?session_id=",
+            headers=headers,
+        ) as websocket:
+            assert websocket.receive_json()["type"] == "hello"
+            websocket.send_json({"type": "ping"})
+            assert websocket.receive_json()["type"] == "pong"
+
+
+@pytest.mark.parametrize("multi", [False, True])
 def test_workspace_json_body_validation(tmp_path, multi):
     if multi:
         registry = WorkspaceRegistry([

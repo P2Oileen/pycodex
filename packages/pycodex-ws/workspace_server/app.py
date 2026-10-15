@@ -1637,6 +1637,15 @@ async def _websocket_session_handler(
     manager: "WorkspaceSessionManager",
     websocket: WebSocket,
 ) -> None:
+    url = websocket.url
+    scheme = "https" if url.scheme == "wss" else "http"
+    authority = url.netloc.lower()
+    if url.port == (443 if scheme == "https" else 80):
+        authority = authority.rsplit(":", 1)[0]
+    # Browsers send Origin; non-browser clients may omit it.
+    if websocket.headers.get("origin") not in (None, scheme + "://" + authority):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     session_id = str(websocket.query_params.get("session_id") or "")
     try:
