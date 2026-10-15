@@ -40,7 +40,7 @@
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-size: 13px; }
     a { color: inherit; text-decoration: none; }
-    a:focus-visible, .device-label:focus-visible, .workspace-group-heading:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
+    a:focus-visible, button:focus-visible, .workspace-group-heading:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
     svg { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
     h1, h2, h3, h4, p { margin: 0; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -120,9 +120,14 @@
     .device-heading { display: flex; align-items: start; gap: 9px; }
     .device-heading svg { width: 17px; height: 17px; margin-top: 1px; color: var(--muted); }
     .device-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
-    .device-label { display: inline-block; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: left; overflow-wrap: anywhere; cursor: text; }
-    .device-label[hidden] { display: none; }
+    .device-label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .device-rename, .device-alias-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); font: inherit; cursor: pointer; }
+    .device-rename:hover, .device-alias-actions button:hover { background: var(--soft); color: var(--ink); }
+    .device-rename { flex: 0 0 28px; padding: 4px; border-color: transparent; }
+    .device-rename[hidden] { display: none; }
+    .device-rename svg { width: 14px; height: 14px; margin: 0; color: inherit; }
     .device-alias-input { width: 100%; min-width: 0; padding: 3px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; outline: none; }
+    .device-alias-actions { display: flex; gap: 6px; margin-top: 6px; }
     .online-dot { margin-top: 7px; }
     .device-heading > .unread-dot { margin-top: 7px; }
     .device-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; margin-top: 6px; }
@@ -146,6 +151,8 @@
       .workspace-paths { grid-column: 1 / -1; grid-row: 2; }
       .workspace-status { grid-column: 2; grid-row: 1; }
       .open-link { grid-column: 3; grid-row: 1; min-height: 36px; }
+      .device-rename, .device-alias-actions button { min-height: 36px; }
+      .device-rename { flex-basis: 36px; }
     }
   </style>
 </head>
@@ -211,7 +218,7 @@
       <summary class="workspace-group-heading">
         <svg class="disclosure-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
         <h3 class="workspace-group-name">
-          <button type="button" class="device-label"></button>
+          <span class="device-label"></span>
           <span class="activity-badge device-working" data-state="working" hidden></span>
         </h3>
         <span class="unread-dot device-unread" hidden role="img" aria-label="Unread workspaces" title="Unread workspaces"></span>
@@ -245,7 +252,10 @@
     <article class="device">
       <div class="device-heading">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/></svg>
-        <h3 class="device-name"><button type="button" class="device-label"></button></h3>
+        <h3 class="device-name"><span class="device-label"></span></h3>
+        <button type="button" class="device-rename" title="Rename device">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16l-1 4Z"/></svg>
+        </button>
         <span class="unread-dot device-unread" hidden role="img" aria-label="Unread workspaces" title="Unread workspaces"></span>
         <span class="online-dot" aria-label="Online"></span>
       </div>
@@ -254,6 +264,15 @@
         <span class="activity-badge device-working" data-state="working" hidden></span>
       </div>
     </article>
+  </template>
+  <template id="device-alias-template">
+    <span class="device-alias-editor">
+      <input type="text" class="device-alias-input" minlength="1" maxlength="128" required aria-label="Device alias" title="Use 1 to 128 characters.">
+      <span class="device-alias-actions">
+        <button type="button" class="device-alias-save">Save</button>
+        <button type="button" class="device-alias-cancel">Cancel</button>
+      </span>
+    </span>
   </template>
   <template id="empty-template">
     <div class="empty">
@@ -273,6 +292,7 @@
       const workspaceGroupTemplate = document.getElementById("workspace-group-template");
       const workspaceTemplate = document.getElementById("workspace-template");
       const deviceTemplate = document.getElementById("device-template");
+      const deviceAliasTemplate = document.getElementById("device-alias-template");
       const emptyTemplate = document.getElementById("empty-template");
       const deviceConnection = document.getElementById("device-connection");
       const registrationKey = document.getElementById("registration-key");
@@ -318,36 +338,30 @@
         layout.dataset.stale = String(state === "error");
       }
 
-      function bindDeviceLabel(label, node, data) {
+      function setDeviceLabel(label, node) {
         label.textContent = node.alias || node.name;
-        label.title = `${node.name}\nClick to rename device`;
-        label.setAttribute("aria-label", `Rename device ${node.alias || node.name}`);
-        label.addEventListener("click", () => editDeviceAlias(label, node, data));
+        label.title = node.name;
       }
 
-      function editDeviceAlias(label, node, data) {
+      function editDeviceAlias(label, button, node, data) {
         if (editingDevice !== null) return;
         editingDevice = node.id;
         aliasStatus.textContent = "";
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "device-alias-input";
-        input.minLength = 1;
-        input.maxLength = 128;
-        input.required = true;
-        input.setAttribute("aria-label", "Device alias");
-        input.title = "Use 1 to 128 characters.";
+        const editor = deviceAliasTemplate.content.firstElementChild.cloneNode(true);
+        const input = editor.querySelector("input");
         input.value = node.alias || "";
         input.placeholder = node.name;
         label.hidden = true;
-        label.before(input);
+        button.hidden = true;
+        label.before(editor);
         let finished = false;
         const finish = async save => {
           if (finished) return;
           finished = true;
           const alias = input.value.trim();
-          input.remove();
+          editor.remove();
           label.hidden = false;
+          button.hidden = false;
           try {
             if (save && !alias) throw new Error("Device alias must contain at least one character.");
             if (save && alias !== (node.alias || "")) {
@@ -367,18 +381,19 @@
             aliasStatus.textContent = `Could not rename device: ${error.message}`;
           } finally {
             editingDevice = null;
+            nodes.querySelector(`.device[data-node-id="${CSS.escape(node.id)}"] .device-rename`).focus();
             refresh();
           }
         };
-        input.addEventListener("keydown", event => {
+        editor.addEventListener("keydown", event => {
           if (event.isComposing) return;
-          if (event.key === "Enter" || event.key === "Escape") {
+          if (event.key === "Escape" || (event.key === "Enter" && event.target === input)) {
             event.preventDefault();
             finish(event.key === "Enter");
-            label.focus();
           }
         });
-        input.addEventListener("blur", () => finish(true));
+        editor.querySelector(".device-alias-save").addEventListener("click", () => finish(true));
+        editor.querySelector(".device-alias-cancel").addEventListener("click", () => finish(false));
         input.focus();
         input.select();
       }
@@ -395,7 +410,7 @@
           group.dataset.nodeId = node.id;
           group.open = expanded.has(node.id);
           group.setAttribute("aria-label", node.alias || node.name);
-          bindDeviceLabel(group.querySelector(".device-label"), node, data);
+          setDeviceLabel(group.querySelector(".device-label"), node);
           const link = group.querySelector(".manage-link");
           link.href = node.url;
           link.setAttribute("aria-label", `Manage workspaces on ${node.alias || node.name}`);
@@ -454,7 +469,12 @@
         const nodeList = document.createDocumentFragment();
         for (const node of data.nodes) {
           const card = deviceTemplate.content.firstElementChild.cloneNode(true);
-          bindDeviceLabel(card.querySelector(".device-label"), node, data);
+          card.dataset.nodeId = node.id;
+          const label = card.querySelector(".device-label");
+          setDeviceLabel(label, node);
+          const rename = card.querySelector(".device-rename");
+          rename.setAttribute("aria-label", `Rename device ${node.alias || node.name}`);
+          rename.addEventListener("click", () => editDeviceAlias(label, rename, node, data));
           const owned = data.workspaces.filter(workspace => workspace.node_id === node.id);
           card.querySelector(".device-unread").hidden = !owned.some(workspace => workspace.unread);
           const sessions = owned.reduce((total, workspace) => total + workspace.session_count, 0);
