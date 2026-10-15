@@ -6,7 +6,7 @@ import secrets
 import signal
 import socket
 import sys
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -1561,9 +1561,10 @@ async def test_device_aliases_are_authenticated_and_do_not_change_identity(
             ) as second:
                 async with ip_browser(address) as browser:
                     endpoint = root + "/api/nodes/" + first.node_id + "/alias"
+                    registered = path.read_bytes()
                     response = await browser.post(endpoint, json={"alias": "开发机"})
                     assert response.status_code == 401
-                    assert not path.exists()
+                    assert path.read_bytes() == registered
                     await browser.post(
                         root + "/login", json={"password": "router-password"}
                     )
@@ -1585,7 +1586,7 @@ async def test_device_aliases_are_authenticated_and_do_not_change_identity(
                     assert after_nodes[second.node_id]["alias"] == ""
                     assert (await browser.get(original["url"])).text == "device"
                     assert json.loads(path.read_text(encoding="utf-8")) == {
-                        first.node_id: "开发机"
+                        first.node_id: "开发机", second.node_id: ""
                     }
                     if os.name == "posix":
                         assert path.stat().st_mode & 0o777 == 0o600
@@ -1624,7 +1625,9 @@ async def test_device_aliases_are_authenticated_and_do_not_change_identity(
                             root + "/api/nodes/missing/alias", json={"alias": "other"}
                         )
                     ).status_code == 404
-                    assert gate.state.router.aliases == {first.node_id: "开发机"}
+                    assert gate.state.router.aliases == {
+                        first.node_id: "开发机", second.node_id: ""
+                    }
                     assert path.read_bytes() == saved
 
                     response = await browser.post(endpoint, json={"alias": "机"})
@@ -1633,7 +1636,7 @@ async def test_device_aliases_are_authenticated_and_do_not_change_identity(
                     updated_nodes = {node["id"]: node for node in updated["nodes"]}
                     assert updated_nodes[first.node_id] == dict(original, alias="机")
                     assert json.loads(path.read_text(encoding="utf-8")) == {
-                        first.node_id: "机"
+                        first.node_id: "机", second.node_id: ""
                     }
 
 
@@ -1645,6 +1648,127 @@ async def test_device_aliases_cannot_be_changed_without_a_router_password():
                     "/api/nodes/" + client.node_id + "/alias", json={"alias": "device"}
                 )
                 assert response.status_code == 401
+
+
+@pytest.mark.parametrize("root", ["", "/remote"])
+async def test_device_order_is_shared_persistent_and_preserves_offline_slots(
+    tmp_path, root
+):
+    path = tmp_path / "router-aliases.json"
+    gate = create_app("router-password", aliases_path=path)
+    app = Starlette()
+    async with serve_router(gate, root) as (address, target):
+        async with device(app, target) as first:
+            async with device(app, target) as second:
+                async with device(app, target) as third:
+                    original = [first.node_id, second.node_id, third.node_id]
+                    async with ip_browser(address) as browser:
+                        endpoint = root + "/api/nodes/order"
+                        saved = path.read_bytes()
+                        assert (await browser.post(
+                            endpoint, json={"order": original[::-1]}
+                        )).status_code == 401
+                        assert path.read_bytes() == saved
+                        await browser.post(
+                            root + "/login", json={"password": "router-password"}
+                        )
+                        assert (await browser.post(
+                            root + "/api/nodes/" + first.node_id + "/alias",
+                            json={"alias": "Build server"},
+                        )).status_code == 200
+                        before = (await browser.get(root + "/api/workspaces")).json()
+                        assert [node["id"] for node in before["nodes"]] == original
+                        order = original[::-1]
+                        response = await browser.post(endpoint, json={"order": order})
+                        assert response.json() == {"order": order}
+                        assert list(json.loads(path.read_text(encoding="utf-8"))) == order
+                        if os.name == "posix":
+                            assert path.stat().st_mode & 0o777 == 0o600
+                        async with ip_browser(address) as other:
+                            await other.post(
+                                root + "/login", json={"password": "router-password"}
+                            )
+                            after = (await other.get(root + "/api/workspaces")).json()
+                        assert after["nodes"] == before["nodes"][::-1]
+                        assert after["workspaces"] == before["workspaces"][::-1]
+
+                        saved = path.read_bytes()
+                        for payload in (
+                            {}, [], {"order": None}, {"order": "invalid"},
+                            {"order": [first.node_id, first.node_id]},
+                            {"order": [1]}, {"order": [{}]}, {"order": ["missing"]},
+                        ):
+                            assert (await browser.post(
+                                endpoint, json=payload
+                            )).status_code == 422
+                        assert (await browser.post(
+                            endpoint, json={"order": []}
+                        )).status_code == 409
+                        assert (await browser.post(
+                            endpoint, json={"order": order + ["a" * 52]}
+                        )).status_code == 409
+                        assert (await browser.post(
+                            endpoint, json={"order": order},
+                            headers={"Origin": "https://other.example"},
+                        )).status_code == 403
+                        assert (await browser.post(
+                            endpoint, content=b" " * (64 * 1024 + 1),
+                            headers={"Content-Type": "application/json"},
+                        )).status_code == 413
+                        assert path.read_bytes() == saved
+
+                        await second.close()
+                        await eventually(lambda: second.node_id not in gate.state.router.nodes)
+                        assert (await browser.post(
+                            endpoint, json={"order": order}
+                        )).status_code == 409
+                        assert (await browser.post(
+                            endpoint, json={"order": [first.node_id, third.node_id]}
+                        )).status_code == 200
+                        assert list(json.loads(path.read_text(encoding="utf-8"))) == original
+                        await second.start()
+                        await eventually(lambda: second.connected)
+                        inventory = (await browser.get(root + "/api/workspaces")).json()
+                        assert [node["id"] for node in inventory["nodes"]] == original
+
+                        async with device(app, target) as newcomer:
+                            inventory = (await browser.get(root + "/api/workspaces")).json()
+                            assert [node["id"] for node in inventory["nodes"]] == original + [newcomer.node_id]
+                        # Reload the file and reconnect in a different arrival order.
+                        restarted = create_app("router-password", aliases_path=path)
+                        for client in (first, second, third):
+                            await client.close()
+                        async with serve_router(restarted, root) as (web, new_target):
+                            async with AsyncExitStack() as stack:
+                                for client in (third, second, first):
+                                    channel = await stack.enter_async_context(
+                                        tunnel_connect(new_target)
+                                    )
+                                    await channel.send(encode({
+                                        "type": "register", "version": 2,
+                                        "identity_key": client._identity_key,
+                                        "name": "device", "port": 6007,
+                                        "workspaces": [workspace_record()],
+                                    }))
+                                    assert decode(await channel.recv())["id"] == client.node_id
+                                async with ip_browser(web) as reader:
+                                    await reader.post(
+                                        root + "/login",
+                                        json={"password": "router-password"},
+                                    )
+                                    inventory = (await reader.get(root + "/api/workspaces")).json()
+                                    assert [node["id"] for node in inventory["nodes"]] == original
+                                    assert inventory["nodes"][0]["alias"] == "Build server"
+                        assert list(restarted.state.router.aliases)[:3] == original
+
+
+async def test_device_order_requires_a_router_password():
+    async with serve_router(create_app()) as (address, target):
+        async with device(Starlette(), target) as client:
+            async with ip_browser(address) as browser:
+                assert (await browser.post(
+                    "/api/nodes/order", json={"order": [client.node_id]}
+                )).status_code == 401
 
 
 @pytest.mark.parametrize(
@@ -1661,7 +1785,8 @@ def test_invalid_alias_files_are_not_replaced(tmp_path, contents):
 def test_alias_write_failure_keeps_previous_state(tmp_path, monkeypatch):
     path = tmp_path / "router-aliases.json"
     node_id = "a" * 52
-    path.write_text(json.dumps({node_id: "original"}), encoding="utf-8")
+    other_id = "b" * 52
+    path.write_text(json.dumps({node_id: "original", other_id: ""}), encoding="utf-8")
     router = create_app(aliases_path=path).state.router
     before = path.read_bytes()
 
@@ -1671,8 +1796,9 @@ def test_alias_write_failure_keeps_previous_state(tmp_path, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr("pycodex_router.server.os.replace", fail_replace)
         with pytest.raises(OSError, match="disk full"):
-            router._save_aliases({node_id: "changed"})
-    assert router.aliases == {node_id: "original"}
+            router._save_aliases({other_id: "", node_id: "changed"})
+    assert router.aliases == {node_id: "original", other_id: ""}
+    assert list(router.aliases) == [node_id, other_id]
     assert path.read_bytes() == before
     assert not list(tmp_path.glob("router-aliases.json.*"))
 

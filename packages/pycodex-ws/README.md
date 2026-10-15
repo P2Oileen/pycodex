@@ -85,8 +85,19 @@ Creating a workspace through the management page or API without a prefix
 generates a `/tmp/pcws-*` prefix and saves it in the configuration.
 
 The router directory collects unread workspace shortcuts and their device names
-in a distinct Unread panel at the top. Read workspaces leave that panel; the
-complete device groups keep their device id and workspace configuration order.
+in a distinct Unread panel at the top. Read workspaces leave that panel.
+Drag a handle in Online devices to reorder devices; both lists share the saved
+order. The focused handle also supports the up and down arrow keys. Escape or
+dropping outside the list cancels a drag. On touch screens, drag the handle;
+the rest of the card still scrolls normally. List updates wait until the drag
+and save finish.
+The router saves the order in the existing `CODEX_HOME/router-aliases.json`,
+shared by all browsers and retained across router restarts. Its device entry
+order is the display order; an empty alias means to show the original name.
+Existing alias files remain readable. Offline device positions are
+remembered, newly registered devices go last, and each device's workspaces keep
+their configuration order. Reordering requires router login; if connected
+devices change during a drag, refresh and try again.
 Device groups start collapsed, retain their expanded state during updates, and
 show Manage and the number of working workspaces in their headings. Click a
 device heading or its name to expand or collapse the group. To rename a device,

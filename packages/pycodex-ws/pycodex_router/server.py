@@ -176,8 +176,8 @@ class Router:
             aliases = json.loads(self.aliases_path.read_text(encoding="utf-8"))
             if not isinstance(aliases, dict) or any(
                 not re.fullmatch("[a-z2-7]{52}", node_id)
-                or not alias
-                or normalize_alias(alias) != alias
+                or not isinstance(alias, str)
+                or (alias and normalize_alias(alias) != alias)
                 for node_id, alias in aliases.items()
             ):
                 raise ValueError("invalid router aliases file")
@@ -200,6 +200,33 @@ class Router:
                     if temporary_path.exists():
                         temporary_path.unlink()
         self.aliases = aliases
+
+    async def reorder_devices(self, request):
+        if not self.browser_token or not _auth_cookie_matches(
+            self.browser_token, request.cookies.get("pycodex_router_auth")
+        ):
+            raise HTTPException(401, "Authentication required.")
+        payload = await _json_object_body(request, max_bytes=64 * 1024)
+        order = payload.get("order")
+        if (
+            not isinstance(order, list)
+            or any(
+                not isinstance(node_id, str)
+                or not re.fullmatch("[a-z2-7]{52}", node_id)
+                for node_id in order
+            )
+            or len(set(order)) != len(order)
+        ):
+            raise HTTPException(422, "Device order must be a list of unique device IDs.")
+        if set(order) != set(self.nodes):
+            raise HTTPException(409, "Connected devices changed. Refresh and try again.")
+        online_order = iter(order)
+        saved_order = [
+            next(online_order) if node_id in self.nodes else node_id
+            for node_id in self.aliases
+        ]
+        self._save_aliases({node_id: self.aliases[node_id] for node_id in saved_order})
+        return JSONResponse({"order": order})
 
     async def rename_device(self, request):
         if not self.browser_token or not _auth_cookie_matches(
@@ -263,6 +290,10 @@ class Router:
                 name,
                 validate_inventory(message["workspaces"]),
             )
+            if node_id not in self.aliases:
+                aliases = dict(self.aliases)
+                aliases[node_id] = ""
+                self._save_aliases(aliases)
             self.nodes[node_id] = node
             await websocket.send_text(encode({"type": "registered", "id": node_id}))
             while True:
@@ -423,7 +454,10 @@ class Router:
     async def workspaces(self, request):
         nodes = []
         workspaces = []
-        for node in sorted(self.nodes.values(), key=lambda item: item.id):
+        for node_id in self.aliases:
+            if node_id not in self.nodes:
+                continue
+            node = self.nodes[node_id]
             base = request.scope.get("root_path", "") + "/n/" + node.id + "/"
             nodes.append({
                 "id": node.id,
@@ -478,6 +512,7 @@ def create_app(
             Route("/", index),
             Route("/api/workspaces", router.workspaces),
             Route("/api/registration-key", registration_key_info),
+            Route("/api/nodes/order", router.reorder_devices, methods=["POST"]),
             Route("/api/nodes/{node_id}/alias", router.rename_device, methods=["POST"]),
         ]
     )

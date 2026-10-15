@@ -64,8 +64,8 @@
     .registration-content { display: grid; gap: 8px; margin-top: 12px; }
     .registration input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .registration p { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-    #alias-status { margin-bottom: 12px; color: var(--danger); font-size: 12px; }
-    #alias-status:empty { display: none; }
+    #alias-status, #order-status { margin-bottom: 12px; color: var(--danger); font-size: 12px; }
+    #alias-status:empty, #order-status:empty { display: none; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
     .layout > * { min-width: 0; }
     .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -121,11 +121,16 @@
     .device-heading svg { width: 17px; height: 17px; margin-top: 1px; color: var(--muted); }
     .device-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
     .device-label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .device-rename, .device-alias-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); font: inherit; cursor: pointer; }
-    .device-rename:hover, .device-alias-actions button:hover { background: var(--soft); color: var(--ink); }
-    .device-rename { flex: 0 0 28px; padding: 4px; border-color: transparent; }
+    .device-rename, .device-drag, .device-alias-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); font: inherit; cursor: pointer; }
+    .device-rename:hover, .device-drag:hover, .device-alias-actions button:hover { background: var(--soft); color: var(--ink); }
+    .device-rename, .device-drag { flex: 0 0 28px; padding: 4px; border-color: transparent; }
     .device-rename[hidden] { display: none; }
-    .device-rename svg { width: 14px; height: 14px; margin: 0; color: inherit; }
+    .device-rename svg, .device-drag svg { width: 14px; height: 14px; margin: 0; color: inherit; }
+    .device-drag { touch-action: none; user-select: none; cursor: grab; }
+    .device-drag:disabled { opacity: .35; cursor: default; }
+    .device[data-dragging] { background: var(--soft); opacity: .65; }
+    .device-drop-before { box-shadow: 0 -2px var(--accent); }
+    .nodes.device-drop-end { box-shadow: inset 0 -2px var(--accent); }
     .device-alias-input { width: 100%; min-width: 0; padding: 3px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; outline: none; }
     .device-alias-actions { display: flex; gap: 6px; margin-top: 6px; }
     .online-dot { margin-top: 7px; }
@@ -151,8 +156,8 @@
       .workspace-paths { grid-column: 1 / -1; grid-row: 2; }
       .workspace-status { grid-column: 2; grid-row: 1; }
       .open-link { grid-column: 3; grid-row: 1; min-height: 36px; }
-      .device-rename, .device-alias-actions button { min-height: 36px; }
-      .device-rename { flex-basis: 36px; }
+      .device-rename, .device-drag, .device-alias-actions button { min-height: 36px; }
+      .device-rename, .device-drag { flex-basis: 36px; }
     }
   </style>
 </head>
@@ -184,6 +189,7 @@
         </div>
       </details>
       <p id="alias-status" role="alert"></p>
+      <p id="order-status" role="alert"></p>
       <div class="layout">
         <section aria-labelledby="workspace-heading">
           <div class="section-heading">
@@ -251,7 +257,9 @@
   <template id="device-template">
     <article class="device">
       <div class="device-heading">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/></svg>
+        <button type="button" class="device-drag" title="Drag to reorder, or use the up and down arrow keys">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01" stroke-width="3"/></svg>
+        </button>
         <h3 class="device-name"><span class="device-label"></span></h3>
         <button type="button" class="device-rename" title="Rename device">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16l-1 4Z"/></svg>
@@ -298,10 +306,13 @@
       const registrationKey = document.getElementById("registration-key");
       const registrationStatus = document.getElementById("registration-status");
       const aliasStatus = document.getElementById("alias-status");
+      const orderStatus = document.getElementById("order-status");
       let refreshing = false;
       let signature = "";
       let editingDevice = null;
-      let aliasRevision = 0;
+      let inventoryRevision = 0;
+      let reordering = false;
+      let drag = null;
 
       registrationKey.addEventListener("focus", () => registrationKey.select());
       deviceConnection.addEventListener("toggle", async () => {
@@ -344,7 +355,7 @@
       }
 
       function editDeviceAlias(label, button, node, data) {
-        if (editingDevice !== null) return;
+        if (editingDevice !== null || reordering) return;
         editingDevice = node.id;
         aliasStatus.textContent = "";
         const editor = deviceAliasTemplate.content.firstElementChild.cloneNode(true);
@@ -373,7 +384,7 @@
               if (!response.ok) throw new Error(await response.text());
               const result = await response.json();
               node.alias = result.alias;
-              aliasRevision += 1;
+              inventoryRevision += 1;
               render(data);
               signature = JSON.stringify(data);
             }
@@ -398,7 +409,136 @@
         input.select();
       }
 
+      async function saveDeviceOrder(data, order, nodeId) {
+        reordering = true;
+        orderStatus.textContent = "";
+        try {
+          if (order.some((id, index) => id !== data.nodes[index].id)) {
+            const response = await fetch("api/nodes/order", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({order}),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const result = await response.json();
+            const byId = new Map(data.nodes.map(node => [node.id, node]));
+            data.nodes = result.order.map(id => byId.get(id));
+            data.workspaces = result.order.flatMap(
+              id => data.workspaces.filter(workspace => workspace.node_id === id));
+            inventoryRevision += 1;
+            render(data);
+            signature = JSON.stringify(data);
+          }
+        } catch (error) {
+          orderStatus.textContent = `Could not reorder devices: ${error.message}`;
+        } finally {
+          reordering = false;
+          nodes.querySelector(`.device[data-node-id="${CSS.escape(nodeId)}"] .device-drag`).focus({preventScroll: true});
+          refresh();
+        }
+      }
+
+      function clearDropMarker() {
+        nodes.classList.remove("device-drop-end");
+        for (const card of nodes.querySelectorAll(".device-drop-before")) {
+          card.classList.remove("device-drop-before");
+        }
+      }
+
+      function markDropTarget() {
+        clearDropMarker();
+        drag.before = Array.from(nodes.children).find(card => {
+          const rect = card.getBoundingClientRect();
+          return card !== drag.card && drag.y < (rect.top + rect.bottom) / 2;
+        });
+        (drag.before || nodes).classList.add(drag.before ? "device-drop-before" : "device-drop-end");
+      }
+
+      function scrollDrag() {
+        const step = drag.y < 56 ? -12 : drag.y > innerHeight - 56 ? 12 : 0;
+        if (step) {
+          window.scrollBy(0, step);
+          markDropTarget();
+        }
+        drag.frame = requestAnimationFrame(scrollDrag);
+      }
+
+      function finishDrag(commit, event) {
+        const current = drag;
+        if (!current) return;
+        drag = null;
+        cancelAnimationFrame(current.frame);
+        current.card.removeAttribute("data-dragging");
+        clearDropMarker();
+        if (nodes.hasPointerCapture(current.pointerId)) {
+          nodes.releasePointerCapture(current.pointerId);
+        }
+        const rect = nodes.getBoundingClientRect();
+        if (commit && current.moved && event.clientX >= rect.left
+            && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+          const cards = Array.from(nodes.children).filter(card => card !== current.card);
+          const index = current.before ? cards.indexOf(current.before) : cards.length;
+          cards.splice(index, 0, current.card);
+          saveDeviceOrder(current.data, cards.map(card => card.dataset.nodeId), current.card.dataset.nodeId);
+        } else {
+          reordering = false;
+          refresh();
+        }
+      }
+
+      nodes.addEventListener("pointermove", event => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        drag.y = event.clientY;
+        if (!drag.moved) {
+          if (Math.hypot(event.clientX - drag.x, event.clientY - drag.startY) < 5) return;
+          drag.moved = true;
+          drag.card.setAttribute("data-dragging", "");
+          drag.frame = requestAnimationFrame(scrollDrag);
+        }
+        markDropTarget();
+      });
+      nodes.addEventListener("pointerup", event => {
+        if (drag && event.pointerId === drag.pointerId) finishDrag(true, event);
+      });
+      nodes.addEventListener("pointercancel", () => finishDrag(false));
+      nodes.addEventListener("lostpointercapture", () => finishDrag(false));
+      nodes.addEventListener("keydown", event => {
+        if (drag && event.key === "Escape") {
+          event.preventDefault();
+          finishDrag(false);
+        }
+      });
+
+      function bindDeviceDrag(card, node, data) {
+        const handle = card.querySelector(".device-drag");
+        handle.disabled = data.nodes.length < 2;
+        handle.setAttribute("aria-label", `Reorder device ${node.alias || node.name}`);
+        handle.addEventListener("pointerdown", event => {
+          if (event.button !== 0 || reordering || editingDevice !== null) return;
+          event.preventDefault();
+          handle.focus({preventScroll: true});
+          reordering = true;
+          orderStatus.textContent = "";
+          drag = {card, data, pointerId: event.pointerId, x: event.clientX,
+            startY: event.clientY, y: event.clientY, moved: false, frame: null, before: null};
+          nodes.setPointerCapture(event.pointerId);
+        });
+        handle.addEventListener("keydown", event => {
+          if (reordering || editingDevice !== null || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+          event.preventDefault();
+          const order = data.nodes.map(item => item.id);
+          const index = order.indexOf(node.id);
+          const target = index + (event.key === "ArrowUp" ? -1 : 1);
+          if (target < 0 || target >= order.length) return;
+          [order[index], order[target]] = [order[target], order[index]];
+          saveDeviceOrder(data, order, node.id);
+        });
+      }
+
       function render(data) {
+        const focusedHandle = nodes.contains(document.activeElement)
+          && document.activeElement.matches(".device-drag")
+          ? document.activeElement.closest(".device").dataset.nodeId : null;
         const expanded = new Set(Array.from(
           workspaces.querySelectorAll(".workspace-group[open]"), group => group.dataset.nodeId));
         const workspaceList = document.createDocumentFragment();
@@ -470,6 +610,7 @@
         for (const node of data.nodes) {
           const card = deviceTemplate.content.firstElementChild.cloneNode(true);
           card.dataset.nodeId = node.id;
+          bindDeviceDrag(card, node, data);
           const label = card.querySelector(".device-label");
           setDeviceLabel(label, node);
           const rename = card.querySelector(".device-rename");
@@ -492,6 +633,10 @@
         }
         workspaces.replaceChildren(workspaceList);
         nodes.replaceChildren(nodeList);
+        if (focusedHandle) {
+          const handle = nodes.querySelector(`.device[data-node-id="${CSS.escape(focusedHandle)}"] .device-drag`);
+          if (handle) handle.focus({preventScroll: true});
+        }
         document.getElementById("workspace-count").textContent = data.workspaces.length;
         document.getElementById("device-count").textContent = data.nodes.length;
         const running = data.workspaces.filter(workspace => workspace.running).length;
@@ -501,7 +646,7 @@
       async function refresh() {
         if (refreshing) return;
         refreshing = true;
-        const revision = aliasRevision;
+        const revision = inventoryRevision;
         try {
           const response = await fetch("api/workspaces", {cache: "no-store"});
           if (response.status === 401) {
@@ -511,7 +656,7 @@
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
           const next = JSON.stringify(data);
-          if (editingDevice === null && revision === aliasRevision && next !== signature) {
+          if (editingDevice === null && !reordering && revision === inventoryRevision && next !== signature) {
             render(data);
             signature = next;
           }
