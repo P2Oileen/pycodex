@@ -1442,10 +1442,14 @@ def test_session_list_uses_lightweight_summary(monkeypatch):
 
 
 @pytest.mark.parametrize("multi", [False, True])
-def test_unread_is_shared_and_old_read_cannot_clear_new_final(tmp_path, multi):
-    model = ScriptedModelClient(
-        response_factory=lambda prompt, count: ModelResponse([AssistantMessage("same reply")])
-    )
+@pytest.mark.parametrize("failure", [False, True])
+def test_unread_is_shared_and_old_read_cannot_clear_new_final(tmp_path, multi, failure):
+    def respond(prompt, count):
+        if failure:
+            raise RuntimeError("same error")
+        return ModelResponse([AssistantMessage("same reply")])
+
+    model = ScriptedModelClient(response_factory=respond)
     manager = WorkspaceSessionManager(lambda: make_session(model), tmp_path / "state")
     if multi:
         app = create_multi_workspace_app(WorkspaceRegistry([
@@ -1476,6 +1480,9 @@ def test_unread_is_shared_and_old_read_cannot_clear_new_final(tmp_path, multi):
             )
             second_id = second["last_final_id"]
             assert second["turns"][-1]["response"] == first["turns"][-1]["response"]
+            if failure:
+                assert second["turns"][-1]["error"] == first["turns"][-1]["error"]
+                assert "same error" in second["turns"][-1]["error"]
             assert second_id != first_id
             state_path = tmp_path / "state.pycodex-ws.json"
             saved = state_path.read_bytes()
@@ -1534,7 +1541,7 @@ def test_unread_survives_compact_but_clears_on_restart(tmp_path, threaded, read)
         assert browser.get("/api/sessions").json()["sessions"][0]["unread"]
 
 
-def test_partial_output_does_not_create_unread(tmp_path):
+def test_failed_partial_response_creates_unread(tmp_path):
     def respond(prompt, count):
         if count == 2:
             raise ResponsesIncompleteError(
@@ -1555,12 +1562,13 @@ def test_partial_output_does_not_create_unread(tmp_path):
         )
         browser.post("/api/session/message", json={"prompt": "unfinished"})
         state = wait_snapshot(browser, lambda s: s["turns"][-1]["status"] == "error")
-        assert state["last_final_id"] == first["last_final_id"]
-        assert not state["turns"][-1]["final_id"]
-        assert not browser.get("/api/sessions").json()["sessions"][0]["unread"]
+        assert state["last_final_id"] != first["last_final_id"]
+        assert state["turns"][-1]["final_id"] == state["last_final_id"]
+        assert browser.get("/api/sessions").json()["sessions"][0]["unread"]
 
 
-def test_only_final_creates_unread_independently_of_running():
+@pytest.mark.parametrize("failure", [False, True])
+def test_final_or_failure_creates_unread_independently_of_running(failure):
     session = make_session()
     manager = WorkspaceSessionManager(lambda: session)
     view = session.view
@@ -1582,7 +1590,6 @@ def test_only_final_creates_unread_independently_of_running():
                 "next", ToolCall("call", "echo", {}), ToolResult("call", "echo", "tool result")
             ),
             TurnInterruptedEvent("next", 1, "partial", 1),
-            TurnFailedEvent("next", 1, "failed", "RuntimeError", 0),
             TurnCompletedEvent("next", 1, None, 0),
             CompactCompletedEvent("compact", "manual", None, None, 10, 1, 0, 0),
         ):
@@ -1590,8 +1597,13 @@ def test_only_final_creates_unread_independently_of_running():
             assert not manager.list_sessions()[0]["unread"]
             assert manager.list_sessions()[0]["last_final_id"] == "first"
         view.handle_event(TurnStartedEvent("last", ("last question",)))
-        view.handle_event(TurnCompletedEvent("last", 1, "final", 0))
+        view.handle_event(
+            TurnFailedEvent("last", 1, "failed", "RuntimeError", 0)
+            if failure
+            else TurnCompletedEvent("last", 1, "final", 0)
+        )
         assert manager.list_sessions()[0]["unread"]
+        assert manager.list_sessions()[0]["last_final_id"] == "last"
         assert not manager.list_sessions()[0]["running"]
 
 

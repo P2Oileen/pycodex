@@ -17,6 +17,8 @@
       --green: #26734f;
       --green-soft: #eaf5ee;
       --danger: #b54739;
+      --unread-bg: #fff7f4;
+      --unread-line: #ead0c8;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     @media (prefers-color-scheme: dark) {
@@ -31,12 +33,14 @@
         --green: #8ad5ad;
         --green-soft: #233b31;
         --danger: #ffa396;
+        --unread-bg: #2b2221;
+        --unread-line: #62433d;
       }
     }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-size: 13px; }
     a { color: inherit; text-decoration: none; }
-    a:focus-visible, .device-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
+    a:focus-visible, .device-label:focus-visible, .workspace-group-heading:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
     svg { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
     h1, h2, h3, h4, p { margin: 0; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -70,7 +74,10 @@
     #activity { color: var(--green); font-size: 12px; }
     #workspaces { display: grid; gap: 16px; }
     .workspace-table, .nodes { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
-    .workspace-group-heading { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+    .workspace-group-heading { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; list-style: none; }
+    .workspace-group-heading::-webkit-details-marker { display: none; }
+    .disclosure-icon { width: 14px; height: 14px; color: var(--muted); }
+    .workspace-group[open] .disclosure-icon { transform: rotate(90deg); }
     .workspace-group-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
     .workspace-group-heading .count { flex: 0 0 auto; }
     .list-head, .workspace-row { display: grid; grid-template-columns: minmax(94px, .85fr) minmax(120px, 1.85fr) 76px 44px; gap: 12px; align-items: center; padding: 10px 14px; }
@@ -79,6 +86,13 @@
     .workspace-row > * { min-width: 0; }
     .workspace-row:hover { background: var(--soft); }
     .workspace-row:last-child { border-radius: 0 0 9px 9px; }
+    #unread-workspaces { background: var(--unread-bg); border-color: var(--unread-line); border-left: 3px solid var(--danger); }
+    .unread-heading { display: flex; align-items: center; gap: 9px; padding: 14px; color: var(--danger); }
+    .unread-heading svg { width: 17px; height: 17px; }
+    .unread-heading h3 { flex: 1; font-size: 13px; font-weight: 600; }
+    .unread-heading .count { color: var(--panel); background: var(--danger); }
+    #unread-workspaces .workspace-row { border-color: var(--unread-line); }
+    #unread-workspaces .workspace-row:hover { background: var(--panel); }
     .activity-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; font-weight: 500; }
     .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
     .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
@@ -94,7 +108,7 @@
     .workspace-title { font-size: 12px; line-height: 1.6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .workspace-path, .state-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .state-path { color: var(--muted); }
-    .session-count { color: var(--muted); font-size: 11px; line-height: 1.7; }
+    .session-count { display: block; color: var(--muted); font-size: 11px; line-height: 1.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .open-link, .manage-link { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 28px; color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
     .open-link svg, .manage-link svg { width: 13px; height: 13px; }
     .open-link::after { content: ""; position: absolute; inset: 0; }
@@ -108,6 +122,7 @@
     .device-label[hidden] { display: none; }
     .device-alias-input { width: 100%; min-width: 0; padding: 3px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; outline: none; }
     .online-dot { margin-top: 7px; }
+    .device-heading > .unread-dot { margin-top: 7px; }
     .device-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; margin-top: 6px; }
     .device-detail { color: var(--muted); font-size: 10px; line-height: 1.5; }
     .empty { grid-column: 1 / -1; display: grid; justify-items: center; gap: 8px; padding: 32px 20px; text-align: center; }
@@ -179,17 +194,30 @@
       </div>
     </main>
   </div>
-  <template id="workspace-group-template">
-    <section class="workspace-table workspace-group">
-      <header class="workspace-group-heading">
-        <h3 class="workspace-group-name"><button type="button" class="device-label"></button></h3>
+  <template id="unread-template">
+    <section id="unread-workspaces" class="workspace-table" aria-labelledby="unread-heading">
+      <header class="unread-heading">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg>
+        <h3 id="unread-heading">Unread</h3>
         <span class="count"></span>
       </header>
+      <div class="workspace-group-list"></div>
+    </section>
+  </template>
+  <template id="workspace-group-template">
+    <details class="workspace-table workspace-group">
+      <summary class="workspace-group-heading">
+        <svg class="disclosure-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+        <h3 class="workspace-group-name"><button type="button" class="device-label"></button></h3>
+        <span class="unread-dot device-unread" hidden role="img" aria-label="Unread workspaces" title="Unread workspaces"></span>
+        <span class="count"></span>
+        <a class="manage-link">Manage <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+      </summary>
       <div class="list-head" aria-hidden="true">
         <span>Workspace</span><span>Directory / state</span><span>Status</span><span></span>
       </div>
       <div class="workspace-group-list"></div>
-    </section>
+    </details>
   </template>
   <template id="workspace-template">
     <article class="workspace-row">
@@ -213,11 +241,11 @@
       <div class="device-heading">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8m-4-4v4"/></svg>
         <h3 class="device-name"><button type="button" class="device-label"></button></h3>
+        <span class="unread-dot device-unread" hidden role="img" aria-label="Unread workspaces" title="Unread workspaces"></span>
         <span class="online-dot" aria-label="Online"></span>
       </div>
       <div class="device-footer">
         <p class="device-detail"></p>
-        <a class="manage-link">Manage <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
       </div>
     </article>
   </template>
@@ -235,6 +263,7 @@
       const layout = document.querySelector(".layout");
       const workspaces = document.getElementById("workspaces");
       const nodes = document.getElementById("nodes");
+      const unreadTemplate = document.getElementById("unread-template");
       const workspaceGroupTemplate = document.getElementById("workspace-group-template");
       const workspaceTemplate = document.getElementById("workspace-template");
       const deviceTemplate = document.getElementById("device-template");
@@ -346,12 +375,21 @@
       }
 
       function render(data) {
+        const expanded = new Set(Array.from(
+          workspaces.querySelectorAll(".workspace-group[open]"), group => group.dataset.nodeId));
         const workspaceList = document.createDocumentFragment();
+        const unreadGroup = unreadTemplate.content.firstElementChild.cloneNode(true);
+        const unreadList = unreadGroup.querySelector(".workspace-group-list");
         const groups = new Map();
         for (const node of data.nodes) {
           const group = workspaceGroupTemplate.content.firstElementChild.cloneNode(true);
+          group.dataset.nodeId = node.id;
+          group.open = expanded.has(node.id);
           group.setAttribute("aria-label", node.alias || node.name);
           bindDeviceLabel(group.querySelector(".device-label"), node, data);
+          const link = group.querySelector(".manage-link");
+          link.href = node.url;
+          link.setAttribute("aria-label", `Manage workspaces on ${node.alias || node.name}`);
           groups.set(node.id, {node, group});
         }
         for (const workspace of data.workspaces) {
@@ -375,17 +413,33 @@
           const {node, group} = groups.get(workspace.node_id);
           link.setAttribute("aria-label", `Open ${workspace.id} on ${node.alias || node.name}`);
           group.querySelector(".workspace-group-list").append(card);
+          if (workspace.unread) {
+            group.querySelector(".device-unread").hidden = false;
+            const unreadCard = card.cloneNode(true);
+            const detail = unreadCard.querySelector(".session-count");
+            detail.textContent = `${node.alias || node.name} · ${detail.textContent}`;
+            detail.title = detail.textContent;
+            unreadList.append(unreadCard);
+          }
+        }
+        if (unreadList.childElementCount) {
+          unreadGroup.querySelector(".count").textContent = countLabel(
+            unreadList.childElementCount, "workspace");
+          workspaceList.append(unreadGroup);
         }
         for (const {group} of groups.values()) {
           const count = group.querySelector(".workspace-group-list").childElementCount;
-          if (!count) continue;
           group.querySelector(".count").textContent = countLabel(count, "workspace");
+          if (!count) {
+            group.querySelector(".list-head").remove();
+            group.querySelector(".workspace-group-list").append(
+              empty("No workspaces yet", "Use Manage to create a workspace on this device."));
+          }
           workspaceList.append(group);
         }
-        if (!data.workspaces.length) {
-          workspaceList.append(empty("No workspaces yet", data.nodes.length
-            ? "Open a device to create your first workspace."
-            : "Your workspaces will appear when a device connects."));
+        if (!data.nodes.length) {
+          workspaceList.append(empty("No workspaces yet",
+            "Your workspaces will appear when a device connects."));
         }
 
         const nodeList = document.createDocumentFragment();
@@ -393,11 +447,9 @@
           const card = deviceTemplate.content.firstElementChild.cloneNode(true);
           bindDeviceLabel(card.querySelector(".device-label"), node, data);
           const owned = data.workspaces.filter(workspace => workspace.node_id === node.id);
+          card.querySelector(".device-unread").hidden = !owned.some(workspace => workspace.unread);
           const sessions = owned.reduce((total, workspace) => total + workspace.session_count, 0);
           card.querySelector(".device-detail").textContent = `${countLabel(owned.length, "workspace")} · ${countLabel(sessions, "session")}`;
-          const link = card.querySelector(".manage-link");
-          link.href = node.url;
-          link.setAttribute("aria-label", `Manage workspaces on ${node.alias || node.name}`);
           nodeList.append(card);
         }
         if (!data.nodes.length) {

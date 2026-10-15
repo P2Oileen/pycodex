@@ -479,6 +479,8 @@ class WebSessionView:
         if isinstance(event, TurnFailedEvent):
             turn["status"] = "error"
             turn["error"] = event.visualize()
+            turn["final_id"] = event.turn_id
+            self._last_final_id = event.turn_id
             self._stream_buffer = ""
             return
 

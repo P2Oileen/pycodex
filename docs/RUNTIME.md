@@ -537,14 +537,24 @@ preserves existing rows while updating their status and session counts.
 In both lists, the existing Open link covers the entire workspace row; Delete
 remains a separate action.
 
-A separate red dot marks an unread final reply, including replies produced while
-background work remains active. A focused, visible page marks the selected
-session's latest final as read only when that reply enters the chat viewport.
-Hidden pages, the mobile Canvas pane and scrolling above the reply keep it unread.
+The router collects unread workspace shortcuts across all devices in a distinct,
+tinted Unread panel above the complete device groups. Each shortcut shows its
+device; the existing inventory polling removes it once all its sessions are read
+and hides the panel when none remain. Device groups stay ordered by device id,
+with workspaces in configuration order. They start collapsed on page load and
+preserve their expanded state through inventory updates. Each device's heading
+includes Manage, even when collapsed or empty. A red dot on that heading and in
+the Online devices list indicates that any of the device's workspaces is unread.
+
+A separate red dot marks an unread final reply or failed turn, including results
+produced while background work remains active. A focused, visible page marks the
+selected session's latest reply or error as read only when that content enters
+the chat viewport. Partial text above an error cannot mark the error as read.
+Hidden pages, the mobile Canvas pane and scrolling above the result keep it unread.
 Unread state is kept in workspace server memory and shared by all clients, the
 workspace list and the router. Refreshing a page preserves it; restarting the
 workspace server clears all unread dots. A read confirmation names the final it
-displayed, so a delayed confirmation cannot clear a newer reply.
+displayed, so a delayed confirmation cannot clear a newer reply or error.
 
 A workspace has one `state_path` filename prefix and an `enable_board` boolean
 that defaults to true. The prefix identifies the workspace and appends

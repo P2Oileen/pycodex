@@ -1284,13 +1284,16 @@ async def test_router_can_be_mounted_under_a_path_prefix(tmp_path):
                 assert (await browser.get(destination + "image.png")).status_code == 200
 
 
-async def test_lifespan_attachment_keeps_runtime_alive_across_reconnect(tmp_path):
+@pytest.mark.parametrize("failure", [False, True])
+async def test_lifespan_attachment_keeps_runtime_alive_across_reconnect(tmp_path, failure):
     entered = asyncio.Event()
     finish = asyncio.Event()
 
     async def complete(prompt, count):
         entered.set()
         await finish.wait()
+        if failure:
+            raise RuntimeError("failed after reconnect")
         return ModelResponse([AssistantMessage("finished after reconnect")])
 
     app, registry = workspace_app(tmp_path / "workspace", response_factory=complete)
@@ -1324,7 +1327,10 @@ async def test_lifespan_attachment_keeps_runtime_alive_across_reconnect(tmp_path
                 await eventually(lambda: not session.runtime.agent.is_running)
                 payload = (await browser.get(prefix + "api/session")).json()
                 state = payload["snapshot"]
-                assert state["turns"][-1]["response"] == "finished after reconnect"
+                if failure:
+                    assert "failed after reconnect" in state["turns"][-1]["error"]
+                else:
+                    assert state["turns"][-1]["response"] == "finished after reconnect"
                 await eventually(
                     lambda: gate.state.router.nodes[node_id].workspaces[0]["unread"]
                 )

@@ -2249,11 +2249,15 @@
         const response = renderEntry(
           `${key}:response`, turn.response, isControl ? "control" : "response", !isControl
         );
-        response.dataset.finalId = isControl ? "" : (turn.final_id || "");
+        response.dataset.finalId = isControl || turn.error ? "" : (turn.final_id || "");
         response.dataset.sessionId = activeSessionId;
       }
       if (turn.thinking) renderEntry(`${key}:thinking`, turn.thinking, "thinking");
-      if (turn.error) renderEntry(`${key}:error`, turn.error, "error");
+      if (turn.error) {
+        const error = renderEntry(`${key}:error`, turn.error, "error");
+        error.dataset.finalId = isControl ? "" : (turn.final_id || "");
+        error.dataset.sessionId = activeSessionId;
+      }
     }
 
     async function markVisibleFinalRead() {

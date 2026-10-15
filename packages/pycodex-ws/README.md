@@ -84,6 +84,15 @@ The resolved `state_path` identifies the workspace; two entries cannot share it.
 Creating a workspace through the management page or API without a prefix
 generates a `/tmp/pcws-*` prefix and saves it in the configuration.
 
+The router directory collects unread workspace shortcuts and their device names
+in a distinct Unread panel at the top. Read workspaces leave that panel; the
+complete device groups keep their device id and workspace configuration order.
+Device groups start collapsed, retain their expanded state during updates, and
+show Manage in their headings. Device headings and the Online devices list share
+an unread dot whenever any of that device's workspaces is unread. Final replies
+and failed turns both trigger shared unread dots; viewing the reply or error
+marks it as read.
+
 `enable_board` defaults to `true`. Setting it to `false` disables the Canvas
 tab, HTML/image/status routes, polling and Canvas context injection. Sessions
 and file views still save and restore from the same prefix, so changing this
