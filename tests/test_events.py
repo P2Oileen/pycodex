@@ -405,6 +405,7 @@ def test_compact_progress_and_failures():
         ),
         ({"kind": "title", "title": ""}, "Session: untitled"),
         ({"kind": "title_changed", "title": "demo"}, "Session: demo"),
+        ({"kind": "cwd", "cwd": "/repo"}, "Current directory: /repo"),
         (
             {"kind": "models", "model": "current", "models": ["current", "next"]},
             "Current model: current\nAvailable models: current, next",

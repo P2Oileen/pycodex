@@ -16,6 +16,7 @@ import traceback
 import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..events import Event
 from ..protocol import (
@@ -40,6 +41,10 @@ if typing.TYPE_CHECKING:
 class ToolContext:
     turn_id: "str"
     history: "typing.Tuple[ConversationItem, ...]"
+    cwd: "Path"
+
+    def resolve_path(self, path=None) -> "Path":
+        return (self.cwd / Path("." if path is None else path).expanduser()).resolve()
 
 
 class StructuredToolOutput:

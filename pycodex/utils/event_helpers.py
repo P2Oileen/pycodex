@@ -26,6 +26,8 @@ def format_command_result(result: "typing.Dict[str, object]") -> "str":
         return "Extra commands: " + ", ".join("/" + name for name in result["commands"])
     if kind in {"title", "title_changed"}:
         return "Session: " + (result["title"] or "untitled")
+    if kind == "cwd":
+        return "Current directory: " + result["cwd"]
     if kind == "models":
         return (
             "Current model: "

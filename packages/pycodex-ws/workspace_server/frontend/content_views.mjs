@@ -109,7 +109,7 @@ export class ContentTabs {
     this.openRequest = null;
   }
 
-  async open(href, srcPath) {
+  async open(href, srcPath, sessionId) {
     this.cancelOpen();
     if (/^workspace:\/\/canvas\/?$/i.test(href)) {
       if (!this.enableBoard) throw new Error("Canvas is disabled for this workspace.");
@@ -125,7 +125,7 @@ export class ContentTabs {
       const payload = await this.request("api/views/open", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({href, src_path: srcPath}),
+        body: JSON.stringify({href, src_path: srcPath, session_id: sessionId}),
         signal: request.signal,
       });
       if (this.openRequest !== request) return;
@@ -635,6 +635,6 @@ export function mountContentViews({
       displayedId = null;
     },
     poll() { return controller.poll(); },
-    open(href, srcPath) { return controller.open(href, srcPath); },
+    open(href, srcPath, sessionId) { return controller.open(href, srcPath, sessionId); },
   };
 }

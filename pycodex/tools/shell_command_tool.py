@@ -12,8 +12,6 @@ Expected behavior:
 """
 
 import asyncio
-import typing
-from pathlib import Path
 
 from ..protocol import JSONDict, JSONValue
 from .base_tool import BaseTool, ToolContext
@@ -54,13 +52,7 @@ class ShellCommandTool(BaseTool):
     }
     supports_parallel = False
 
-    def __init__(
-        self, cwd: "typing.Union[typing.Union[str, Path], None]" = None
-    ) -> "None":
-        self._working_directory = Path(cwd or Path.cwd()).resolve()
-
     async def run(self, context: "ToolContext", args: "JSONDict") -> "JSONValue":
-        del context
         command = str(args.get("command", "")).strip()
         timeout_ms = int(args.get("timeout_ms", DEFAULT_SHELL_TIMEOUT_MS))
         if not command:
@@ -68,7 +60,7 @@ class ShellCommandTool(BaseTool):
 
         login = bool(args.get("login", True))
         workdir_arg = args.get("workdir")
-        working_directory = self._resolve_workdir(workdir_arg)
+        working_directory = context.resolve_path(workdir_arg)
         shell_args = ["bash", "-lc" if login else "-c", command]
 
         process = await asyncio.create_subprocess_exec(
@@ -110,14 +102,6 @@ class ShellCommandTool(BaseTool):
             pieces.append(stderr)
 
         return "\n".join(pieces)
-
-    def _resolve_workdir(self, workdir_arg) -> "Path":
-        if workdir_arg in (None, ""):
-            return self._working_directory
-        workdir = Path(str(workdir_arg))
-        if not workdir.is_absolute():
-            workdir = self._working_directory / workdir
-        return workdir.resolve()
 
     def _clip_output(self, text: "str") -> "str":
         if len(text) <= MAX_OUTPUT_CHARS:

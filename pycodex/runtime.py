@@ -124,6 +124,7 @@ class AgentRuntime:
                 "help",
                 "history",
                 "title",
+                "cd",
                 "model",
                 "effort",
                 "resume",
@@ -139,6 +140,7 @@ class AgentRuntime:
         recorded_path = self.agent.recorded_session_file_path
         return {
             "session_id": self.agent.session_id,
+            "cwd": str(self.agent.context_manager.cwd),
             "rollout_path": str(rollout_path) if rollout_path is not None else None,
             "recorded_rollout_path": (
                 str(recorded_path) if recorded_path is not None else None
@@ -186,6 +188,11 @@ class AgentRuntime:
         self.require_idle("change model")
         self.agent.set_model(model)
         self.publish_state("model")
+
+    def set_cwd(self, cwd):
+        self.require_idle("change directory")
+        self.agent.set_cwd(cwd)
+        self.publish_state("cwd")
 
     def resume(self, path=None, title=""):
         self.require_idle("resume")
@@ -275,6 +282,10 @@ class AgentRuntime:
             return {"kind": "help", "commands": self.commands()}
         if command == "history":
             return {"kind": "history", "state": self.snapshot()}
+        if command == "cd":
+            if argument:
+                self.set_cwd(argument)
+            return {"kind": "cwd", "cwd": str(self.agent.context_manager.cwd)}
         if command == "title":
             if argument:
                 self.set_title(argument)

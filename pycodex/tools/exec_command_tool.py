@@ -87,14 +87,13 @@ class ExecCommandTool(BaseTool):
         return self._manager.running_session_count()
 
     async def run(self, context: "ToolContext", args: "JSONDict") -> "JSONValue":
-        del context
         cmd = str(args.get("cmd", "")).strip()
         if not cmd:
             return "Error: `cmd` is required."
 
         return await self._manager.exec_command(
             cmd=cmd,
-            workdir=self._optional_string(args, "workdir"),
+            cwd=context.resolve_path(args.get("workdir")),
             shell=self._optional_string(args, "shell"),
             login=bool(args.get("login", DEFAULT_LOGIN)),
             tty=bool(args.get("tty", DEFAULT_TTY)),

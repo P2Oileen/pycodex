@@ -53,18 +53,12 @@ class GrepFilesTool(BaseTool):
         "additionalProperties": False,
     }
 
-    def __init__(
-        self, cwd: "typing.Union[typing.Union[str, Path], None]" = None
-    ) -> "None":
-        self._working_directory = Path(cwd or Path.cwd()).resolve()
-
     async def run(self, context: "ToolContext", args: "JSONDict") -> "JSONValue":
-        del context
         pattern = str(args.get("pattern", "")).strip()
         include = str(args.get("include", "")).strip() or None
         limit = min(int(args.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
         path_arg = args.get("path")
-        search_path = self._resolve_path(path_arg)
+        search_path = context.resolve_path(path_arg)
 
         if not pattern:
             return "Error: `pattern` must not be empty."
@@ -88,7 +82,7 @@ class GrepFilesTool(BaseTool):
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
-                cwd=str(self._working_directory),
+                cwd=str(context.cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -154,11 +148,3 @@ class GrepFilesTool(BaseTool):
 
         matches.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         return [str(path) for path in matches[:limit]]
-
-    def _resolve_path(self, path_arg) -> "Path":
-        if path_arg in (None, ""):
-            return self._working_directory
-        path = Path(str(path_arg))
-        if not path.is_absolute():
-            path = self._working_directory / path
-        return path.resolve()

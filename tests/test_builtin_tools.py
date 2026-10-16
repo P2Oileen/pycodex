@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pycodex import Agent, AgentRuntime, AssistantMessage, ContextConfig, ModelResponse
+from pycodex import Agent, AgentRuntime, AssistantMessage, BaseTool, ContextConfig, ModelResponse
 from pycodex.protocol import ToolCall, ToolResult, UserMessage
 from pycodex.tools.runtime_services import (
     PlanStore,
@@ -45,24 +45,90 @@ from pycodex.tools import (
 from tests.fakes import ScriptedModelClient
 
 
-def make_registry(tmp_path) -> "ToolRegistry":
+def make_registry() -> "ToolRegistry":
     registry = ToolRegistry()
-    code_mode_manager = CodeModeManager(registry, tmp_path)
-    manager = UnifiedExecManager(tmp_path)
-    registry.register(ShellTool(tmp_path))
-    registry.register(ShellCommandTool(tmp_path))
+    code_mode_manager = CodeModeManager(registry)
+    manager = UnifiedExecManager()
+    registry.register(ShellTool())
+    registry.register(ShellCommandTool())
     registry.register(ExecCommandTool(manager))
     registry.register(WriteStdinTool(manager))
     registry.register(ExecTool(code_mode_manager))
     registry.register(WaitTool(code_mode_manager))
     registry.register(WebSearchTool())
     registry.register(UpdatePlanTool(PlanStore()))
-    registry.register(ApplyPatchTool(tmp_path))
+    registry.register(ApplyPatchTool())
     registry.register(ListDirTool())
     registry.register(ReadFileTool())
-    registry.register(GrepFilesTool(tmp_path))
-    registry.register(ViewImageTool(tmp_path))
+    registry.register(GrepFilesTool())
+    registry.register(ViewImageTool())
     return registry
+
+
+@pytest.mark.asyncio
+async def test_path_tools_use_call_cwd_and_code_cells_keep_their_original_cwd(tmp_path):
+    registry = make_registry()
+    target = tmp_path / "target"
+    target.mkdir()
+    nested = target / "nested"
+    nested.mkdir()
+    context = ToolContext("turn", (), target)
+    patch = "*** Begin Patch\n*** Add File: found.txt\n+unique-marker\n*** End Patch"
+    release = asyncio.Event()
+
+    class GateTool(BaseTool):
+        name = "gate"
+        description = "Wait for the test to release this cell."
+        parameters = {"type": "object", "properties": {}}
+
+        async def run(self, context, args):
+            await release.wait()
+            return "released"
+
+    registry.register(GateTool())
+    try:
+        result = await registry.execute(ToolCall("patch", "apply_patch", patch), context)
+        assert "A found.txt" in result.output
+        assert (target / "found.txt").read_text() == "unique-marker\n"
+        assert not (tmp_path / "found.txt").exists()
+        for name, arguments in [
+            ("shell", {"command": ["pwd"]}),
+            ("shell_command", {"command": "pwd", "login": False}),
+            ("exec_command", {"cmd": "pwd", "login": False}),
+            ("grep_files", {"pattern": "unique-marker"}),
+        ]:
+            result = await registry.execute(ToolCall(name, name, arguments), context)
+            assert not result.is_error
+            assert str(target) in result.output
+        for name, arguments in [
+            ("shell", {"command": ["pwd"], "workdir": "nested"}),
+            ("shell_command", {"command": "pwd", "login": False, "workdir": "nested"}),
+            ("exec_command", {"cmd": "pwd", "login": False, "workdir": "nested"}),
+        ]:
+            result = await registry.execute(ToolCall(name, name, arguments), context)
+            assert str(nested) in result.output
+        # The same tools can run in another directory with a new call context.
+        result = await registry.execute(
+            ToolCall("other", "shell", {"command": ["pwd"]}), ToolContext("direct", (), tmp_path)
+        )
+        assert "Working directory: " + str(tmp_path) + "\n" in result.output
+        # A yielded cell's nested tools use the cwd captured when the cell started.
+        cell = await registry.execute(ToolCall("cell", "exec", (
+            '// @exec: {"yield_time_ms": 10}\n'
+            "await tools.gate(); "
+            'text(await tools.shell({command: ["pwd"]}));'
+        ), tool_type="custom"), context)
+        cell_id = cell.output_text().split("Script running with cell ID ", 1)[1].splitlines()[0]
+        release.set()
+        result = await registry.execute(
+            ToolCall("wait", "wait", {"cell_id": cell_id, "yield_time_ms": 1000}),
+            ToolContext("later", (), tmp_path),
+        )
+        assert str(target) in str(result.output)
+    finally:
+        release.set()
+        for tool in registry.tools():
+            tool.shutdown()
 
 
 def make_subagent_registry(
@@ -117,14 +183,14 @@ def make_subagent_registry_with_session_capture(
 
 @pytest.mark.asyncio
 async def test_shell_tool_runs_argv_command_in_target_directory(tmp_path) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_1",
             name="shell",
             arguments={"command": ["bash", "-lc", "pwd"]},
         ),
-        ToolContext(turn_id="turn_1", history=()),
+        ToolContext(turn_id="turn_1", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -134,15 +200,33 @@ async def test_shell_tool_runs_argv_command_in_target_directory(tmp_path) -> "No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("workdir", [False, 0, [], {}])
+async def test_invalid_workdir_does_not_execute_command(tmp_path, workdir):
+    registry = ToolRegistry()
+    registry.register(ShellTool())
+    result = await registry.execute(
+        ToolCall("invalid_path", "shell", {
+            "command": [sys.executable, "-c", "open('unexpected.txt', 'w').close()"],
+            "workdir": workdir,
+        }),
+        ToolContext("invalid_path", (), tmp_path),
+    )
+
+    assert result.is_error
+    assert "TypeError" in result.output["error"]
+    assert not (tmp_path / "unexpected.txt").exists()
+
+
+@pytest.mark.asyncio
 async def test_shell_tool_reports_timeout(tmp_path) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_2",
             name="shell",
             arguments={"command": ["bash", "-lc", "sleep 1"], "timeout_ms": 10},
         ),
-        ToolContext(turn_id="turn_2", history=()),
+        ToolContext(turn_id="turn_2", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -151,14 +235,14 @@ async def test_shell_tool_reports_timeout(tmp_path) -> "None":
 
 @pytest.mark.asyncio
 async def test_shell_command_tool_runs_shell_script(tmp_path) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_3",
             name="shell_command",
             arguments={"command": "pwd"},
         ),
-        ToolContext(turn_id="turn_3", history=()),
+        ToolContext(turn_id="turn_3", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -181,14 +265,14 @@ async def test_shell_command_tool_default_timeout_matches_schema(
 
     monkeypatch.setattr(shell_command_tool.asyncio, "wait_for", capture_wait_for)
 
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_shell_command_default_timeout",
             name="shell_command",
             arguments={"command": "printf ok"},
         ),
-        ToolContext(turn_id="turn_shell_command_default_timeout", history=()),
+        ToolContext(turn_id="turn_shell_command_default_timeout", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -201,14 +285,14 @@ async def test_list_dir_tool_lists_entries_from_absolute_path(tmp_path) -> "None
     subdir = tmp_path / "sub"
     subdir.mkdir()
     (subdir / "b.txt").write_text("b")
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_4",
             name="list_dir",
             arguments={"dir_path": str(tmp_path), "depth": 2},
         ),
-        ToolContext(turn_id="turn_4", history=()),
+        ToolContext(turn_id="turn_4", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -222,14 +306,14 @@ async def test_list_dir_tool_lists_entries_from_absolute_path(tmp_path) -> "None
 async def test_read_file_tool_reads_slice_with_line_numbers(tmp_path) -> "None":
     file_path = tmp_path / "sample.py"
     file_path.write_text("first\nsecond\nthird\n")
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_5",
             name="read_file",
             arguments={"file_path": str(file_path), "offset": 2, "limit": 2},
         ),
-        ToolContext(turn_id="turn_5", history=()),
+        ToolContext(turn_id="turn_5", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -242,14 +326,14 @@ async def test_grep_files_tool_returns_matching_paths(tmp_path) -> "None":
     matched.write_text("hello world\n")
     unmatched = tmp_path / "skip.py"
     unmatched.write_text("goodbye\n")
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_6",
             name="grep_files",
             arguments={"pattern": "hello", "path": str(tmp_path)},
         ),
-        ToolContext(turn_id="turn_6", history=()),
+        ToolContext(turn_id="turn_6", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -259,7 +343,7 @@ async def test_grep_files_tool_returns_matching_paths(tmp_path) -> "None":
 
 @pytest.mark.asyncio
 async def test_exec_command_tool_schema_omits_skipped_approval_fields() -> "None":
-    tool = ExecCommandTool(UnifiedExecManager(Path.cwd()))
+    tool = ExecCommandTool(UnifiedExecManager())
     properties = tool.input_schema["properties"]
 
     assert "sandbox_permissions" not in properties
@@ -279,7 +363,7 @@ async def test_exec_command_tool_clamps_yield_time_to_schema_range() -> "None":
 
     manager = RecordingManager()
     tool = ExecCommandTool(manager)
-    context = ToolContext(turn_id="turn_exec_clamp", history=())
+    context = ToolContext(turn_id="turn_exec_clamp", history=(), cwd=Path.cwd())
 
     result = await tool.run(context, {"cmd": "true", "yield_time_ms": 1})
     assert result == "ok"
@@ -302,7 +386,7 @@ async def test_exec_command_tool_passes_optional_max_output_tokens() -> "None":
 
     manager = RecordingManager()
     tool = ExecCommandTool(manager)
-    context = ToolContext(turn_id="turn_exec_max_output", history=())
+    context = ToolContext(turn_id="turn_exec_max_output", history=(), cwd=Path.cwd())
 
     await tool.run(context, {"cmd": "true"})
     assert manager.calls[-1]["max_output_tokens"] is None
@@ -315,7 +399,7 @@ async def test_exec_command_tool_passes_optional_max_output_tokens() -> "None":
 async def test_exec_command_tool_returns_session_for_long_running_process(
     tmp_path,
 ) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_7",
@@ -325,7 +409,7 @@ async def test_exec_command_tool_returns_session_for_long_running_process(
                 "yield_time_ms": 10,
             },
         ),
-        ToolContext(turn_id="turn_7", history=()),
+        ToolContext(turn_id="turn_7", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -346,7 +430,7 @@ async def test_exec_command_tool_returns_session_for_long_running_process(
                 "yield_time_ms": 1_200,
             },
         ),
-        ToolContext(turn_id="turn_7_cleanup", history=()),
+        ToolContext(turn_id="turn_7_cleanup", history=(), cwd=tmp_path),
     )
 
     assert closed.is_error is False
@@ -368,7 +452,7 @@ async def test_write_stdin_tool_clamps_yield_time_to_schema_range() -> "None":
 
     manager = RecordingManager()
     tool = WriteStdinTool(manager)
-    context = ToolContext(turn_id="turn_write_clamp", history=())
+    context = ToolContext(turn_id="turn_write_clamp", history=(), cwd=Path.cwd())
 
     result = await tool.run(
         context,
@@ -402,7 +486,7 @@ async def test_write_stdin_tool_passes_optional_max_output_tokens() -> "None":
 
     manager = RecordingManager()
     tool = WriteStdinTool(manager)
-    context = ToolContext(turn_id="turn_write_max_output", history=())
+    context = ToolContext(turn_id="turn_write_max_output", history=(), cwd=Path.cwd())
 
     await tool.run(context, {"session_id": 1000})
     assert manager.calls[-1]["max_output_tokens"] is None
@@ -422,10 +506,11 @@ async def test_exec_command_notifies_hook_when_background_session_exits(
         notifications.append(event)
         notified.set()
 
-    manager = UnifiedExecManager(tmp_path)
+    manager = UnifiedExecManager()
     manager.set_notify_hook(on_completed)
     output = await manager.exec_command(
         "printf done",
+        cwd=tmp_path,
         yield_time_ms=1,
     )
 
@@ -442,7 +527,7 @@ async def test_clock_tool_sets_cancels_and_validates_period() -> "None":
     manager = ClockManager()
     registry = ToolRegistry()
     registry.register(ClockTool(manager))
-    context = ToolContext(turn_id="turn_clock", history=())
+    context = ToolContext(turn_id="turn_clock", history=(), cwd=Path.cwd())
 
     enabled = await registry.execute(
         ToolCall(
@@ -480,9 +565,10 @@ async def test_clock_tool_sets_cancels_and_validates_period() -> "None":
 
 @pytest.mark.asyncio
 async def test_exec_manager_reports_running_sessions(tmp_path) -> "None":
-    manager = UnifiedExecManager(tmp_path)
+    manager = UnifiedExecManager()
     output = await manager.exec_command(
         "sleep 0.2",
+        cwd=tmp_path,
         yield_time_ms=1,
     )
 
@@ -510,14 +596,14 @@ async def test_exec_command_starts_process_in_new_session(
         "create_subprocess_exec",
         capture_create_subprocess_exec,
     )
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_7_session",
             name="exec_command",
             arguments={"cmd": "printf ok"},
         ),
-        ToolContext(turn_id="turn_7_session", history=()),
+        ToolContext(turn_id="turn_7_session", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -530,7 +616,7 @@ async def test_exec_command_starts_process_in_new_session(
 async def test_write_stdin_tool_reuses_running_session_and_returns_exit_metadata(
     tmp_path,
 ) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     start = await registry.execute(
         ToolCall(
             call_id="call_8",
@@ -540,7 +626,7 @@ async def test_write_stdin_tool_reuses_running_session_and_returns_exit_metadata
                 "yield_time_ms": 10,
             },
         ),
-        ToolContext(turn_id="turn_8", history=()),
+        ToolContext(turn_id="turn_8", history=(), cwd=tmp_path),
     )
 
     assert "Process running with session ID " in start.output
@@ -558,7 +644,7 @@ async def test_write_stdin_tool_reuses_running_session_and_returns_exit_metadata
                 "yield_time_ms": 50,
             },
         ),
-        ToolContext(turn_id="turn_9", history=()),
+        ToolContext(turn_id="turn_9", history=(), cwd=tmp_path),
     )
 
     assert finish.is_error is False
@@ -575,7 +661,7 @@ async def test_write_stdin_tool_reuses_running_session_and_returns_exit_metadata
                     "yield_time_ms": 200,
                 },
             ),
-            ToolContext(turn_id="turn_9b", history=()),
+            ToolContext(turn_id="turn_9b", history=(), cwd=tmp_path),
         )
 
     assert "Process exited with code 0" in finish.output
@@ -584,7 +670,7 @@ async def test_write_stdin_tool_reuses_running_session_and_returns_exit_metadata
 
 @pytest.mark.asyncio
 async def test_write_stdin_returns_when_child_keeps_stdout_open(tmp_path) -> "None":
-    manager = UnifiedExecManager(tmp_path)
+    manager = UnifiedExecManager()
     pid_path = tmp_path / "stdout-holder.pid"
     child_pid = None
     command = "\n".join(
@@ -608,7 +694,7 @@ async def test_write_stdin_returns_when_child_keeps_stdout_open(tmp_path) -> "No
     )
 
     try:
-        start = await manager.exec_command(command, yield_time_ms=10)
+        start = await manager.exec_command(command, cwd=tmp_path, yield_time_ms=10)
         marker = "Process running with session ID "
         assert marker in start
         session_id = int(start.split(marker, 1)[1].splitlines()[0])
@@ -640,7 +726,7 @@ async def test_write_stdin_returns_when_child_keeps_stdout_open(tmp_path) -> "No
 async def test_exec_command_tool_defaults_to_upstream_truncation_budget(
     tmp_path,
 ) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_9_default_truncation",
@@ -652,7 +738,7 @@ async def test_exec_command_tool_defaults_to_upstream_truncation_budget(
                 "yield_time_ms": 1_000,
             },
         ),
-        ToolContext(turn_id="turn_9_default_truncation", history=()),
+        ToolContext(turn_id="turn_9_default_truncation", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -668,7 +754,7 @@ async def test_exec_command_tool_defaults_to_upstream_truncation_budget(
 async def test_write_stdin_tool_defaults_to_upstream_truncation_budget(
     tmp_path,
 ) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     start = await registry.execute(
         ToolCall(
             call_id="call_9_write_start",
@@ -678,7 +764,7 @@ async def test_write_stdin_tool_defaults_to_upstream_truncation_budget(
                 "yield_time_ms": 10,
             },
         ),
-        ToolContext(turn_id="turn_9_write_start", history=()),
+        ToolContext(turn_id="turn_9_write_start", history=(), cwd=tmp_path),
     )
 
     marker = "Process running with session ID "
@@ -696,7 +782,7 @@ async def test_write_stdin_tool_defaults_to_upstream_truncation_budget(
                 "yield_time_ms": 100,
             },
         ),
-        ToolContext(turn_id="turn_9_write_finish", history=()),
+        ToolContext(turn_id="turn_9_write_finish", history=(), cwd=tmp_path),
     )
 
     body = poll.output.split("Output:\n", 1)[1]
@@ -714,7 +800,7 @@ async def test_write_stdin_tool_defaults_to_upstream_truncation_budget(
                     "yield_time_ms": 200,
                 },
             ),
-            ToolContext(turn_id="turn_9_write_finish_poll", history=()),
+            ToolContext(turn_id="turn_9_write_finish_poll", history=(), cwd=tmp_path),
         )
         body = poll.output.split("Output:\n", 1)[1]
 
@@ -734,7 +820,7 @@ async def test_write_stdin_tool_defaults_to_upstream_truncation_budget(
                     "yield_time_ms": 200,
                 },
             ),
-            ToolContext(turn_id="turn_9_write_close", history=()),
+            ToolContext(turn_id="turn_9_write_close", history=(), cwd=tmp_path),
         )
         assert "Process exited with code 0" in closed.output
 
@@ -743,7 +829,7 @@ async def test_write_stdin_tool_defaults_to_upstream_truncation_budget(
 async def test_exec_command_unread_output_preserves_head_and_tail_when_capped(
     tmp_path,
 ) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     start = await registry.execute(
         ToolCall(
             call_id="call_9_unread_buffer_start",
@@ -759,7 +845,7 @@ async def test_exec_command_unread_output_preserves_head_and_tail_when_capped(
                 "yield_time_ms": 10,
             },
         ),
-        ToolContext(turn_id="turn_9_unread_buffer_start", history=()),
+        ToolContext(turn_id="turn_9_unread_buffer_start", history=(), cwd=tmp_path),
     )
 
     marker = "Process running with session ID "
@@ -778,7 +864,7 @@ async def test_exec_command_unread_output_preserves_head_and_tail_when_capped(
                 "max_output_tokens": 400_000,
             },
         ),
-        ToolContext(turn_id="turn_9_unread_buffer_finish", history=()),
+        ToolContext(turn_id="turn_9_unread_buffer_finish", history=(), cwd=tmp_path),
     )
 
     assert finish.is_error is False
@@ -794,7 +880,7 @@ async def test_exec_command_unread_output_preserves_head_and_tail_when_capped(
 async def test_exec_tool_runs_javascript_and_returns_completed_status(
     tmp_path,
 ) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_exec_1",
@@ -802,7 +888,7 @@ async def test_exec_tool_runs_javascript_and_returns_completed_status(
             arguments="text('EXEC_OK')",
             tool_type="custom",
         ),
-        ToolContext(turn_id="turn_exec_1", history=()),
+        ToolContext(turn_id="turn_exec_1", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -812,7 +898,7 @@ async def test_exec_tool_runs_javascript_and_returns_completed_status(
 
 @pytest.mark.asyncio
 async def test_exec_tool_can_yield_and_wait_for_remaining_output(tmp_path) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     start = await registry.execute(
         ToolCall(
             call_id="call_exec_2",
@@ -825,7 +911,7 @@ async def test_exec_tool_can_yield_and_wait_for_remaining_output(tmp_path) -> "N
             ),
             tool_type="custom",
         ),
-        ToolContext(turn_id="turn_exec_2", history=()),
+        ToolContext(turn_id="turn_exec_2", history=(), cwd=tmp_path),
     )
 
     assert start.is_error is False
@@ -840,7 +926,7 @@ async def test_exec_tool_can_yield_and_wait_for_remaining_output(tmp_path) -> "N
             name="wait",
             arguments={"cell_id": cell_id, "yield_time_ms": 200},
         ),
-        ToolContext(turn_id="turn_wait_1", history=()),
+        ToolContext(turn_id="turn_wait_1", history=(), cwd=tmp_path),
     )
     if "Script completed" not in finish.output_text():
         finish = await registry.execute(
@@ -849,7 +935,7 @@ async def test_exec_tool_can_yield_and_wait_for_remaining_output(tmp_path) -> "N
                 name="wait",
                 arguments={"cell_id": cell_id, "yield_time_ms": 200},
             ),
-            ToolContext(turn_id="turn_wait_2", history=()),
+            ToolContext(turn_id="turn_wait_2", history=(), cwd=tmp_path),
         )
 
     assert finish.is_error is False
@@ -858,7 +944,7 @@ async def test_exec_tool_can_yield_and_wait_for_remaining_output(tmp_path) -> "N
 
 
 def test_web_search_tool_serializes_as_provider_native_spec(tmp_path) -> "None":
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     web_search = registry.get_tool("web_search")
     assert web_search is not None
     assert web_search.serialize() == {
@@ -888,7 +974,7 @@ async def test_update_plan_tool_returns_confirmation_and_stores_plan(
                 ],
             },
         ),
-        ToolContext(turn_id="turn_plan", history=()),
+        ToolContext(turn_id="turn_plan", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -940,7 +1026,7 @@ async def test_request_user_input_tool_is_unavailable(has_handler) -> "None":
                 ]
             },
         ),
-        ToolContext(turn_id="turn_request_user_input", history=()),
+        ToolContext(turn_id="turn_request_user_input", history=(), cwd=Path.cwd()),
     )
 
     assert result.is_error is False
@@ -980,7 +1066,7 @@ async def test_request_permissions_tool_returns_permission_response() -> "None":
                 },
             },
         ),
-        ToolContext(turn_id="turn_request_permissions", history=()),
+        ToolContext(turn_id="turn_request_permissions", history=(), cwd=Path.cwd()),
     )
 
     assert result.is_error is False
@@ -1014,7 +1100,7 @@ async def test_apply_patch_tool_applies_multiple_operations_atomically(
             "*** End Patch",
         ]
     )
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_10",
@@ -1022,7 +1108,7 @@ async def test_apply_patch_tool_applies_multiple_operations_atomically(
             arguments=patch,
             tool_type="custom",
         ),
-        ToolContext(turn_id="turn_10", history=()),
+        ToolContext(turn_id="turn_10", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -1054,7 +1140,7 @@ async def test_apply_patch_tool_does_not_leave_partial_writes_on_failure(
             "*** End Patch",
         ]
     )
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_11",
@@ -1062,7 +1148,7 @@ async def test_apply_patch_tool_does_not_leave_partial_writes_on_failure(
             arguments=patch,
             tool_type="custom",
         ),
-        ToolContext(turn_id="turn_11", history=()),
+        ToolContext(turn_id="turn_11", history=(), cwd=tmp_path),
     )
 
     assert result.is_error is False
@@ -1085,7 +1171,7 @@ async def test_apply_patch_tool_allows_paths_outside_workspace(tmp_path) -> "Non
             "*** End Patch",
         ]
     )
-    registry = make_registry(workspace)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_apply_outside",
@@ -1093,7 +1179,7 @@ async def test_apply_patch_tool_allows_paths_outside_workspace(tmp_path) -> "Non
             arguments=patch,
             tool_type="custom",
         ),
-        ToolContext(turn_id="turn_apply_outside", history=()),
+        ToolContext(turn_id="turn_apply_outside", history=(), cwd=workspace),
     )
 
     assert result.is_error is False
@@ -1119,7 +1205,7 @@ async def test_apply_patch_tool_allows_absolute_paths_outside_workspace(
             "*** End Patch",
         ]
     )
-    registry = make_registry(workspace)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_apply_absolute_outside",
@@ -1127,7 +1213,7 @@ async def test_apply_patch_tool_allows_absolute_paths_outside_workspace(
             arguments=patch,
             tool_type="custom",
         ),
-        ToolContext(turn_id="turn_apply_absolute_outside", history=()),
+        ToolContext(turn_id="turn_apply_absolute_outside", history=(), cwd=workspace),
     )
 
     assert result.is_error is False
@@ -1141,7 +1227,9 @@ async def test_apply_patch_tool_allows_absolute_paths_outside_workspace(
 async def test_view_image_tool_returns_structured_input_image_output(
     tmp_path,
 ) -> "None":
-    image_path = tmp_path / "pixel.png"
+    target = tmp_path / "images"
+    target.mkdir()
+    image_path = target / "pixel.png"
     image_path.write_bytes(
         bytes.fromhex(
             "89504e470d0a1a0a"
@@ -1150,14 +1238,14 @@ async def test_view_image_tool_returns_structured_input_image_output(
             "0000000049454e44ae426082"
         )
     )
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     result = await registry.execute(
         ToolCall(
             call_id="call_12",
             name="view_image",
-            arguments={"path": str(image_path)},
+            arguments={"path": image_path.name},
         ),
-        ToolContext(turn_id="turn_12", history=()),
+        ToolContext(turn_id="turn_12", history=(), cwd=target),
     )
 
     assert result.is_error is False
@@ -1180,7 +1268,7 @@ async def test_view_image_tool_returns_structured_input_image_output(
             name="view_image",
             arguments={"path": str(image_path), "detail": "original"},
         ),
-        ToolContext(turn_id="turn_12_original", history=()),
+        ToolContext(turn_id="turn_12_original", history=(), cwd=tmp_path),
     )
 
     assert original.is_error is False
@@ -1210,7 +1298,7 @@ async def test_view_image_tool_handles_oversized_images(
     image_path = tmp_path / "wide.png"
     Image.new("RGB", (MAX_DIMENSION * 2, MAX_DIMENSION), "red").save(image_path)
 
-    registry = make_registry(tmp_path)
+    registry = make_registry()
     arguments = {"path": str(image_path)}
     if detail is not None:
         arguments["detail"] = detail
@@ -1223,7 +1311,7 @@ async def test_view_image_tool_handles_oversized_images(
                 name="view_image",
                 arguments=arguments,
             ),
-            ToolContext(turn_id="turn_resize", history=()),
+            ToolContext(turn_id="turn_resize", history=(), cwd=tmp_path),
         )
 
     resized = pillow_available and detail != "original"
@@ -1262,7 +1350,7 @@ async def test_spawn_agent_send_input_wait_and_close_round_trip() -> "None":
             name="spawn_agent",
             arguments={"message": "hello"},
         ),
-        ToolContext(turn_id="turn_spawn", history=()),
+        ToolContext(turn_id="turn_spawn", history=(), cwd=Path.cwd()),
     )
 
     agent_id = spawned.output["agent_id"]
@@ -1274,7 +1362,7 @@ async def test_spawn_agent_send_input_wait_and_close_round_trip() -> "None":
             name="send_input",
             arguments={"id": agent_id, "message": "hello"},
         ),
-        ToolContext(turn_id="turn_send", history=()),
+        ToolContext(turn_id="turn_send", history=(), cwd=Path.cwd()),
     )
     assert sent.output["submission_id"]
 
@@ -1284,7 +1372,7 @@ async def test_spawn_agent_send_input_wait_and_close_round_trip() -> "None":
             name="wait_agent",
             arguments={"ids": [agent_id], "timeout_ms": 1000},
         ),
-        ToolContext(turn_id="turn_wait", history=()),
+        ToolContext(turn_id="turn_wait", history=(), cwd=Path.cwd()),
     )
     if waited.output == {
         "status": {agent_id: {"completed": "done one"}},
@@ -1296,7 +1384,7 @@ async def test_spawn_agent_send_input_wait_and_close_round_trip() -> "None":
                 name="wait_agent",
                 arguments={"ids": [agent_id], "timeout_ms": 1000},
             ),
-            ToolContext(turn_id="turn_wait_again", history=()),
+            ToolContext(turn_id="turn_wait_again", history=(), cwd=Path.cwd()),
         )
 
     assert waited.output == {
@@ -1310,7 +1398,7 @@ async def test_spawn_agent_send_input_wait_and_close_round_trip() -> "None":
             name="close_agent",
             arguments={"id": agent_id},
         ),
-        ToolContext(turn_id="turn_close", history=()),
+        ToolContext(turn_id="turn_close", history=(), cwd=Path.cwd()),
     )
 
     assert closed.output == {"previous_status": {"completed": "done two"}}
@@ -1325,7 +1413,7 @@ async def test_spawn_agent_requires_message_or_items() -> "None":
 
     spawned = await registry.execute(
         ToolCall(call_id="call_spawn_empty", name="spawn_agent", arguments={}),
-        ToolContext(turn_id="turn_spawn_empty", history=()),
+        ToolContext(turn_id="turn_spawn_empty", history=(), cwd=Path.cwd()),
     )
 
     assert spawned.is_error is False
@@ -1344,7 +1432,7 @@ async def test_wait_agent_tool_clamps_timeout_to_schema_range() -> "None":
 
     manager = RecordingManager()
     tool = WaitAgentTool(manager)
-    context = ToolContext(turn_id="turn_wait_agent_clamp", history=())
+    context = ToolContext(turn_id="turn_wait_agent_clamp", history=(), cwd=Path.cwd())
 
     result = await tool.run(context, {"ids": ["agent-1"], "timeout_ms": 1})
     assert result == {"status": {}, "timed_out": True}
@@ -1406,6 +1494,7 @@ async def test_spawn_agent_fork_context_drops_unpaired_tool_calls() -> "None":
         ),
         ToolContext(
             turn_id="turn_spawn_filter",
+            cwd=Path.cwd(),
             history=(
                 UserMessage(text="parent"),
                 paired_call,
@@ -1421,7 +1510,7 @@ async def test_spawn_agent_fork_context_drops_unpaired_tool_calls() -> "None":
             name="wait_agent",
             arguments={"ids": [agent_id], "timeout_ms": 1000},
         ),
-        ToolContext(turn_id="turn_wait_filter", history=()),
+        ToolContext(turn_id="turn_wait_filter", history=(), cwd=Path.cwd()),
     )
 
     assert waited.output == {
@@ -1452,7 +1541,7 @@ async def test_spawn_agent_uses_agent_id_as_nested_session_id() -> "None":
             name="spawn_agent",
             arguments={"message": "initial"},
         ),
-        ToolContext(turn_id="turn_spawn_session", history=()),
+        ToolContext(turn_id="turn_spawn_session", history=(), cwd=Path.cwd()),
     )
 
     agent_id = spawned.output["agent_id"]
@@ -1464,7 +1553,7 @@ async def test_spawn_agent_uses_agent_id_as_nested_session_id() -> "None":
             name="wait_agent",
             arguments={"ids": [agent_id], "timeout_ms": 1000},
         ),
-        ToolContext(turn_id="turn_wait_session", history=()),
+        ToolContext(turn_id="turn_wait_session", history=(), cwd=Path.cwd()),
     )
     assert waited.output == {
         "status": {agent_id: {"completed": "done"}},
@@ -1477,7 +1566,7 @@ async def test_spawn_agent_uses_agent_id_as_nested_session_id() -> "None":
             name="close_agent",
             arguments={"id": agent_id},
         ),
-        ToolContext(turn_id="turn_close_session", history=()),
+        ToolContext(turn_id="turn_close_session", history=(), cwd=Path.cwd()),
     )
     assert closed.output == {"previous_status": {"completed": "done"}}
 
@@ -1498,7 +1587,7 @@ async def test_resume_agent_restarts_closed_agent_runtime() -> "None":
             name="spawn_agent",
             arguments={"message": "initial"},
         ),
-        ToolContext(turn_id="turn_spawn_2", history=()),
+        ToolContext(turn_id="turn_spawn_2", history=(), cwd=Path.cwd()),
     )
     agent_id = spawned.output["agent_id"]
 
@@ -1508,7 +1597,7 @@ async def test_resume_agent_restarts_closed_agent_runtime() -> "None":
             name="wait_agent",
             arguments={"ids": [agent_id], "timeout_ms": 1000},
         ),
-        ToolContext(turn_id="turn_wait_initial_2", history=()),
+        ToolContext(turn_id="turn_wait_initial_2", history=(), cwd=Path.cwd()),
     )
     assert initial.output["status"] == {agent_id: {"completed": "initial done"}}
 
@@ -1516,13 +1605,13 @@ async def test_resume_agent_restarts_closed_agent_runtime() -> "None":
         ToolCall(
             call_id="call_close_2", name="close_agent", arguments={"id": agent_id}
         ),
-        ToolContext(turn_id="turn_close_2", history=()),
+        ToolContext(turn_id="turn_close_2", history=(), cwd=Path.cwd()),
     )
     resumed = await registry.execute(
         ToolCall(
             call_id="call_resume", name="resume_agent", arguments={"id": agent_id}
         ),
-        ToolContext(turn_id="turn_resume", history=()),
+        ToolContext(turn_id="turn_resume", history=(), cwd=Path.cwd()),
     )
     assert resumed.output == {"status": "pending_init"}
 
@@ -1532,7 +1621,7 @@ async def test_resume_agent_restarts_closed_agent_runtime() -> "None":
             name="send_input",
             arguments={"id": agent_id, "message": "after"},
         ),
-        ToolContext(turn_id="turn_send_2", history=()),
+        ToolContext(turn_id="turn_send_2", history=(), cwd=Path.cwd()),
     )
     waited = await registry.execute(
         ToolCall(
@@ -1540,7 +1629,7 @@ async def test_resume_agent_restarts_closed_agent_runtime() -> "None":
             name="wait_agent",
             arguments={"ids": [agent_id], "timeout_ms": 1000},
         ),
-        ToolContext(turn_id="turn_wait_2", history=()),
+        ToolContext(turn_id="turn_wait_2", history=(), cwd=Path.cwd()),
     )
     assert waited.output == {
         "status": {agent_id: {"completed": "after resume"}},
@@ -1550,7 +1639,7 @@ async def test_resume_agent_restarts_closed_agent_runtime() -> "None":
         ToolCall(
             call_id="call_close_resumed", name="close_agent", arguments={"id": agent_id}
         ),
-        ToolContext(turn_id="turn_close_resumed", history=()),
+        ToolContext(turn_id="turn_close_resumed", history=(), cwd=Path.cwd()),
     )
 
 
@@ -1572,7 +1661,7 @@ async def test_resume_agent_before_first_turn_keeps_history_in_memory() -> "None
 
         resumed = await registry.execute(
             ToolCall("resume_unstarted", "resume_agent", {"id": agent_id}),
-            ToolContext(turn_id="resume_unstarted", history=()),
+            ToolContext(turn_id="resume_unstarted", history=(), cwd=Path.cwd()),
         )
 
         assert resumed.output == {"status": "pending_init"}
@@ -1597,7 +1686,7 @@ async def test_resume_agent_before_first_turn_keeps_history_in_memory() -> "None
 @pytest.mark.parametrize("restore_file", [False, True])
 def test_resume_restores_background_tool_hooks(tmp_path, restore_file) -> "None":
     clock_manager = ClockManager()
-    exec_manager = UnifiedExecManager(tmp_path)
+    exec_manager = UnifiedExecManager()
     registry = ToolRegistry()
     registry.register(ClockTool(clock_manager))
     registry.register(ExecCommandTool(exec_manager))

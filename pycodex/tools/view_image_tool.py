@@ -15,9 +15,7 @@ Expected behavior:
   item that Codex uses when feeding image tool output back to the model.
 """
 
-import typing
 from importlib.util import find_spec
-from pathlib import Path
 
 from ..protocol import JSONDict, JSONValue
 from ..utils.image_utils import ImageProcessingError, load_image_data_url
@@ -65,13 +63,7 @@ class ViewImageTool(BaseTool):
     }
     output_schema = VIEW_IMAGE_OUTPUT_SCHEMA
 
-    def __init__(
-        self, cwd: "typing.Union[typing.Union[str, Path], None]" = None
-    ) -> "None":
-        self._workspace_root = Path(cwd or Path.cwd()).resolve()
-
     async def run(self, context: "ToolContext", args: "JSONDict") -> "JSONValue":
-        del context
         path_value = str(args.get("path", "")).strip()
         if not path_value:
             return "Error: `path` is required."
@@ -88,10 +80,7 @@ class ViewImageTool(BaseTool):
                 f"`{detail_value}`."
             )
 
-        path = Path(path_value)
-        if not path.is_absolute():
-            path = self._workspace_root / path
-        path = path.resolve()
+        path = context.resolve_path(path_value)
         if not path.exists():
             return f"Error: unable to locate image at `{path}`."
         if not path.is_file():

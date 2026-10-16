@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import sys
 import typing
+from dataclasses import replace
 
 import pytest
 
@@ -356,7 +357,10 @@ async def test_agent_default_has_no_fixed_iteration_cap() -> "None":
 
 
 @pytest.mark.asyncio
-async def test_agent_auto_compacts_before_next_turn_when_usage_reaches_limit() -> (
+@pytest.mark.parametrize("directory", [None, ".", "child"])
+async def test_agent_auto_compacts_before_next_turn_when_usage_reaches_limit(
+    tmp_path, directory
+) -> (
     "None"
 ):
     model = UsageModelClient(
@@ -371,11 +375,15 @@ async def test_agent_auto_compacts_before_next_turn_when_usage_reaches_limit() -
     agent = Agent(
         model,
         ToolRegistry(),
-        _auto_compact_context(10),
+        replace(_auto_compact_context(10), cwd=tmp_path),
         event_handler=events.append,
     )
 
     first = await agent.run_turn(["first prompt"])
+    if directory is not None:
+        (tmp_path / "child").mkdir()
+        agent.set_cwd(directory)
+        assert agent._last_total_usage_tokens == 12
     second = await agent.run_turn(["second prompt"])
 
     assert first.output_text == "first answer"

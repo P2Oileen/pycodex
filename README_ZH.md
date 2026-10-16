@@ -309,7 +309,8 @@ pycodex doctor
 - 交互模式下会显示简洁阶段事件流，例如工具执行状态和模型回看工具结果
 - 开场保留欢迎语，显示 model、effort、endpoint 和命令列表。
 - assistant 文本会按流式 delta 直接打印
-- 交互模式下支持 `/history`、`/title`、`/model`、`/effort` 和 `/resume`
+- 交互模式下支持 `/history`、`/title`、`/cd`、`/model`、`/effort` 和 `/resume`
+- `/cd <目录>` 在空闲时切换当前 session 的工作目录，`/cd` 查看当前目录；支持相对路径、`~` 和直接输入含空格的路径（不加引号）。之后的工具和上下文使用新目录。
 - `/model <name>` 会切换当前交互会话后续请求使用的模型；`/model` 会显示当前模型和可选模型
 - `/effort low` 在空闲时切换 effort，`/effort` 查看当前值，`/effort default` 恢复模型默认值；前端模型标签显示 `model:effort`。
 - `/resume` 不带参数时会按首条用户消息预览列出当前可恢复的 session；`/resume 1`
@@ -337,6 +338,10 @@ pycodex doctor
   `enable_board: false` 关闭 Canvas 标签、路由、轮询和上下文注入，会话及文件视图
   仍照常持久化和恢复。旧 `board: "demo.html"` / `board: false` 配置读取时转换，
   继续使用原状态文件，后续保存采用新格式。管理页新建时不填前缀会分配 `/tmp/pcws-*`。
+- 每个 session 初始继承 `work_dir`，之后可通过 `/cd` 各自切换。仅当目录与默认值不同时，
+  输入框内显示小型文件夹提示，悬停可查看完整路径；切回默认目录后隐藏。
+  目录随会话索引保存，空会话重启后也能恢复。聊天和 Canvas 中的相对文件链接按当前选中
+  session 的目录解析；Canvas 文件及 workspace 状态文件的位置保持固定。
 - workspace 整个左侧展示区称为看板，包含可选的实时 HTML Canvas 首标签和只读文件/diff 标签；
   所有标签在同一行共同滚动，溢出时可用鼠标滚轮横向滚动。点击普通 Markdown 文件链接
   `[源码](src/app.py:42)` 或 `[源码](/data/project/app.py#L42)` 即可打开视图。

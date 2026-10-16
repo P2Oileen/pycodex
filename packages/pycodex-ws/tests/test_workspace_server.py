@@ -62,7 +62,7 @@ from workspace_server.app import _build_workspace_entry, _event_data
 from workspace_server.workspaces import save_workspace_definitions
 
 
-def make_session(model=None, tools=None):
+def make_session(model=None, tools=None, cwd=None):
     if model is None:
         model = ScriptedModelClient(
             response_factory=lambda prompt, count: ModelResponse(
@@ -75,7 +75,7 @@ def make_session(model=None, tools=None):
             Agent(
                 model,
                 tools or ToolRegistry(),
-                ContextConfig(),
+                ContextConfig(cwd=cwd),
                 session_file_path=rollout_path_for_session(
                     resolve_codex_home(), session_id
                 ),
@@ -120,6 +120,8 @@ def test_closing_active_tab_restores_visited_tab(late_poll, initial_pane):
         ("    let pollTimer = null;", "    const markdownRenderer ="),
         ("    function isNearBottom(", "    function resizePrompt("),
         ("    function stateForSession(", "    function renderTabs("),
+        ("    function sessionById(", "    function isSessionRunning("),
+        ("    function updateSessionDirectory(", "    function updateContextMeter("),
         ("    function messageSignature(", "    function startPolling("),
         ("    function renderSnapshot(", "    function renderConversation("),
         ("    async function switchSession(", '    form.addEventListener("submit"'),
@@ -151,7 +153,17 @@ class Composer {
   read() { return this.value; }
   set(value) { this.value = value; }
 }
-const document = {title: "Workspace"};
+const cwdName = {};
+const cwdLabel = {dataset: {defaultCwd: "/a"}, querySelector: () => cwdName};
+const canvasTab = {};
+const contentTabs = {
+  dataset: {boardTitle: "Old tooltip", boardPath: "/board.html"},
+  querySelector: () => canvasTab,
+};
+const document = {
+  title: "Workspace",
+  getElementById: id => id === "sessionCwd" ? cwdLabel : contentTabs,
+};
 const requestAnimationFrame = () => {};
 const markVisibleFinalRead = () => {};
 const workspaceTitle = document.title;
@@ -168,10 +180,10 @@ const addEntry = (_role, text) => { log.textContent += text; };
 const renderConversation = turns => { log.textContent = turns.map(turn => turn.response).join(""); };
 """ + "\n".join(fragments)
     script += r"""
-const tabs = [{id: "a"}, {id: "b"}];
+const tabs = [{id: "a", cwd: "/a"}, {id: "b", cwd: "/b"}];
 let serverTabs = tabs.slice();
 function snapshot(id) {
-  return {turns: [{prompt: `prompt ${id}`, response: `answer ${id}`}],
+  return {cwd: "/" + id, turns: [{prompt: `prompt ${id}`, response: `answer ${id}`}],
           spinner: "", queued_inputs: []};
 }
 function response(id) {
@@ -208,6 +220,14 @@ const fetch = async (path, options = {}) => {
   updateSessions([{id: "a", running: false}, {id: "b", running: true}]);
   assert.equal(document.title, "● Workspace");
   renderSnapshot(snapshot("a"));
+  assert.equal(cwdName.textContent, "a");
+  assert.equal(cwdLabel.hidden, true);
+  renderSnapshot({...snapshot("a"), cwd: "/a/line\nbreak"});
+  renderSnapshot({...snapshot("a"), cwd: "/a/$& changed"});
+  assert.equal(cwdName.textContent, "$& changed");
+  assert.equal(cwdLabel.hidden, false);
+  assert.equal(cwdLabel.title, "Current dir: /a/$& changed\nUse /cd <directory> to change directory");
+  assert.equal(canvasTab.title, "Workspace: Workspace\nCurrent dir: /a/$& changed\nCanvas file: /board.html");
   if (!logVisible) {
     assert.equal(log.scrollTop, 0);
     assert.equal(stateForSession("a").scrollTop, null);
@@ -231,6 +251,8 @@ const fetch = async (path, options = {}) => {
   assert.equal(log.scrollTop, 123);
   await switchSession("b");
   assert.equal(log.textContent, "answer b");
+  assert.equal(cwdName.textContent, "b");
+  assert.equal(cwdLabel.hidden, false);
   assert.equal(document.title, "Workspace");
   composer.set({parts: [{type: "text", text: "draft b"}]});
   log.scrollTop = 9;
@@ -245,6 +267,8 @@ const fetch = async (path, options = {}) => {
   }
   assert.equal(activeSessionId, "a");
   assert.equal(log.textContent, "answer a");
+  assert.equal(cwdName.textContent, "a");
+  assert.equal(cwdLabel.hidden, true);
   assert.deepEqual(composer.read(), draftA);
   assert.equal(log.scrollTop, 123);
   assert.equal(sessionState.has("b"), false);
@@ -938,7 +962,7 @@ def test_boardless_workspace_preserves_context_and_tools(
     assert load_workspace_definitions(config)[0].board_path is None
     store = WorkspaceStateStore(Path(saved_prefix + ".pycodex-ws.json"))
     assert store.load_tabs() == [
-        {"title": "fix", "rollout_path": state["rollout_path"]}
+        {"title": "fix", "rollout_path": state["rollout_path"], "cwd": str(tmp_path / "repo")}
     ]
     restored_registry = WorkspaceRegistry(
         [
@@ -983,7 +1007,7 @@ def test_sessions_persist_titles_and_restore_history(
             lambda item: item["turns"] and item["turns"][-1]["response"] == "done",
         )
         assert store.load_tabs() == [
-            {"title": "saved prompt", "rollout_path": state["rollout_path"]}
+            {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
         ]
         if explicit_title:
             response = browser.post(
@@ -998,7 +1022,7 @@ def test_sessions_persist_titles_and_restore_history(
     assert board.read_text(encoding="utf-8") == "unchanged board"
     title = "saved" if explicit_title else "saved prompt"
     assert store.load_tabs() == [
-        {"title": title, "rollout_path": state["rollout_path"]}
+        {"title": title, "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
     ]
     with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         restored = browser.get("/api/session").json()["snapshot"]
@@ -1071,12 +1095,12 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
     if continue_after_fork:
         expected.append(("after fork", "done"))
         assert store.load_tabs() == [
-            {"title": "forked", "rollout_path": str(fork_path)}
+            {"title": "forked", "rollout_path": str(fork_path), "cwd": str(Path.cwd())}
         ]
     else:
         assert not fork_path.exists()
         assert store.load_tabs() == [
-            {"title": "forked", "rollout_path": str(original_path), "fork": True}
+            {"title": "forked", "rollout_path": str(original_path), "fork": True, "cwd": str(Path.cwd())}
         ]
 
     with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
@@ -1096,7 +1120,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
 
     assert original_path.read_bytes() == original_bytes
     assert store.load_tabs() == [
-        {"title": "forked", "rollout_path": str(restored_path)}
+        {"title": "forked", "rollout_path": str(restored_path), "cwd": str(Path.cwd())}
     ]
 
 
@@ -1104,7 +1128,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
 def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
     board = tmp_path / "board.html"
     store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
-    empty_tab = {"title": "", "rollout_path": ""}
+    empty_tab = {"title": "", "rollout_path": "", "cwd": str(Path.cwd())}
 
     def session_factory():
         if threaded:
@@ -1147,7 +1171,7 @@ def test_titled_empty_workspace_tab_survives_restart(tmp_path):
         assert response.status_code == 200
         path = Path(response.json()["snapshot"]["rollout_path"])
         assert not path.exists()
-    assert store.load_tabs() == [{"title": "empty", "rollout_path": ""}]
+    assert store.load_tabs() == [{"title": "empty", "rollout_path": "", "cwd": str(Path.cwd())}]
 
     with TestClient(create_app(make_session, board.with_suffix(""))) as browser:
         state = browser.get("/api/session").json()["snapshot"]
@@ -1159,8 +1183,73 @@ def test_titled_empty_workspace_tab_survives_restart(tmp_path):
             lambda item: item["turns"] and item["turns"][-1]["response"] == "done",
         )
     assert store.load_tabs() == [
-        {"title": "empty", "rollout_path": state["rollout_path"]}
+        {"title": "empty", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
     ]
+
+
+@pytest.mark.parametrize("threaded", [False, True])
+def test_session_directories_are_independent_and_restored(tmp_path, threaded):
+    original = Path.cwd()
+    target = tmp_path / "other project"
+    target.mkdir()
+    (tmp_path / "file.txt").write_text("default", encoding="utf-8")
+    (target / "file.txt").write_text("changed", encoding="utf-8")
+    state_path = tmp_path / "board"
+    store = WorkspaceStateStore(tmp_path / "board.pycodex-ws.json")
+    # Older state files have no cwd; these sessions inherit the workspace default.
+    store.save_tabs([{"title": "saved", "rollout_path": ""}])
+
+    def factory():
+        if threaded:
+            return ThreadedWorkspaceInteractiveSession(
+                lambda: make_session(cwd=tmp_path), asyncio.get_running_loop()
+            )
+        return make_session(cwd=tmp_path)
+
+    with TestClient(create_app(factory, state_path, work_dir=tmp_path)) as browser:
+        first = browser.get("/api/sessions").json()["sessions"][0]
+        assert first["cwd"] == str(tmp_path)
+        response = browser.post("/api/session/message", json={
+            "session_id": first["id"], "prompt": "/cd other project",
+        })
+        assert response.status_code == 200
+        assert response.json()["snapshot"]["cwd"] == str(target)
+        second_id = browser.post("/api/sessions").json()["session_id"]
+        assert [s["cwd"] for s in browser.get("/api/sessions").json()["sessions"]] == [
+            str(target), str(tmp_path),
+        ]
+        views = []
+        for identity, text in [(first["id"], "changed"), (second_id, "default")]:
+            response = browser.post("/api/views/open", json={
+                "href": "file.txt", "session_id": identity,
+            })
+            assert response.status_code == 200
+            view = response.json()["view"]
+            assert view["documents"][0]["text"] == text
+            views.append(view["id"])
+        assert views[0] != views[1]
+        assert browser.post("/api/views/open", json={
+            "href": "file.txt", "session_id": "missing",
+        }).status_code == 404
+        assert browser.post("/api/views/open", json={
+            "href": "file.txt", "session_id": [],
+        }).status_code == 400
+        # Keep one empty session and one recorded session across restart.
+        browser.post("/api/session/message", json={
+            "session_id": second_id, "prompt": "hello",
+        })
+        wait_snapshot(browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done",
+                      "/api/session?session_id=" + second_id)
+    assert [tab["cwd"] for tab in store.load_tabs()] == [str(target), str(tmp_path)]
+    assert store.load_tabs()[0]["rollout_path"] == ""
+    assert store.load_tabs()[1]["rollout_path"]
+    with TestClient(create_app(factory, state_path, work_dir=tmp_path)) as browser:
+        sessions = browser.get("/api/sessions").json()["sessions"]
+        assert [tab["cwd"] for tab in sessions] == [str(target), str(tmp_path)]
+        for tab in sessions:
+            snapshot = browser.get("/api/session", params={"session_id": tab["id"]}).json()["snapshot"]
+            assert snapshot["cwd"] == tab["cwd"]
+    assert Path.cwd() == original
 
 
 @pytest.mark.parametrize("command", ["/title saved prompt", "/resume 1"])
@@ -1173,12 +1262,12 @@ def test_workspace_explicit_save_keeps_unchanged_state(tmp_path, command):
             browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done"
         )
         assert store.load_tabs() == [
-            {"title": "saved prompt", "rollout_path": state["rollout_path"]}
+            {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
         ]
         response = browser.post("/api/session/message", json={"prompt": command})
         assert response.status_code == 200
     assert store.load_tabs() == [
-        {"title": "saved prompt", "rollout_path": state["rollout_path"]}
+        {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
     ]
 
 
@@ -1209,7 +1298,7 @@ def test_workspace_fork_saves_new_target_after_compact_or_failure(tmp_path, next
         if next_input == "failed turn":
             wait_snapshot(browser, lambda s: s["turns"][-1]["status"] == "error")
     assert fork_path.is_file()
-    assert store.load_tabs() == [{"title": "saved", "rollout_path": str(fork_path)}]
+    assert store.load_tabs() == [{"title": "saved", "rollout_path": str(fork_path), "cwd": str(Path.cwd())}]
     assert original_path.read_bytes() == original_bytes
     with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         assert browser.get("/api/session").json()["snapshot"]["rollout_path"] == str(
@@ -1248,7 +1337,7 @@ async def test_workspace_close_persists_fork_after_draining_turn(tmp_path):
         await closing
     await second.future
     assert WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).load_tabs() == [
-        {"title": "saved", "rollout_path": str(fork_path)}
+        {"title": "saved", "rollout_path": str(fork_path), "cwd": str(Path.cwd())}
     ]
 
 
@@ -1265,6 +1354,20 @@ async def test_invalid_workspace_state_fails_without_replacing_history(tmp_path,
         await manager.start()
     assert not manager.list_sessions()
     assert path.read_text(encoding="utf-8") == contents
+
+
+@pytest.mark.asyncio
+async def test_workspace_missing_saved_directory_fails_without_rewriting_state(tmp_path):
+    session = make_session(cwd=tmp_path)
+    store = WorkspaceStateStore(tmp_path / "saved.pycodex-ws.json")
+    tabs = [{"title": "", "rollout_path": "", "cwd": str(tmp_path / "missing")}]
+    store.save_tabs(tabs)
+    manager = WorkspaceSessionManager(lambda: session, tmp_path / "saved")
+    with pytest.raises(FileNotFoundError):
+        await manager.start()
+    assert session.runtime.agent.is_shutdown
+    assert not manager.list_sessions()
+    assert store.load_tabs() == tabs
 
 
 @pytest.mark.asyncio
@@ -1329,7 +1432,7 @@ def test_workspace_does_not_save_a_fork_destination_owned_by_another_writer(tmp_
         assert "File exists" in state["turns"][-1]["error"]
     assert fork_path.read_text(encoding="utf-8") == "another writer"
     assert WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).load_tabs() == [
-        {"title": "saved", "rollout_path": original_path, "fork": True}
+        {"title": "saved", "rollout_path": original_path, "fork": True, "cwd": str(Path.cwd())}
     ]
 
 
@@ -1529,7 +1632,7 @@ def test_unread_survives_compact_but_clears_on_restart(tmp_path, threaded, read)
         assert state["last_final_id"] == final_id
         assert browser.get("/api/sessions").json()["sessions"][0]["unread"] is (not read)
         assert store.load_tabs() == [
-            {"title": "question", "rollout_path": state["rollout_path"]}
+            {"title": "question", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
         ]
     with TestClient(create_app(factory, state_path)) as browser:
         payload = browser.get("/api/session").json()

@@ -106,8 +106,12 @@ async function newTabsAndRestore() {
   await flush();
   assert.equal(restored.tabs.activeId, "a");
   assert.equal(restored.tabs.snapshot.id, "a");
-  await restored.tabs.open("b", "/docs/a.md");
-  assert.deepEqual(restored.bodies, [{href: "b", src_path: "/docs/a.md"}]);
+  await restored.tabs.open("b", "/docs/a.md", "session-a");
+  await restored.tabs.open("b", "/docs/a.md", "session-b");
+  assert.deepEqual(restored.bodies, [
+    {href: "b", src_path: "/docs/a.md", session_id: "session-a"},
+    {href: "b", src_path: "/docs/a.md", session_id: "session-b"},
+  ]);
 }
 
 async function disabledCanvasKeepsFileViewsAndAnEmptyState() {

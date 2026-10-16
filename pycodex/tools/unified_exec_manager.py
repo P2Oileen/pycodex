@@ -121,10 +121,7 @@ class UnifiedExecSession:
 
 
 class UnifiedExecManager:
-    def __init__(
-        self, cwd: "typing.Union[typing.Union[str, Path], None]" = None
-    ) -> "None":
-        self._default_cwd = Path(cwd or Path.cwd()).resolve()
+    def __init__(self) -> "None":
         self._next_session_id = DEFAULT_SESSION_ID_START
         self._sessions: "typing.Dict[int, UnifiedExecSession]" = {}
         self._lock = threading.Lock()
@@ -146,7 +143,7 @@ class UnifiedExecManager:
     async def exec_command(
         self,
         cmd: "str",
-        workdir: "typing.Union[str, None]" = None,
+        cwd: "Path",
         shell: "typing.Union[str, None]" = None,
         login: "bool" = DEFAULT_LOGIN,
         tty: "bool" = DEFAULT_TTY,
@@ -155,7 +152,6 @@ class UnifiedExecManager:
     ) -> "str":
         session_id = await self._allocate_session_id()
         command = self._build_shell_command(cmd, shell, login)
-        cwd = self._resolve_workdir(workdir)
         logger.debug(
             "exec_command start session_id={} shell_command={} cwd={}",
             session_id,
@@ -380,14 +376,6 @@ class UnifiedExecManager:
                     "exception": exc,
                 }
             )
-
-    def _resolve_workdir(self, workdir: "typing.Union[str, None]") -> "Path":
-        if not workdir:
-            return self._default_cwd
-        path = Path(workdir)
-        if not path.is_absolute():
-            path = self._default_cwd / path
-        return path.resolve()
 
     def _build_shell_command(
         self,

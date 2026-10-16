@@ -932,7 +932,9 @@ def test_view_asset_compression_cache_and_revalidation(tmp_path, monkeypatch):
 def test_model_links_open_only_on_click_without_tools_or_new_messages(tmp_path, monkeypatch, toolset):
     config = tmp_path / "config.toml"
     config.write_text('model = "test"\n', encoding="utf-8")
-    (tmp_path / "A.py").write_text("source body\n", encoding="utf-8")
+    target = tmp_path / "project"
+    target.mkdir()
+    (target / "A.py").write_text("source body\n", encoding="utf-8")
     reply = "[Source](A.py:1)"
     model = ScriptedModelClient([ModelResponse([AssistantMessage(reply)])])
     monkeypatch.setattr("workspace_server.app.build_model", lambda **kwargs: model)
@@ -941,6 +943,11 @@ def test_model_links_open_only_on_click_without_tools_or_new_messages(tmp_path, 
         WorkspaceDefinition("first", tmp_path / "board", tmp_path), args
     )
     with TestClient(create_multi_workspace_app(WorkspaceRegistry([entry]))) as browser:
+        changed = browser.post(
+            "/w/first/api/session/message", json={"prompt": "/cd project"}
+        ).json()
+        assert changed["snapshot"]["cwd"] == str(target)
+        session_id = browser.get("/w/first/api/session").json()["session_id"]
         browser.post("/w/first/api/session/message", json={"prompt": "show A.py"})
         before = wait_snapshot(
             browser,
@@ -952,8 +959,11 @@ def test_model_links_open_only_on_click_without_tools_or_new_messages(tmp_path, 
         assert "workspace_display" not in repr(model.prompts[0].input)
         assert "Replies and Canvas HTML can use extended links" in repr(model.prompts[0].input)
         assert "diff:BASE..HEAD:path" in repr(model.prompts[0].input)
-        assert "Current workspace Canvas file: ./board.html" in repr(model.prompts[0].input)
-        opened = browser.post("/w/first/api/views/open", json={"href": "A.py:1"}).json()
+        assert "Current workspace Canvas file: " + str(tmp_path / "board.html") in repr(model.prompts[0].input)
+        assert "<cwd>" + str(target) + "</cwd>" in repr(model.prompts[0].input)
+        opened = browser.post("/w/first/api/views/open", json={
+            "href": "A.py:1", "session_id": session_id,
+        }).json()
         assert opened["view"]["documents"][0]["text"] == "source body\n"
         assert browser.get("/w/first/api/session").json()["snapshot"] == before
         assert len(model.prompts) == 1

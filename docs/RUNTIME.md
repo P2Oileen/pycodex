@@ -141,7 +141,21 @@ See the [vendored source notes](../pycodex/utils/_aes_gcm/README.md).
 Every frontend calls `await runtime.submit_input(text, sender)`. The returned
 `SubmittedInput` carries a submission id, kind and future. Normal text uses
 steer; `/queue <text>` uses the ordinary queue. The backend parses `/help`,
-`/history`, `/title`, `/model`, `/effort`, `/resume`, `/compact` and `/fork`.
+`/history`, `/title`, `/cd`, `/model`, `/effort`, `/resume`, `/compact` and `/fork`.
+`/cd` reports the session directory; `/cd <directory>` resolves a directory
+against the current one (with `~` expansion) and requires idle, accepting state.
+It updates the Agent's context and broadcasts `cwd`, preserving the latest usage
+so the next turn can still trigger auto-compaction. Each tool invocation receives
+the current directory as the required `ToolContext.cwd`; existing exec processes and code cells
+keep their original directory. New subagents inherit their parent's current
+directory. No process-wide `chdir` is used. `/resume` and `/fork` retain the
+current directory.
+Configure the initial directory once in `ContextConfig(cwd=...)` or
+`build_agent(cwd=...)`. Tool constructors, `get_tools` and `get_subagent_tools`
+do not store or accept a default directory. Standalone tool calls supply
+`ToolContext(turn_id, history, cwd)`, where `cwd` is an absolute `Path`;
+`UnifiedExecManager.exec_command(cmd, cwd, ...)` likewise takes its directory
+per invocation.
 `/resume` lists recent sessions; `/resume <number>` selects from that list,
 while `/resume <session_id>` resolves a full UUID independently of the list
 limit, including archived sessions. Both use the same idle-only restore path.
@@ -287,17 +301,19 @@ After compaction or history restore, current usage is unknown until the next
 token report; the ring resets and the details show that usage is pending.
 Queue hints use neutral backgrounds and running status uses a small activity dot.
 They share
-the composer's outer frame in a compact top row separated from the text input;
-the row collapses when there is no running status or queued input.
+the composer's outer frame in a compact top row separated from the text input.
+The row also shows a compact folder indicator when the session directory differs
+from the workspace default, with the full path in its tooltip. It collapses when
+there is no running status, queued input or directory override.
 On screens up to 760px wide, icon buttons in the existing board/session headers
 switch panes without a separate navigation row or changes to the active session
 and draft. Desktop resizing and per-session scroll restoration retain their
 existing behavior.
 
 Frontends subscribe with `attach(handler)` and unsubscribe with `detach(id)`.
-Attach delivers an immediate `session_state`: identity, model, title, canonical
+Attach delivers an immediate `session_state`: identity, model, title, cwd, canonical
 history, active turn/partial output, usage, plan, input request and admission
-state. Model/history/title changes are broadcast to every attached frontend.
+state. Model/history/title/directory changes are broadcast to every attached frontend.
 `command_completed`, `command_failed`, `input_queued`, `input_requested`,
 `input_resolved` and `session_closed` complement ordinary Agent events. Command
 results are separate from model turns and are not recorded as conversation
@@ -826,9 +842,16 @@ With Canvas disabled, it restores a file view or selects the first existing file
 view; an empty workspace shows an empty content pane. Closing the last file view
 returns to that empty pane, and other pages' opens do not change its selection.
 
-`POST api/views/open` accepts `{"href": "<file path or URI>"}` and returns
+`POST api/views/open` accepts `{"href": "<file path or URI>", "session_id": "<tab id>"}` and returns
 `{"view": <full snapshot>, "views": <metadata list>}`. Relative local paths use the
-workspace's `work_dir`, or the parent of the optional `src_path` (a plain file path).
+selected session's `cwd`, or the parent of the optional `src_path` (a plain file path).
+The browser supplies its active tab id. API callers omitting `session_id` use
+the workspace's `work_dir`; an unknown id is rejected.
+Each workspace tab persists `cwd` alongside title and rollout reference in
+`<state_path>.pycodex-ws.json`, including empty tabs. Older records without `cwd`
+inherit `work_dir`; invalid saved directories fail restoration visibly.
+Canvas is injected into model context as an absolute path so it remains stable
+across directory changes.
 Single-workspace `create_app(..., work_dir=...)` defaults
 to the process's working directory. The other routes use view IDs:
 `GET api/views` lists metadata, including content/reveal revisions, a live/fixed

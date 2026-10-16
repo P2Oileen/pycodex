@@ -92,20 +92,15 @@ class ApplyPatchTool(BaseTool):
     }
     supports_parallel = False
 
-    def __init__(
-        self, cwd: "typing.Union[typing.Union[str, Path], None]" = None
-    ) -> "None":
-        self._workspace_root = Path(cwd or Path.cwd()).resolve()
-
     async def run(self, context: "ToolContext", args: "JSONValue") -> "JSONValue":
-        del context
+        cwd = context.cwd
         patch_text = str(args)
         logger.debug(
-            "apply_patch workspace={} bytes={}", self._workspace_root, len(patch_text)
+            "apply_patch workspace={} bytes={}", cwd, len(patch_text)
         )
         try:
             operations = self._parse_patch(patch_text)
-            return self._format_result(self._apply_operations(operations), exit_code=0)
+            return self._format_result(self._apply_operations(operations, cwd), exit_code=0)
         except ApplyPatchError as exc:
             return self._format_result(str(exc), exit_code=1)
 
@@ -239,52 +234,54 @@ class ApplyPatchTool(BaseTool):
     def _apply_operations(
         self,
         operations: "typing.List[typing.Union[typing.Union[_AddFileOp, _DeleteFileOp], _UpdateFileOp]]",
+        cwd: "Path",
     ) -> "str":
         preview: "typing.Dict[Path, typing.Union[str, None]]" = {}
         summaries: "typing.Dict[Path, str]" = {}
 
         for operation in operations:
             if isinstance(operation, _AddFileOp):
-                path = self._resolve_workspace_path(operation.path)
+                path = self._resolve_workspace_path(operation.path, cwd)
                 preview[path] = operation.content
                 summaries[path] = "A"
                 continue
 
             if isinstance(operation, _DeleteFileOp):
-                path = self._resolve_workspace_path(operation.path)
-                self._read_preview_file(path, preview)
+                path = self._resolve_workspace_path(operation.path, cwd)
+                self._read_preview_file(path, preview, cwd)
                 preview[path] = None
                 summaries[path] = "D"
                 continue
 
-            path = self._resolve_workspace_path(operation.path)
-            original = self._read_preview_file(path, preview)
-            updated = self._apply_update(path, original, operation.sections)
+            path = self._resolve_workspace_path(operation.path, cwd)
+            original = self._read_preview_file(path, preview, cwd)
+            updated = self._apply_update(path, original, operation.sections, cwd)
             destination = path
             if operation.move_to is not None:
-                destination = self._resolve_workspace_path(operation.move_to)
+                destination = self._resolve_workspace_path(operation.move_to, cwd)
                 preview[path] = None
                 summaries.pop(path, None)
             preview[destination] = updated
             summaries[destination] = "M"
 
         self._write_preview(preview)
-        return self._format_success(summaries)
+        return self._format_success(summaries, cwd)
 
     def _read_preview_file(
-        self, path: "Path", preview: "typing.Dict[Path, typing.Union[str, None]]"
+        self, path: "Path", preview: "typing.Dict[Path, typing.Union[str, None]]",
+        cwd: "Path",
     ) -> "str":
         if path in preview:
             content = preview[path]
             if content is None:
                 raise ApplyPatchError(
-                    f"apply_patch verification failed: Failed to read {self._display_path(path)}"
+                    f"apply_patch verification failed: Failed to read {self._display_path(path, cwd)}"
                 )
             return content
 
         if not path.exists() or not path.is_file():
             raise ApplyPatchError(
-                f"apply_patch verification failed: Failed to read {self._display_path(path)}"
+                f"apply_patch verification failed: Failed to read {self._display_path(path, cwd)}"
             )
         return path.read_text(encoding="utf-8", errors="replace")
 
@@ -293,6 +290,7 @@ class ApplyPatchTool(BaseTool):
         path: "Path",
         original_text: "str",
         sections: "typing.Tuple[_UpdateSection, ...]",
+        cwd: "Path",
     ) -> "str":
         lines = original_text.splitlines()
         cursor = 0
@@ -308,7 +306,7 @@ class ApplyPatchTool(BaseTool):
             if match_index is None:
                 raise ApplyPatchError(
                     "apply_patch verification failed: Failed to find expected lines in "
-                    f"{self._display_path(path)}"
+                    f"{self._display_path(path, cwd)}"
                 )
             lines[match_index : match_index + len(old_block)] = new_block
             cursor = match_index + len(new_block)
@@ -350,10 +348,10 @@ class ApplyPatchTool(BaseTool):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
-    def _format_success(self, summaries: "typing.Dict[Path, str]") -> "str":
+    def _format_success(self, summaries: "typing.Dict[Path, str]", cwd: "Path") -> "str":
         buckets = {"A": [], "M": [], "D": []}
         for path, status in summaries.items():
-            buckets[status].append(self._display_path(path))
+            buckets[status].append(self._display_path(path, cwd))
         lines = ["Success:"]
         for status in ("A", "M", "D"):
             for rel_path in sorted(buckets[status]):
@@ -365,14 +363,14 @@ class ApplyPatchTool(BaseTool):
             f"Exit code: {exit_code}\n" "Wall time: 0 seconds\n" "Output:\n" f"{output}"
         )
 
-    def _resolve_workspace_path(self, path_text: "str") -> "Path":
+    def _resolve_workspace_path(self, path_text: "str", cwd: "Path") -> "Path":
         path = Path(path_text).expanduser()
-        resolved = path if path.is_absolute() else self._workspace_root / path
+        resolved = path if path.is_absolute() else cwd / path
         return resolved.resolve()
 
-    def _display_path(self, path: "Path") -> "str":
+    def _display_path(self, path: "Path", cwd: "Path") -> "str":
         try:
-            return path.relative_to(self._workspace_root).as_posix()
+            return path.relative_to(cwd).as_posix()
         except ValueError:
             return str(path)
 

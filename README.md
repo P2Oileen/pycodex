@@ -358,10 +358,13 @@ Current behavior:
   tool execution and model follow-up after tool results
 - startup shows a welcome, model, effort, endpoint and available commands.
 - assistant text is printed from streaming deltas directly
-- interactive mode supports `/history`, `/title`, `/model`, `/effort`, `/resume`,
+- interactive mode supports `/history`, `/title`, `/cd`, `/model`, `/effort`, `/resume`,
   `/compact`, and `/fork`
 - `/model <name>` switches the model used by later turns in the current
   interactive session; `/model` shows the current model and available choices
+- `/cd <directory>` changes the current session's working directory while idle;
+  `/cd` shows it. Relative paths and `~` are supported; paths containing spaces
+  can be entered directly without quotes. Later tools and context use the new directory.
 - `/effort low` switches effort while idle; `/effort` shows the current value,
   and `/effort default` restores the model default. Frontend labels show
   `model:effort`.
@@ -434,6 +437,11 @@ Current behavior:
   original state paths and are saved in the new format. See the
   [workspace configuration example](packages/pycodex-ws/README.md).
   Add/delete actions and later session-state saves refresh the JSON file.
+  Each session starts in `work_dir` and can switch independently with `/cd`.
+  A small folder indicator appears inside the composer only when the session
+  directory differs from `work_dir`; hover for the full path. Directories persist
+  across workspace restarts, including for empty sessions. Relative chat/Canvas file links use the selected
+  session's directory; Canvas and workspace state files stay at their configured paths.
   Board HTML can reference local
   images beside the board (including nested paths) with relative URLs; only
   `image/*` files contained by the board directory are served.
@@ -793,6 +801,9 @@ event JSON format.
   uses `agent.tool_registry.runtime_environment`, not a forwarding Agent property.
   The global `get_agent_runtime_environment()` and
   separate `Agent(..., runtime_environment=...)` entry points are removed.
+- Configure cwd once with `ContextConfig(cwd=...)` or `build_agent(cwd=...)`.
+  Tools use the required `ToolContext.cwd` for each call; tool constructors
+  and `get_tools` do not take a separate default directory.
 - Each sub-agent gets its own context manager and runtime services. The sub-agent
   service retains terminal event status and queues one notification per terminal
   event. The parent consumes these notifications before its next normal model

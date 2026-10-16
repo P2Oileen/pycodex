@@ -244,6 +244,16 @@ class ContextManager:
     def set_model(self, model: "str") -> "None":
         self._config = replace(self._config, model=model)
 
+    def set_cwd(self, cwd: "typing.Union[str, Path]") -> "None":
+        path = Path(cwd).expanduser()
+        path = (self.cwd / path).resolve(strict=True)
+        if not path.is_dir():
+            raise NotADirectoryError(str(path))
+        self.cwd = path
+        self._config = replace(self._config, cwd=path)
+        self._workspace_metadata_turn_id = None
+        self._workspace_metadata_cache = None
+
     def resolve_auto_compact_token_limit(self) -> "typing.Union[int, None]":
         if self._config.model_auto_compact_token_limit is not None:
             return self._config.model_auto_compact_token_limit

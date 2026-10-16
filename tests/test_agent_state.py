@@ -1307,9 +1307,13 @@ def test_subagent_context_is_per_agent_and_uses_model_override(tmp_path):
         client,
         config_path,
         extra_contextual_user_messages=iter(["shared board"]),
+        cwd=tmp_path,
     )
     builder = agent.tool_registry.runtime_environment.subagent_manager._runtime_builder
     first = builder("step-3.6", None, (), "first-session").agent
+    child_dir = tmp_path / "child"
+    child_dir.mkdir()
+    agent.set_cwd(child_dir)
     second = builder(None, None, (), "second-session").agent
 
     assert first.context_manager is not second.context_manager
@@ -1317,6 +1321,12 @@ def test_subagent_context_is_per_agent_and_uses_model_override(tmp_path):
     assert second.context_manager._extra_contextual_user_messages == ("shared board",)
     assert first.context_manager._config.model == first.model_name == "step-3.6"
     assert second.context_manager._config.model == second.model_name == "gpt-5.6"
+    assert first.context_manager.cwd == tmp_path
+    assert second.context_manager.cwd == child_dir
+    first.set_cwd(child_dir)
+    nested = first.tool_registry.runtime_environment.subagent_manager._runtime_builder
+    grandchild = nested(None, None, (), "grandchild-session").agent
+    assert grandchild.context_manager.cwd == child_dir
     assert (
         first.tool_registry.runtime_environment
         is not second.tool_registry.runtime_environment

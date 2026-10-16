@@ -86,7 +86,6 @@ def configure_loguru() -> "None":
 def get_tools(
     runtime_environment: "typing.Union[AgentRuntimeEnvironment, None]" = None,
     exec_mode: "bool" = False,
-    cwd: "typing.Union[str, Path, None]" = None,
     toolset: "typing.Union[typing.Iterable[str], None]" = None,
 ):
     from .tools import (
@@ -119,8 +118,8 @@ def get_tools(
 
     runtime_environment = runtime_environment or create_agent_runtime_environment()
     registry = Registry(runtime_environment)
-    code_mode_manager = CodeModeManager(registry, cwd=cwd)
-    unified_exec_manager = UnifiedExecManager(cwd=cwd)
+    code_mode_manager = CodeModeManager(registry)
+    unified_exec_manager = UnifiedExecManager()
     clock_manager = ClockManager()
     exec_tool = ExecTool(code_mode_manager)
     wait_tool = WaitTool(code_mode_manager)
@@ -135,16 +134,16 @@ def get_tools(
     resume_agent_tool = ResumeAgentTool(runtime_environment.subagent_manager)
     wait_agent_tool = WaitAgentTool(runtime_environment.subagent_manager)
     close_agent_tool = CloseAgentTool(runtime_environment.subagent_manager)
-    apply_patch_tool = ApplyPatchTool(cwd=cwd)
-    shell_tool = ShellTool(cwd=cwd)
-    shell_command_tool = ShellCommandTool(cwd=cwd)
+    apply_patch_tool = ApplyPatchTool()
+    shell_tool = ShellTool()
+    shell_command_tool = ShellCommandTool()
     exec_command_tool = ExecCommandTool(unified_exec_manager)
     write_stdin_tool = WriteStdinTool(unified_exec_manager)
     clock_tool = ClockTool(clock_manager)
-    grep_files_tool = GrepFilesTool(cwd=cwd)
+    grep_files_tool = GrepFilesTool()
     read_file_tool = ReadFileTool()
     list_dir_tool = ListDirTool()
-    view_image_tool = ViewImageTool(cwd=cwd)
+    view_image_tool = ViewImageTool()
     tools = (
         shell_tool,
         shell_command_tool,
@@ -200,7 +199,6 @@ def get_tools(
 
 def get_subagent_tools(
     runtime_environment: "typing.Union[AgentRuntimeEnvironment, None]" = None,
-    cwd: "typing.Union[str, Path, None]" = None,
 ):
     from .tools import (
         ApplyPatchTool,
@@ -215,13 +213,13 @@ def get_subagent_tools(
 
     runtime_environment = runtime_environment or create_agent_runtime_environment()
     registry = Registry(runtime_environment)
-    unified_exec_manager = UnifiedExecManager(cwd=cwd)
+    unified_exec_manager = UnifiedExecManager()
     registry.register(ExecCommandTool(unified_exec_manager))
     registry.register(WriteStdinTool(unified_exec_manager))
     registry.register(UpdatePlanTool(runtime_environment.plan_store))
-    registry.register(ApplyPatchTool(cwd=cwd))
+    registry.register(ApplyPatchTool())
     registry.register(WebSearchTool())
-    registry.register(ViewImageTool(cwd=cwd))
+    registry.register(ViewImageTool())
     return registry
 
 
@@ -244,46 +242,41 @@ def build_agent(
     )
     runtime_environment = create_agent_runtime_environment()
 
-    def make_subagent_runtime_builder(base_client):
+    def make_subagent_runtime_builder(parent_agent):
         def build_subagent_runtime(
             model_override: "typing.Union[str, None]",
             reasoning_effort_override: "typing.Union[str, None]",
             initial_history=(),
             session_id: "typing.Union[str, None]" = None,
         ) -> "AgentRuntime":
-            nested_client = base_client.with_overrides(
+            nested_client = parent_agent.model_client.with_overrides(
                 model_override,
                 reasoning_effort_override,
                 session_id=session_id,
                 openai_subagent="collab_spawn",
             )
             subagent_agent_runtime_environment = create_agent_runtime_environment()
-            subagent_agent_runtime_environment.subagent_manager.set_runtime_builder(
-                make_subagent_runtime_builder(nested_client)
-            )
+            inherited_cwd = parent_agent.context_manager.cwd
             sub_agent = Agent(
                 nested_client,
-                get_subagent_tools(
-                    subagent_agent_runtime_environment, cwd=resolved_cwd
-                ),
-                context_config,
+                get_subagent_tools(subagent_agent_runtime_environment),
+                replace(context_config, cwd=inherited_cwd),
                 initial_history=tuple(initial_history),
                 session_id=session_id,
+            )
+            subagent_agent_runtime_environment.subagent_manager.set_runtime_builder(
+                make_subagent_runtime_builder(sub_agent)
             )
             return AgentRuntime(sub_agent)
 
         return build_subagent_runtime
 
-    runtime_environment.subagent_manager.set_runtime_builder(
-        make_subagent_runtime_builder(client)
-    )
     session_id = uuid7_string()
-    return Agent(
+    agent = Agent(
         client,
         get_tools(
             runtime_environment,
             exec_mode=True,
-            cwd=resolved_cwd,
             toolset=toolset,
         ),
         context_config,
@@ -292,6 +285,10 @@ def build_agent(
         ),
         session_id=session_id,
     )
+    runtime_environment.subagent_manager.set_runtime_builder(
+        make_subagent_runtime_builder(agent)
+    )
+    return agent
 
 
 def build_model(

@@ -348,7 +348,7 @@ async def test_cli_receipt_and_empty_input_without_result_tasks(monkeypatch, jso
         "endpoint: in-process",
     ]
     assert view.lines[3] == (
-        "Extra commands: /help, /history, /title, /model, /effort, /resume, "
+        "Extra commands: /help, /history, /title, /cd, /model, /effort, /resume, "
         "/compact, /fork, /queue"
     )
     assert signal.getsignal(signal.SIGINT) == previous_sigint

@@ -77,12 +77,21 @@ Use a filename prefix and a separate Canvas switch in `workspaces.json`:
 
 Start it with `pycodex-ws --workspace-config workspaces.json`.
 Relative paths resolve from the configuration directory. This example uses
-`demo.pycodex-ws.json` for session titles and rollout references,
+`demo.pycodex-ws.json` for session titles, directories and rollout references,
 `demo.pycodex-views.json` for file views, and `demo.html` for Canvas.
 All suffixes are appended to the complete prefix, including any dots.
 The resolved `state_path` identifies the workspace; two entries cannot share it.
 Creating a workspace through the management page or API without a prefix
 generates a `/tmp/pcws-*` prefix and saves it in the configuration.
+
+Each session starts in `work_dir`. Use `/cd <directory>` while idle to change
+only that session, or `/cd` to show its directory. Relative paths and `~` work;
+enter paths containing spaces without quotes. A small folder indicator inside
+the composer appears only when the directory differs from `work_dir`; hover
+for the full path. Directories are restored after server restart, even for empty sessions. Tools,
+AGENTS instructions and relative chat/Canvas file links use the selected
+session's directory. Existing processes keep their original directory.
+Canvas and workspace state files retain their configured locations.
 
 The router directory collects unread workspace shortcuts and their device names
 in a distinct Unread panel at the top. Read workspaces leave that panel.

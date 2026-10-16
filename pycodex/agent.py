@@ -152,6 +152,13 @@ class Agent:
         self.context_manager.set_model(model)
         self._last_total_usage_tokens = None
 
+    def set_cwd(self, cwd: "typing.Union[str, Path]") -> "None":
+        if self.is_running:
+            raise RuntimeError("cannot change directory while agent is running")
+        if not self.accepts_input:
+            raise RuntimeError("cannot change directory while agent is closing or closed")
+        self.context_manager.set_cwd(cwd)
+
     def resume(
         self, session_file_path: "typing.Union[str, Path, None]" = None
     ) -> "typing.Union[typing.Dict[str, object], None]":
@@ -400,6 +407,7 @@ class Agent:
             context = ToolContext(
                 turn_id=turn_id,
                 history=self.history,
+                cwd=self.context_manager.cwd,
             )
             if len(batch) == 1:
                 results.append(await self._run_single_tool(turn_id, batch[0], context))

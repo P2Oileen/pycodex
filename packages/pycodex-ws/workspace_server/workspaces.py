@@ -264,6 +264,7 @@ class WorkspaceSessionManager:
                 title=tab["title"],
                 rollout_path=tab["rollout_path"],
                 fork=tab.get("fork") is True,
+                cwd=tab.get("cwd"),
             )
         for session_id in self._session_order:
             self._subscribe_session_state(session_id)
@@ -304,6 +305,7 @@ class WorkspaceSessionManager:
         title: str = "",
         rollout_path: str = "",
         fork: bool = False,
+        cwd: "typing.Optional[str]" = None,
     ) -> str:
         async with self._get_lock():
             session_id = uuid7_string()
@@ -311,9 +313,9 @@ class WorkspaceSessionManager:
             await session.start()
 
             try:
-                if rollout_path or title:
+                if rollout_path or title or cwd is not None:
                     await session.restore_from_rollout(
-                        rollout_path, title=title, fork=fork
+                        rollout_path, title=title, fork=fork, cwd=cwd
                     )
             except BaseException:
                 await session.close()
@@ -321,8 +323,10 @@ class WorkspaceSessionManager:
 
             self._sessions[session_id] = session
             self._session_order.append(session_id)
+            summary = session_summary(session)
             self._tab_states[session_id] = {
-                "title": str(session_summary(session).get("title") or ""),
+                "title": str(summary.get("title") or ""),
+                "cwd": summary["cwd"],
                 "rollout_path": rollout_path,
                 **({"fork": True} if fork else {}),
             }
@@ -371,6 +375,7 @@ class WorkspaceSessionManager:
                 state = dict(previous)
                 snapshot = event["snapshot"]
                 state["title"] = str(snapshot.get("title") or "")
+                state["cwd"] = snapshot["cwd"]
                 if reason == "identity" and state["rollout_path"]:
                     # Recreate an unwritten fork from its recorded ancestor.
                     state["fork"] = True
@@ -418,6 +423,7 @@ class WorkspaceSessionManager:
                 {
                     "id": session_id,
                     "title": summary.get("title") or "pycodex",
+                    "cwd": summary["cwd"],
                     "running": bool(summary.get("running")),
                     "last_final_id": final_id,
                     "unread": bool(

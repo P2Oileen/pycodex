@@ -60,13 +60,8 @@ class ParsedExecSource:
 
 
 class CodeModeManager:
-    def __init__(
-        self,
-        registry: "ToolRegistry",
-        cwd: "typing.Union[typing.Union[str, Path], None]" = None,
-    ) -> "None":
+    def __init__(self, registry: "ToolRegistry") -> "None":
         self._registry = registry
-        self._default_cwd = Path(cwd or Path.cwd()).resolve()
         self._runtime_script = Path(__file__).with_name("exec_runtime.js")
         self._stored_values: "typing.Dict[str, JSONValue]" = {}
         self._cells: "typing.Dict[str, ExecCell]" = {}
@@ -130,7 +125,7 @@ class CodeModeManager:
         process = await asyncio.create_subprocess_exec(
             "node",
             str(self._runtime_script),
-            cwd=str(self._default_cwd),
+            cwd=str(context.cwd),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -153,7 +148,7 @@ class CodeModeManager:
                 "tools": self.enabled_tools(),
             },
         )
-        logger.debug("exec start cell_id={} cwd={}", cell_id, self._default_cwd)
+        logger.debug("exec start cell_id={} cwd={}", cell_id, context.cwd)
         return cell
 
     async def _read_stdout(self, cell: "ExecCell", context: "ToolContext") -> "None":
@@ -278,7 +273,7 @@ class CodeModeManager:
                 arguments=message.get("arguments"),
                 tool_type=tool.tool_type,
             ),
-            ToolContext(turn_id=context.turn_id, history=context.history),
+            context,
         )
         if result.is_error:
             payload = {

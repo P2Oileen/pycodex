@@ -699,10 +699,12 @@
       max-width: 65%;
     }
     .queue-hint[hidden],
-    .queue-indicator[hidden] {
+    .queue-indicator[hidden],
+    .session-cwd[hidden] {
       display: none;
     }
-    .queue-indicator {
+    .queue-indicator,
+    .session-cwd {
       display: inline-flex;
       align-items: center;
       gap: var(--space-2);
@@ -716,17 +718,24 @@
       color: var(--muted);
       background: var(--panel-deep);
     }
+    .session-cwd {
+      margin-left: auto;
+      max-width: min(160px, 45%);
+    }
     .queue-symbol {
       flex-shrink: 0;
       font-size: 12px;
       line-height: 1;
     }
-    .queue-symbol svg {
+    .queue-symbol svg,
+    .session-cwd svg {
       display: block;
       width: 14px;
       height: 14px;
+      flex-shrink: 0;
     }
-    .queue-preview {
+    .queue-preview,
+    .session-cwd-name {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -891,7 +900,7 @@
     .spinner:hover {
       background: var(--panel-deep);
     }
-    .spinner-wrap:not(:has(.spinner:not(:empty), .queue-hint:not([hidden]))) {
+    .spinner-wrap:not(:has(.spinner:not(:empty), .queue-hint:not([hidden]), .session-cwd:not([hidden]))) {
       display: none;
     }
     .spinner:focus-visible {
@@ -1016,6 +1025,7 @@
           </svg>
         </a>
         <div id="contentTabs" class="tabs content-tabs" role="tablist" aria-label="Board views"
+             data-board-path="__BOARD_LABEL__"
              data-board-title="Workspace: __WORKSPACE_TITLE__&#10;Current dir: __CWD_LABEL__&#10;Canvas file: __BOARD_LABEL__"></div>
         <span id="viewStatus" class="content-status" role="status" hidden></span>
         <button class="fullscreen-toggle" type="button" title="Enter fullscreen" aria-label="Enter fullscreen" hidden>
@@ -1078,6 +1088,13 @@
               </span>
             </div>
             <button id="spinner" class="spinner" type="button" role="checkbox" aria-checked="false" aria-live="polite"></button>
+            <span id="sessionCwd" class="session-cwd" data-default-cwd="__CWD_LABEL__" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>
+              </svg>
+              <span class="session-cwd-name"></span>
+            </span>
           </div>
           <div class="composer-box">
             <div id="contextControl" class="context-control">
@@ -1829,6 +1846,7 @@
       }
       renderTabs();
       updatePromptPlaceholder();
+      updateSessionDirectory();
       updateContextMeter();
       updateSpinnerNotifyUi();
     }
@@ -1967,6 +1985,19 @@
       const label = session && session.model ? `Message to ${session.model}` : "Message";
       prompt.dataset.placeholder = `${label}…`;
       prompt.setAttribute("aria-label", label);
+    }
+
+    function updateSessionDirectory(snapshot = null) {
+      const session = snapshot || sessionById(activeSessionId);
+      const cwd = session ? session.cwd || "" : "";
+      const label = document.getElementById("sessionCwd");
+      label.hidden = !cwd || cwd === label.dataset.defaultCwd;
+      label.querySelector(".session-cwd-name").textContent = cwd.split(/[\\/]/).filter(Boolean).pop() || cwd;
+      label.title = `Current dir: ${cwd}\nUse /cd <directory> to change directory`;
+      const tabs = document.getElementById("contentTabs");
+      tabs.dataset.boardTitle = `Workspace: ${workspaceTitle}\nCurrent dir: ${cwd || label.dataset.defaultCwd}\nCanvas file: ${tabs.dataset.boardPath}`;
+      const canvasTab = tabs.querySelector('[data-view-id="board"]');
+      if (canvasTab) canvasTab.title = tabs.dataset.boardTitle;
     }
 
     function updateContextMeter(snapshot = null) {
@@ -2141,6 +2172,7 @@
     function renderSnapshot(snapshot) {
       if (!snapshot) return;
       updatePromptPlaceholder(snapshot);
+      updateSessionDirectory(snapshot);
       const state = stateForSession(activeSessionId);
       state.inputRequest = snapshot.input_request || null;
       renderQueueHint(snapshot.queued_inputs);
@@ -2324,6 +2356,7 @@
       activeSessionId = sessionId;
       renderTabs();
       updatePromptPlaceholder();
+      updateSessionDirectory();
       updateContextMeter();
       const state = stateForSession(sessionId);
       state.lastRenderedSignature = "";
@@ -2530,7 +2563,7 @@
       event.preventDefault();
       const source = event.target.closest(".snapshot-markdown[data-src-path]");
       const srcPath = source ? source.getAttribute("data-src-path") : undefined;
-      contentTabs.open(href, srcPath).catch(error => showToast("Unable to open view: " + error.message));
+      contentTabs.open(href, srcPath, activeSessionId).catch(error => showToast("Unable to open view: " + error.message));
     }
 
     function followMarkdownLink(event) {

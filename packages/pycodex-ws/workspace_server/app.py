@@ -201,6 +201,7 @@ class WebSessionView:
         self._title = ""
         self._last_final_id = ""
         self._model = "pycodex"
+        self._cwd = ""
         self._rollout_path = ""
         self._recorded_rollout_path = ""
         self._input_request = None
@@ -326,6 +327,7 @@ class WebSessionView:
                 "status_kind": "spinner" if self._spinner_status else "idle",
                 "spinner": self._spinner_status,
                 "model": self._model,
+                "cwd": self._cwd,
                 "rollout_path": self._rollout_path,
                 "recorded_rollout_path": self._recorded_rollout_path,
                 "input_request": _json_safe(self._input_request),
@@ -344,6 +346,7 @@ class WebSessionView:
         with self._lock:
             return {
                 "model": self._model,
+                "cwd": self._cwd,
                 "running": bool(self._spinner_status),
                 "last_final_id": self._last_final_id,
                 "spinner": self._spinner_status,
@@ -357,6 +360,7 @@ class WebSessionView:
         if isinstance(event, SessionStateEvent):
             state = event.state
             self._model = state["model"]
+            self._cwd = state["cwd"]
             self._rollout_path = state["rollout_path"]
             self._recorded_rollout_path = state["recorded_rollout_path"]
             self._input_request = state["input_request"]
@@ -714,8 +718,14 @@ class WorkspaceInteractiveSession:
         return self.view.snapshot()["rollout_path"]
 
     async def restore_from_rollout(
-        self, rollout_path: str, title: str = "", fork: bool = False
+        self,
+        rollout_path: str,
+        title: str = "",
+        fork: bool = False,
+        cwd: "typing.Optional[str]" = None,
     ) -> None:
+        if cwd is not None:
+            self.runtime.set_cwd(cwd)
         if rollout_path:
             self.runtime.resume(rollout_path, title)
             if fork:
@@ -840,7 +850,11 @@ class ThreadedWorkspaceInteractiveSession:
         return self._session.rollout_path()
 
     async def restore_from_rollout(
-        self, rollout_path: str, title: str = "", fork: bool = False
+        self,
+        rollout_path: str,
+        title: str = "",
+        fork: bool = False,
+        cwd: "typing.Optional[str]" = None,
     ) -> None:
         session = self._session
         loop = self._worker_loop
@@ -848,7 +862,7 @@ class ThreadedWorkspaceInteractiveSession:
             return
 
         future = asyncio.run_coroutine_threadsafe(
-            session.restore_from_rollout(rollout_path, title=title, fork=fork),
+            session.restore_from_rollout(rollout_path, title=title, fork=fork, cwd=cwd),
             loop,
         )
         await asyncio.wrap_future(future)
@@ -1454,10 +1468,17 @@ def _open_view_response(
     manager: WorkspaceSessionManager, work_dir: Path, payload: "typing.Dict[str, object]"
 ) -> JSONResponse:
     try:
+        session_id = payload.get("session_id")
+        if session_id is not None:
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("session_id must be a nonempty string")
+            work_dir = Path(manager.get(session_id).summary()["cwd"])
         view = WorkspaceViewOpener(manager.views, work_dir).open(
             payload.get("href"), payload.get("src_path")
         )
         views = manager.views.list_views()
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found")
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         raise HTTPException(status_code=400, detail=str(error))
     return JSONResponse(
@@ -1959,7 +1980,7 @@ def _build_workspace_entry(
             profile=args.profile,
             system_prompt=args.system_prompt,
             extra_contextual_user_messages=(
-                [_workspace_context_text(definition.board_path, definition.work_dir)]
+                [_workspace_context_text(definition.board_path)]
                 if definition.board_path is not None
                 else []
             ),
@@ -1986,10 +2007,7 @@ def _build_workspace_entry(
     )
 
 
-def _workspace_context_text(
-    board_path: Path,
-    work_dir: "typing.Union[Path, None]",
-) -> str:
+def _workspace_context_text(board_path: Path) -> str:
     return (
         "Current workspace Canvas file: {0}. "
         "Changes you make to this HTML file are shown to the user in real time. "
@@ -1999,26 +2017,7 @@ def _workspace_context_text(
         "and diff:left..right. Append #L42 to select a file or left-side line, "
         "or #R42 for the right side of a diff. "
         "Use workspace://canvas to return to the live Canvas."
-    ).format(_format_board_path_for_prompt(board_path, work_dir=work_dir))
-
-
-def _format_board_path_for_prompt(
-    board_path: Path,
-    work_dir: "typing.Union[Path, None]" = None,
-) -> str:
-    resolved = board_path.resolve()
-    try:
-        relative = os.path.relpath(
-            str(resolved),
-            str(Path(work_dir or Path.cwd()).resolve()),
-        )
-    except ValueError:
-        return str(resolved)
-    if relative == ".":
-        return "."
-    if relative.startswith(".."):
-        return str(resolved)
-    return "./{0}".format(relative)
+    ).format(board_path.resolve())
 
 
 def _render_workspace_shell(

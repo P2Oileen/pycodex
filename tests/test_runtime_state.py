@@ -555,7 +555,7 @@ async def test_background_notification_steer_reports_only_failures(
             async def wait(self):
                 return self.returncode
 
-        manager = UnifiedExecManager(tmp_path)
+        manager = UnifiedExecManager()
         manager._sessions[1000] = UnifiedExecSession(
             1000, CompletedProcess(), 0.0, "completed command", False
         )
