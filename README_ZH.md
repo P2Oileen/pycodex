@@ -314,7 +314,9 @@ pycodex doctor
 - `/effort low` 在空闲时切换 effort，`/effort` 查看当前值，`/effort default` 恢复模型默认值；前端模型标签显示 `model:effort`。
 - `/resume` 不带参数时会按首条用户消息预览列出当前可恢复的 session；`/resume 1`
   会恢复列表里的第 1 个 session
-- `/resume <数字>` 会从 `CODEX_HOME/sessions` 读取选中的已记录 Codex rollout，
+- `/resume <session_id>` 支持完整的会话 UUID，不受当前列表条数限制。
+  编号和 UUID 两种方式都会查找 `CODEX_HOME/sessions` 与
+  `CODEX_HOME/archived_sessions`，读取选中的已记录 Codex rollout，
   并直接替换当前内存里的会话 history
 - 新 session 现在会自动保存到 `CODEX_HOME/sessions/.../rollout-*.jsonl`，
   使用稳定的 session/thread id，并按 item 级别 append + flush，和 `/resume`

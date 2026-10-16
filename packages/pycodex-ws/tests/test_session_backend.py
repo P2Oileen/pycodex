@@ -83,8 +83,9 @@ async def run_frontend(frontend, queue, inputs):
 
 
 @pytest.mark.parametrize("frontend", ["cli", "web", "feishu"])
+@pytest.mark.parametrize("resume_by_id", [False, True])
 @pytest.mark.asyncio
-async def test_frontends_share_all_session_commands(frontend):
+async def test_frontends_share_all_session_commands(frontend, resume_by_id):
     session_id = uuid7_string()
     source = Agent(
         ControlClient([ModelResponse([AssistantMessage("old answer")])]),
@@ -109,7 +110,7 @@ async def test_frontends_share_all_session_commands(frontend):
             "/model",
             "/model changed",
             "/resume",
-            "/resume 1",
+            "/resume " + (old_id if resume_by_id else "1"),
             "/title Shared title",
             "/title",
             "/history",

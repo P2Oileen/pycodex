@@ -367,8 +367,10 @@ Current behavior:
   `model:effort`.
 - `/resume` with no argument lists the currently resumable sessions by their
   first user-message preview; `/resume 1` resumes the first listed session
-- `/resume <number>` replaces the in-memory history with the selected recorded
-  Codex rollout from `CODEX_HOME/sessions`. Tool calls without recorded results
+- `/resume <session_id>` accepts a full session UUID, including sessions older
+  than the displayed list. Both forms search `CODEX_HOME/sessions` and
+  `CODEX_HOME/archived_sessions` and replace the in-memory history with the
+  selected recorded Codex rollout. Tool calls without recorded results
   are omitted during restore; later saved messages and completed tools remain
   available, and the source file is left intact.
 - `/compact` synthesizes a local handoff summary, replaces the in-memory

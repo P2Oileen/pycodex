@@ -142,6 +142,9 @@ Every frontend calls `await runtime.submit_input(text, sender)`. The returned
 `SubmittedInput` carries a submission id, kind and future. Normal text uses
 steer; `/queue <text>` uses the ordinary queue. The backend parses `/help`,
 `/history`, `/title`, `/model`, `/effort`, `/resume`, `/compact` and `/fork`.
+`/resume` lists recent sessions; `/resume <number>` selects from that list,
+while `/resume <session_id>` resolves a full UUID independently of the list
+limit, including archived sessions. Both use the same idle-only restore path.
 Each queued request is one private record of submission id, turn id, texts and
 futures. The unused public `Submission` / `UserTurnOp` wrappers are removed;
 callers submit text through `submit_input` or `enqueue_user_turn`.

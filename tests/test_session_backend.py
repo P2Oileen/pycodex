@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import subprocess
 import sys
 
@@ -40,6 +41,87 @@ def make_queue(client=None):
             session_id=session_id,
         )
     )
+
+
+@pytest.mark.parametrize("dirname", ["sessions", "archived_sessions"])
+@pytest.mark.asyncio
+async def test_resume_session_id_finds_older_rollouts_and_keeps_state_on_errors(dirname):
+    home = resolve_codex_home()
+    session_id = "abcdef01-2345-4678-89ab-0123456789ab"
+
+    def write_rollout(directory, identity, message, modified):
+        path = home / directory / "2026" / "01" / ("rollout-" + identity + ".jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entries = [{"type": "session_meta", "payload": {"id": identity}}]
+        if message:
+            entries.extend([
+                {"type": "event_msg", "payload": {"type": "user_message", "message": message}},
+                {"type": "response_item", "payload": AssistantMessage("saved answer").serialize()},
+            ])
+        path.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n", encoding="utf-8")
+        os.utime(str(path), (modified, modified))
+        return path
+
+    other = "archived_sessions" if dirname == "sessions" else "sessions"
+    write_rollout(other, session_id, "outdated copy", 1000)
+    path = write_rollout(dirname, session_id, "older prompt", 1500)
+    for index in range(21):
+        write_rollout("sessions", uuid7_string(), "recent " + str(index), 2000 + index)
+    empty_id = uuid7_string()
+    write_rollout("sessions", empty_id, "", 1100)
+    (home / "session_index.jsonl").write_text(
+        json.dumps({"id": session_id, "thread_name": "Saved title"}) + "\n",
+        encoding="utf-8",
+    )
+    original = path.read_bytes()
+    client = ControlClient([ModelResponse([AssistantMessage("continued")])])
+    queue = make_queue(client)
+    observers = [[], []]
+    for events in observers:
+        queue.attach(events.append)
+    await queue.start()
+    try:
+        receipt = await queue.submit_input("/resume")
+        sessions = (await receipt.future)["sessions"]
+        assert len(sessions) == 20
+        assert session_id not in [session["thread_id"] for session in sessions]
+
+        receipt = await queue.submit_input("/resume " + session_id.upper())
+        result = await receipt.future
+        assert result["kind"] == "resumed"
+        assert result["state"]["session_id"] == session_id
+        assert queue.agent.session_file_path == path
+        assert queue.title == "Saved title"
+        assert queue.agent.history == (UserMessage("older prompt"), AssistantMessage("saved answer"))
+        assert path.read_bytes() == original
+        for events in observers:
+            assert events[-1].kind == "command_completed"
+            assert events[-1].result == result
+
+        before = queue.snapshot()
+        for target, error in (
+            (uuid7_string(), "Session not found"),
+            (empty_id, "Session not found"),
+            (session_id[:8], "Usage: /resume"),
+            (session_id + " extra", "Usage: /resume"),
+            ("0", "Session not found"),
+            ("999", "Session not found"),
+        ):
+            receipt = await queue.submit_input("/resume " + target)
+            with pytest.raises(ValueError, match=error):
+                await receipt.future
+            assert queue.snapshot() == before
+            assert path.read_bytes() == original
+
+        receipt = await queue.submit_input("continue")
+        await receipt.future
+        assert queue.agent.history == (
+            UserMessage("older prompt"), AssistantMessage("saved answer"),
+            UserMessage("continue"), AssistantMessage("continued"),
+        )
+        assert path.read_bytes().startswith(original)
+    finally:
+        await queue.close()
 
 
 @pytest.mark.parametrize(

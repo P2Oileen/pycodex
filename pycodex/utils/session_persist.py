@@ -163,6 +163,7 @@ class SessionRolloutRecorder:
 def list_resumable_sessions(
     codex_home: "Path",
     limit: "int" = 20,
+    session_id: "typing.Union[str, None]" = None,
 ) -> "typing.Tuple[typing.Dict[str, str], ...]":
     latest_rollouts_by_id: "typing.Dict[str, Path]" = {}
     for dirname in ROLLUP_SESSION_DIRNAMES:
@@ -172,6 +173,8 @@ def list_resumable_sessions(
         for path in root.rglob("rollout-*.jsonl"):
             thread_id = _thread_id_from_rollout_path(path)
             if thread_id is None:
+                continue
+            if session_id is not None and thread_id.lower() != session_id.lower():
                 continue
             previous = latest_rollouts_by_id.get(thread_id)
             if previous is None or path.stat().st_mtime > previous.stat().st_mtime:
@@ -202,11 +205,16 @@ def list_resumable_sessions(
 
 def select_resumable_session(
     codex_home: "Path",
-    resume_index_text: "str",
+    resume_target: "str",
 ) -> "typing.Dict[str, str]":
-    normalized_target = resume_index_text.strip()
+    normalized_target = resume_target.strip()
+    if UUID_PATTERN.fullmatch(normalized_target):
+        sessions = list_resumable_sessions(codex_home, 1, normalized_target)
+        if not sessions:
+            raise ValueError(f"Session not found: {normalized_target}")
+        return sessions[0]
     if not normalized_target.isdigit():
-        raise ValueError("Usage: /resume <number>")
+        raise ValueError("Usage: /resume <number|session_id>")
 
     sessions = list_resumable_sessions(codex_home)
     resume_index = int(normalized_target)
