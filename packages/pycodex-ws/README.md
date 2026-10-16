@@ -76,6 +76,14 @@ Use a filename prefix and a separate Canvas switch in `workspaces.json`:
 ```
 
 Start it with `pycodex-ws --workspace-config workspaces.json`.
+Sessions appear in a sidebar on the right. Collapsing it hides the titles and
+keeps a clickable column of status dots: running sessions pulse, finished
+sessions show a steady green dot, and unread replies retain their red marker.
+Hover a dot to see its title, or use the sidebar button to expand the titles.
+On narrow screens the expanded sidebar overlays the conversation and returns
+to the status column after selecting or creating a session. Both layouts use
+smooth transitions and respect the system's reduced-motion preference.
+Session renaming and closing remain available in the expanded sidebar.
 Relative paths resolve from the configuration directory. This example uses
 `demo.pycodex-ws.json` for session titles, directories and rollout references,
 `demo.pycodex-views.json` for file views, and `demo.html` for Canvas.

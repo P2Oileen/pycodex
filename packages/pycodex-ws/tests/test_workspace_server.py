@@ -297,6 +297,7 @@ const markVisibleFinalRead = () => {};
 const workspaceTitle = document.title;
 const relativeUrl = path => path;
 const resizePrompt = () => {};
+const dismissSessionsDrawer = () => {};
 const renderTabs = () => {};
 const renderQueueHint = () => {};
 const updateContextMeter = () => {};
