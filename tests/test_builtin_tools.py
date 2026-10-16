@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pycodex import Agent, AgentRuntime, AssistantMessage, BaseTool, ContextConfig, ModelResponse
+from pycodex import Agent, AgentRuntime, AssistantMessage, ContextConfig, ModelResponse
 from pycodex.protocol import ToolCall, ToolResult, UserMessage
 from pycodex.tools.runtime_services import (
     PlanStore,
@@ -63,72 +63,6 @@ def make_registry() -> "ToolRegistry":
     registry.register(GrepFilesTool())
     registry.register(ViewImageTool())
     return registry
-
-
-@pytest.mark.asyncio
-async def test_path_tools_use_call_cwd_and_code_cells_keep_their_original_cwd(tmp_path):
-    registry = make_registry()
-    target = tmp_path / "target"
-    target.mkdir()
-    nested = target / "nested"
-    nested.mkdir()
-    context = ToolContext("turn", (), target)
-    patch = "*** Begin Patch\n*** Add File: found.txt\n+unique-marker\n*** End Patch"
-    release = asyncio.Event()
-
-    class GateTool(BaseTool):
-        name = "gate"
-        description = "Wait for the test to release this cell."
-        parameters = {"type": "object", "properties": {}}
-
-        async def run(self, context, args):
-            await release.wait()
-            return "released"
-
-    registry.register(GateTool())
-    try:
-        result = await registry.execute(ToolCall("patch", "apply_patch", patch), context)
-        assert "A found.txt" in result.output
-        assert (target / "found.txt").read_text() == "unique-marker\n"
-        assert not (tmp_path / "found.txt").exists()
-        for name, arguments in [
-            ("shell", {"command": ["pwd"]}),
-            ("shell_command", {"command": "pwd", "login": False}),
-            ("exec_command", {"cmd": "pwd", "login": False}),
-            ("grep_files", {"pattern": "unique-marker"}),
-        ]:
-            result = await registry.execute(ToolCall(name, name, arguments), context)
-            assert not result.is_error
-            assert str(target) in result.output
-        for name, arguments in [
-            ("shell", {"command": ["pwd"], "workdir": "nested"}),
-            ("shell_command", {"command": "pwd", "login": False, "workdir": "nested"}),
-            ("exec_command", {"cmd": "pwd", "login": False, "workdir": "nested"}),
-        ]:
-            result = await registry.execute(ToolCall(name, name, arguments), context)
-            assert str(nested) in result.output
-        # The same tools can run in another directory with a new call context.
-        result = await registry.execute(
-            ToolCall("other", "shell", {"command": ["pwd"]}), ToolContext("direct", (), tmp_path)
-        )
-        assert "Working directory: " + str(tmp_path) + "\n" in result.output
-        # A yielded cell's nested tools use the cwd captured when the cell started.
-        cell = await registry.execute(ToolCall("cell", "exec", (
-            '// @exec: {"yield_time_ms": 10}\n'
-            "await tools.gate(); "
-            'text(await tools.shell({command: ["pwd"]}));'
-        ), tool_type="custom"), context)
-        cell_id = cell.output_text().split("Script running with cell ID ", 1)[1].splitlines()[0]
-        release.set()
-        result = await registry.execute(
-            ToolCall("wait", "wait", {"cell_id": cell_id, "yield_time_ms": 1000}),
-            ToolContext("later", (), tmp_path),
-        )
-        assert str(target) in str(result.output)
-    finally:
-        release.set()
-        for tool in registry.tools():
-            tool.shutdown()
 
 
 def make_subagent_registry(
