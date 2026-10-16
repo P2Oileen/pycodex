@@ -48,6 +48,11 @@
       --tab-max-width: 180px;
       --chat-width: min(42vw, 760px);
       --splitter-width: 8px;
+      --session-sidebar-size: 280px;
+      --session-rail-width: 56px;
+      --session-sidebar-width: var(--session-sidebar-size);
+      --sidebar-duration: 320ms;
+      --sidebar-ease: cubic-bezier(0.22, 1, 0.36, 1);
     }
     * { box-sizing: border-box; }
     body {
@@ -62,9 +67,13 @@
     .pane-toggle { display: none; }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) var(--splitter-width) var(--chat-width);
+      grid-template-columns: minmax(0, 1fr) var(--splitter-width) minmax(0, var(--chat-width)) var(--session-sidebar-width);
       height: 100dvh;
       min-width: 0;
+    }
+    .workspace.sessions-collapsed { --session-sidebar-width: var(--session-rail-width); }
+    .workspace.sessions-ready:not(.resizing) {
+      transition: grid-template-columns var(--sidebar-duration) var(--sidebar-ease);
     }
     .workspace.collapsed .splitter::after {
       background: var(--accent);
@@ -157,6 +166,234 @@
       align-items: center;
       gap: 8px;
       min-width: 0;
+    }
+    .active-session-title {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .sessions-toggle {
+      position: relative;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .sessions-toggle svg { width: 18px; height: 18px; }
+    .sessions-toggle:hover { background: var(--panel-hover); color: var(--ink); }
+    .sessions-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    #sessionsToggle .tab-status {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 10px;
+      height: 10px;
+      background: var(--panel-raised);
+    }
+    .workspace:not(.sessions-collapsed) #sessionsToggle .tab-status { display: none; }
+    .session-sidebar {
+      min-width: 0;
+      min-height: 0;
+      height: 100dvh;
+      overflow: hidden;
+      border-left: 1px solid #e5e9ec;
+      background: #f7f8fa;
+      opacity: 1;
+      visibility: visible;
+    }
+    .session-sidebar-inner {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+    }
+    .session-sidebar-header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: 0 0 44px;
+      padding: 0 12px;
+    }
+    .session-sidebar-header h2 {
+      position: absolute;
+      left: 22px;
+      margin: 0;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+    .session-sidebar-header .sessions-toggle { margin-left: auto; }
+    .session-sidebar-header h2,
+    .session-sidebar .tab-new span,
+    .session-sidebar .tab-label {
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 180ms ease 100ms, visibility 0s;
+    }
+    .sessions-collapsed .session-sidebar-header h2,
+    .sessions-collapsed .session-sidebar .tab-new span,
+    .sessions-collapsed .session-sidebar .tab-label {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 100ms ease, visibility 0s 100ms;
+    }
+    .session-sidebar .sessions-toggle { color: #84919a; }
+    .session-sidebar .sessions-toggle:hover { background: #e9edf0; color: var(--ink); }
+    .session-sidebar .tab-new {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      width: auto;
+      height: 42px;
+      margin: 10px 6px 10px;
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+      background: #edf0f3;
+      border: 0;
+      border-radius: 8px;
+      overflow: hidden;
+      transition: background 160ms ease;
+    }
+    .session-sidebar .tab-new svg { flex: 0 0 18px; }
+    .session-sidebar .tab-new span { white-space: nowrap; }
+    .session-sidebar .tab-new:hover { background: #e4e9ed; }
+    .session-sidebar .tabs {
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 1px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      padding: 0 6px max(16px, env(safe-area-inset-bottom));
+    }
+    .session-sidebar .tabs::-webkit-scrollbar { display: block; width: 4px; }
+    .session-sidebar .tabs::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+    .session-sidebar .tab {
+      flex: 0 0 auto;
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+      min-height: 0;
+      height: 34px;
+      padding: 0 12px;
+      gap: 8px;
+      border-radius: 8px;
+      color: #54616b;
+      background: transparent;
+      overflow: hidden;
+      transition: height var(--sidebar-duration) var(--sidebar-ease), background 160ms ease, box-shadow 160ms ease;
+    }
+    .sessions-collapsed .session-sidebar .tab { height: 28px; }
+    .session-sidebar .tab:hover { background: #eceff2; color: var(--ink); }
+    .session-sidebar .tab.active {
+      background: #fff;
+      color: var(--ink);
+      font-weight: 500;
+      box-shadow: 0 1px 3px rgba(23, 38, 48, 0.06), 0 0 0 1px rgba(23, 38, 48, 0.04);
+    }
+    .session-sidebar .tab-label {
+      position: absolute;
+      left: 12px;
+      width: 184px;
+      order: -1;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 16px;
+      font-size: 13px;
+    }
+    .session-sidebar .tab-title-input { order: -1; margin-right: 60px; }
+    .session-sidebar .tab-close {
+      position: absolute;
+      right: 40px;
+      z-index: 2;
+      width: 24px;
+      height: 24px;
+      margin: 0;
+      display: none;
+      color: #84919a;
+    }
+    .session-sidebar .tab.active .tab-close,
+    .session-sidebar .tab:hover .tab-close,
+    .session-sidebar .tab:focus-within .tab-close {
+      display: grid;
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+    .sessions-collapsed .session-sidebar .tab .tab-close { display: none; }
+    .session-sidebar .tab-status {
+      position: absolute;
+      right: 5px;
+      width: 32px;
+      height: 100%;
+      max-height: 32px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .session-sidebar .tab-status:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .session-sidebar .unread-dot {
+      position: absolute;
+      z-index: 1;
+      right: 8px;
+      top: calc(50% - 11px);
+      pointer-events: none;
+    }
+    .session-sidebar .tab-status::before {
+      width: 6px;
+      height: 6px;
+      box-shadow: 0 0 0 3px rgba(8, 127, 154, 0.08);
+    }
+    .session-sidebar .tab:not(.running) .tab-status::before {
+      animation: none;
+      background: #a3aeb7;
+      box-shadow: none;
+      opacity: 1;
+      transform: none;
+    }
+    .session-sidebar .tab.completed:not(.running) .tab-status::before { background: #568a73; }
+    .sessions-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      border: 0;
+      padding: 0;
+      background: rgba(23, 38, 48, 0.22);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .sessions-ready .sessions-backdrop {
+      transition: opacity var(--sidebar-duration) ease, visibility 0s var(--sidebar-duration);
+    }
+    .sessions-drawer-open .sessions-backdrop {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transition-delay: 0s;
     }
     .context-control {
       position: relative;
@@ -983,6 +1220,33 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 12px;
     }
+    @media (max-width: 1100px) {
+      .workspace { grid-template-columns: minmax(0, 1fr) var(--splitter-width) minmax(0, var(--chat-width)) var(--session-rail-width); }
+      .session-sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 21;
+        width: min(320px, calc(100vw - 40px));
+        border-radius: 16px 0 0 16px;
+        padding-right: env(safe-area-inset-right);
+        box-shadow: -8px 0 32px rgba(27, 57, 72, 0.1);
+      }
+      .session-sidebar-inner { width: 100%; }
+      .sessions-ready .session-sidebar,
+      .sessions-ready.sessions-collapsed .session-sidebar {
+        transition: width var(--sidebar-duration) var(--sidebar-ease), border-radius var(--sidebar-duration) ease, box-shadow var(--sidebar-duration) ease;
+      }
+      .sessions-collapsed .session-sidebar { width: var(--session-rail-width); border-radius: 0; box-shadow: none; }
+      .session-sidebar-header { flex-basis: 52px; }
+      .session-sidebar-header { padding: 0 6px; }
+      .session-sidebar .sessions-toggle { width: 44px; height: 44px; }
+      .session-sidebar .tab { height: 36px; }
+      .sessions-collapsed .session-sidebar .tab { height: 32px; }
+      .session-sidebar .tab-close { width: 32px; height: 30px; }
+      .session-sidebar .tab-label { width: min(208px, calc(100vw - 142px)); }
+      .session-sidebar .tab:hover:not(.active):not(:focus-within) .tab-close { display: none; }
+    }
     @media (max-width: 760px) {
       .pane-toggle {
         display: inline-grid;
@@ -1002,7 +1266,7 @@
       .pane-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       .pane-toggle svg { width: 18px; height: 18px; }
       .workspace { height: 100dvh; display: block; }
-      .board-pane, .chat { height: 100%; }
+      .board-pane, .chat { height: 100%; width: calc(100% - var(--session-rail-width)); }
       .splitter { display: none; }
       .workspace[data-mobile-pane="chat"] .board-pane,
       .workspace[data-mobile-pane="board"] .chat { display: none; }
@@ -1014,10 +1278,21 @@
       .tab-title-input { font-size: 16px; }
       .empty-chat h1 { font-size: 26px; }
     }
+    @media (prefers-reduced-motion: reduce) {
+      .workspace { --sidebar-duration: 0ms; }
+      .workspace.sessions-ready,
+      .sessions-ready .session-sidebar,
+      .sessions-ready .session-sidebar-inner,
+      .sessions-ready .sessions-backdrop,
+      .session-sidebar .tab,
+      .session-sidebar .tab-label,
+      .session-sidebar .tab-new span,
+      .session-sidebar-header h2 { transition: none; }
+    }
   </style>
 </head>
 <body data-enable-board="__ENABLE_BOARD__">
-  <div class="workspace" data-mobile-pane="chat">
+  <div class="workspace sessions-collapsed" data-mobile-pane="chat">
     <section class="board-pane" aria-label="workspace board">
       <div class="boardbar">
         <a class="workspace-back" href="/" title="Back to workspaces" aria-label="Back to workspaces">
@@ -1052,19 +1327,23 @@
     <section class="chat" aria-label="pycodex chat">
       <div class="topbar">
         <div class="tabbar">
-          <div id="tabs" class="tabs" role="tablist"></div>
-          <button id="newTab" class="tab-new" type="button" title="New session" aria-label="New session">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-                 stroke-linecap="round" aria-hidden="true">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
-          </button>
+          <span id="activeSessionStatus" class="tab-status" role="img" aria-label="Running" title="Running" hidden></span>
+          <span id="activeSessionTitle" class="active-session-title"></span>
           <button class="pane-toggle" type="button" data-pane="board" title="Show board" aria-label="Show board">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="3" width="18" height="18" rx="3"/>
               <path d="M3 9h18M9 9v12"/>
             </svg>
+          </button>
+          <button id="sessionsToggle" class="sessions-toggle" type="button" title="Show sessions"
+                  aria-label="Show sessions" aria-expanded="false" aria-controls="sessionSidebar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <path d="M15 3v18M18 8h1M18 12h1M18 16h1"/>
+            </svg>
+            <span id="sessionsToggleStatus" class="tab-status" role="img" aria-label="Sessions running" hidden></span>
           </button>
         </div>
       </div>
@@ -1135,6 +1414,31 @@
         </div>
       </form>
     </section>
+    <button id="sessionsBackdrop" class="sessions-backdrop" type="button" tabindex="-1"
+            aria-label="Close sessions" aria-hidden="true" inert></button>
+    <aside id="sessionSidebar" class="session-sidebar" aria-labelledby="sessionsHeading">
+      <div class="session-sidebar-inner">
+        <div class="session-sidebar-header">
+          <h2 id="sessionsHeading">Sessions</h2>
+          <button id="sessionsClose" class="sessions-toggle" type="button" title="Close sessions"
+                  aria-label="Close sessions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <path d="M15 3v18M8 9l3 3-3 3"/>
+            </svg>
+          </button>
+        </div>
+        <button id="newTab" class="tab-new" type="button" title="New session" aria-label="New session">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M15 5l4 4M10 14l1-5 6-6a2.8 2.8 0 0 1 4 4l-6 6-5 1Z"/>
+          </svg>
+          <span>New session</span>
+        </button>
+        <div id="tabs" class="tabs" role="tablist" aria-label="Sessions" aria-orientation="vertical"></div>
+      </div>
+    </aside>
   </div>
   <template id="emptyChat">
     <div class="empty-chat">
@@ -1166,6 +1470,17 @@
     const workspace = document.querySelector(".workspace");
     const splitter = document.getElementById("splitter");
     const tabsEl = document.getElementById("tabs");
+    const activeSessionTitle = document.getElementById("activeSessionTitle");
+    const activeSessionStatus = document.getElementById("activeSessionStatus");
+    const sessionsToggleStatus = document.getElementById("sessionsToggleStatus");
+    const sessionSidebar = document.getElementById("sessionSidebar");
+    const sessionsToggle = document.getElementById("sessionsToggle");
+    const sessionsClose = document.getElementById("sessionsClose");
+    const sessionsBackdrop = document.getElementById("sessionsBackdrop");
+    const sessionsDrawerMedia = window.matchMedia("(max-width: 1100px)");
+    const sessionsPreferenceKey = "pycodex.workspace.sessionsOpen";
+    let sessionsOpen = !sessionsDrawerMedia.matches &&
+      window.localStorage.getItem(sessionsPreferenceKey) !== "false";
     const contextMeter = document.getElementById("contextMeter");
     const contextMeterValue = document.getElementById("contextMeterValue");
     const newTabButton = document.getElementById("newTab");
@@ -1597,14 +1912,67 @@
     }
 
     function centerSplit() {
-      setChatWidth(Math.max(0, (window.innerWidth - 8) / 2));
+      setChatWidth(Math.max(0, (window.innerWidth - sessionSidebarWidth() - 8) / 2));
+    }
+
+    function sessionSidebarWidth() {
+      const size = sessionsOpen && !sessionsDrawerMedia.matches ? "--session-sidebar-size" : "--session-rail-width";
+      return parseFloat(getComputedStyle(workspace).getPropertyValue(size));
+    }
+
+    function setSessionsOpen(open, restoreFocus = false) {
+      sessionsOpen = open;
+      workspace.classList.toggle("sessions-collapsed", !open);
+      sessionsClose.title = open ? "Collapse sessions" : "Expand sessions";
+      sessionsClose.setAttribute("aria-label", sessionsClose.title);
+      sessionsClose.setAttribute("aria-expanded", String(open));
+      sessionsToggle.setAttribute("aria-expanded", String(open));
+      updateSessionsToggleStatus();
+      const modal = open && sessionsDrawerMedia.matches;
+      workspace.classList.toggle("sessions-drawer-open", modal);
+      sessionsBackdrop.inert = !modal;
+      sessionsBackdrop.setAttribute("aria-hidden", String(!modal));
+      sessionSidebar.setAttribute("role", modal ? "dialog" : "complementary");
+      if (modal) sessionSidebar.setAttribute("aria-modal", "true");
+      else sessionSidebar.removeAttribute("aria-modal");
+      for (const pane of workspace.querySelectorAll(".board-pane, .chat, .splitter")) {
+        pane.inert = modal;
+      }
+      if (!sessionsDrawerMedia.matches) {
+        window.localStorage.setItem(sessionsPreferenceKey, String(open));
+      }
+      if (modal) sessionsClose.focus({preventScroll: true});
+      else if (restoreFocus) sessionsToggle.focus({preventScroll: true});
+      requestAnimationFrame(() => {
+        resizePrompt();
+        restoreSessionScroll();
+      });
+    }
+
+    function updateSessionsToggleStatus() {
+      const runningCount = sessions.filter(session => session.running).length;
+      sessionsToggleStatus.hidden = runningCount === 0;
+      sessionsToggle.title = (sessionsOpen ? "Close sessions" : "Show sessions") +
+        (runningCount ? ` · ${runningCount} running` : "");
+      sessionsToggle.setAttribute("aria-label", sessionsToggle.title);
+    }
+
+    function dismissSessionsDrawer() {
+      if (sessionsDrawerMedia.matches && sessionsOpen) setSessionsOpen(false, true);
+    }
+
+    async function selectSession(sessionId) {
+      workspace.dataset.mobilePane = "chat";
+      await switchSession(sessionId);
+      resizePrompt();
+      restoreSessionScroll();
     }
 
     function setChatWidth(width) {
       const viewportWidth = window.innerWidth || 0;
       const splitterWidth = 8;
       const gutterWidth = Math.min(24, Math.max(12, Math.round(viewportWidth * 0.06)));
-      const availableWidth = Math.max(0, viewportWidth - splitterWidth);
+      const availableWidth = Math.max(0, viewportWidth - sessionSidebarWidth() - splitterWidth);
       const maxChatWidth = Math.max(gutterWidth, availableWidth - gutterWidth);
       const collapseWidth = Math.min(
         280,
@@ -1856,6 +2224,12 @@
     }
 
     function renderTabs() {
+      const active = sessionById(activeSessionId);
+      const activeIndex = sessions.findIndex(session => session.id === activeSessionId);
+      activeSessionTitle.textContent = active ? active.title || `Session ${activeIndex + 1}` : "";
+      activeSessionTitle.title = activeSessionTitle.textContent;
+      activeSessionStatus.hidden = !active?.running;
+      updateSessionsToggleStatus();
       const existingTabs = new Map(
         Array.from(tabsEl.children, tab => [tab.dataset.sessionId, tab])
       );
@@ -1866,7 +2240,7 @@
           tab = document.createElement("div");
           tab.dataset.sessionId = sessionId;
           tab.setAttribute("role", "tab");
-          tab.addEventListener("click", () => switchSession(sessionId));
+          tab.addEventListener("click", () => selectSession(sessionId));
 
           const unread = document.createElement("span");
           unread.className = "unread-dot";
@@ -1875,10 +2249,14 @@
           unread.setAttribute("aria-label", "Unread reply");
           tab.appendChild(unread);
 
-          const status = document.createElement("span");
-          status.className = "tab-status";
-          status.setAttribute("aria-hidden", "true");
-          tab.appendChild(status);
+          const statusButton = document.createElement("button");
+          statusButton.type = "button";
+          statusButton.className = "tab-status";
+          statusButton.addEventListener("click", event => {
+            event.stopPropagation();
+            selectSession(sessionId);
+          });
+          tab.appendChild(statusButton);
 
           const label = document.createElement("button");
           label.type = "button";
@@ -1908,11 +2286,15 @@
         tab.className =
           "tab" +
           (sessionId === activeSessionId ? " active" : "") +
+          (session.last_final_id ? " completed" : "") +
           (session.running ? " running" : "");
         tab.title = session.title || `Session ${index + 1}`;
         tab.setAttribute("aria-selected", sessionId === activeSessionId ? "true" : "false");
         tab.setAttribute("aria-busy", String(Boolean(session.running)));
-        tab.querySelector(".tab-status").hidden = !session.running;
+        const statusLabel = session.running ? "Running" : session.last_final_id ? "Finished" : "Idle";
+        const statusButton = tab.querySelector(".tab-status");
+        statusButton.title = `${tab.title} · ${statusLabel}${session.unread ? " · Unread reply" : ""}`;
+        statusButton.setAttribute("aria-label", statusButton.title);
         tab.querySelector(".unread-dot").hidden = !session.unread;
         const label = tab.querySelector(".tab-label");
         label.textContent = session.title || `Session ${index + 1}`;
@@ -2387,6 +2769,7 @@
     }
 
     async function switchSession(sessionId) {
+      dismissSessionsDrawer();
       if (!sessionId || sessionId === activeSessionId) return;
       saveActiveSessionUiState();
       activeSessionId = sessionId;
@@ -2430,6 +2813,7 @@
       restoreScrollTop = null;
       updateSessions(payload.sessions || []);
       renderSnapshot(payload.snapshot);
+      dismissSessionsDrawer();
     }
 
     async function closeSession(sessionId) {
@@ -2518,6 +2902,34 @@
     splitter.addEventListener("dblclick", centerSplit);
     spinner.addEventListener("click", toggleSpinnerNotification);
     newTabButton.addEventListener("click", createSession);
+    sessionsToggle.addEventListener("click", () => setSessionsOpen(!sessionsOpen));
+    sessionsClose.addEventListener("click", () => setSessionsOpen(!sessionsOpen, sessionsOpen));
+    sessionsBackdrop.addEventListener("click", () => setSessionsOpen(false, true));
+    sessionsDrawerMedia.addEventListener("change", () => {
+      const hadSidebarFocus = sessionSidebar.contains(document.activeElement);
+      setSessionsOpen(!sessionsDrawerMedia.matches &&
+        window.localStorage.getItem(sessionsPreferenceKey) !== "false", hadSidebarFocus);
+      const current = Number(window.localStorage.getItem("pycodex.workspace.chatWidth") || 0);
+      if (current > 0) setChatWidth(current);
+    });
+    sessionSidebar.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !event.target.matches(".tab-title-input")) {
+        event.preventDefault();
+        setSessionsOpen(false, true);
+      }
+      if (event.key !== "Tab" || !sessionsDrawerMedia.matches || !sessionsOpen) return;
+      const focusable = Array.from(sessionSidebar.querySelectorAll("button:not(:disabled), input"))
+        .filter(element => element.getClientRects().length && getComputedStyle(element).visibility !== "hidden");
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
     document.querySelectorAll(".fullscreen-toggle").forEach(button => {
       button.hidden = !document.fullscreenEnabled;
       button.addEventListener("click", async () => {
@@ -2562,12 +2974,14 @@
       requestAnimationFrame(markVisibleFinalRead);
     });
 
+    setSessionsOpen(sessionsOpen);
+    requestAnimationFrame(() => requestAnimationFrame(() => workspace.classList.add("sessions-ready")));
     loadChatWidth();
     setupContextDetails();
     resizePrompt();
     startPolling();
     startBoardPolling();
-    document.querySelectorAll(".tabs").forEach(tabs => {
+    document.querySelectorAll(".content-tabs").forEach(tabs => {
       tabs.addEventListener("wheel", event => {
         if (event.ctrlKey || event.shiftKey || event.deltaX !== 0 || event.deltaY === 0) return;
         const previous = tabs.scrollLeft;
