@@ -74,7 +74,9 @@ from pycodex.utils.event_helpers import (
 )
 from pycodex.utils.session_persist import load_display_history
 from pycodex_ws import build_runtime
+from pycodex_router.protocol import trusted_agent_request
 
+from .runtime_info import runtime_info_prompt
 from .workspace_views import WorkspaceViewOpener
 from .workspaces import (
     WorkspaceDefinition,
@@ -1011,7 +1013,7 @@ def create_multi_workspace_app(
 
     async def workspace_session(request: Request) -> JSONResponse:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
-        return _session_response(entry.manager, request.query_params.get("session_id"))
+        return _session_response(entry.manager, request, entry.definition.workspace_id)
 
     async def workspace_message(request: Request) -> JSONResponse:
         payload = await _json_object_body(request)
@@ -1133,7 +1135,7 @@ def _install_auth(
         root = request.scope.get("root_path", "")
         if root and path.startswith(root + "/"):
             path = path[len(root):]
-        if path in {"/favicon.ico", "/login"} or _auth_cookie_matches(
+        if path in {"/favicon.ico", "/login"} or trusted_agent_request(request.scope) or _auth_cookie_matches(
             token,
             request.cookies.get(cookie_name),
         ):
@@ -1412,7 +1414,7 @@ def _install_workspace_routes(
         return _read_session_response(manager, request.path_params["session_id"], payload)
 
     async def session(request: Request) -> JSONResponse:
-        return _session_response(manager, request.query_params.get("session_id"))
+        return _session_response(manager, request)
 
     async def message(request: Request) -> JSONResponse:
         payload = await _json_object_body(request)
@@ -1644,20 +1646,28 @@ async def _delete_session_response(
 
 def _session_response(
     manager: "WorkspaceSessionManager",
-    session_id: "typing.Union[str, None]" = None,
+    request: Request,
+    workspace_id: "typing.Union[str, None]" = None,
 ) -> JSONResponse:
     try:
-        resolved_id = manager.resolve_session_id(session_id)
+        resolved_id = manager.resolve_session_id(request.query_params.get("session_id"))
         link = manager.get(resolved_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="session not found")
-    return JSONResponse(
-        {
-            "session_id": resolved_id,
-            "sessions": manager.list_sessions(),
-            "snapshot": session_snapshot(link),
-        }
-    )
+    payload = {
+        "session_id": resolved_id,
+        "sessions": manager.list_sessions(),
+        "snapshot": session_snapshot(link),
+    }
+    if request.query_params.get("runtime_info") == "true":
+        state = request.app.state
+        payload["runtime_info"] = runtime_info_prompt(
+            resolved_id, link.summary(), workspace_id,
+            getattr(state, "local_api_url", None),
+            getattr(state, "router_client", None),
+            getattr(state, "agent_socket_path", None),
+        )
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 async def _message_response(

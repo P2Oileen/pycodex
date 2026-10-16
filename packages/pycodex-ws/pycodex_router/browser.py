@@ -8,7 +8,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .protocol import route_path
+from .protocol import agent_api_request, route_path
 
 
 def request_origin(connection):
@@ -77,6 +77,11 @@ class BrowserAccess:
                 raise HTTPException(
                     403, "Cross-origin router requests are not allowed."
                 )
+            device = (
+                self.router.authenticated_device(connection)
+                if agent_api_request(scope) else None
+            )
+            scope["pycodex.agent_access"] = device is not None
             await self.app(scope, receive, secured_send)
         except HTTPException as exc:
             if scope["type"] == "websocket":

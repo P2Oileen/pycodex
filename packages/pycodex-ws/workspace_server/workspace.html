@@ -182,6 +182,7 @@
       line-height: 1;
       flex: 0 0 auto;
       cursor: pointer;
+      touch-action: manipulation;
     }
     .context-meter:focus-visible {
       outline: 2px solid var(--accent);
@@ -239,6 +240,7 @@
       text-align: right;
     }
     .context-details p { margin: 0; color: var(--muted); }
+    .context-details p + p { margin-top: 8px; }
     .tabs {
       display: flex;
       align-items: center;
@@ -1099,7 +1101,8 @@
           <div class="composer-box">
             <div id="contextControl" class="context-control">
               <button id="contextMeter" class="context-meter" type="button" aria-label="Context usage"
-                      aria-expanded="false" aria-controls="contextDetails">
+                      aria-expanded="false" aria-controls="contextDetails" aria-describedby="runtimeInfoHint"
+                      title="Double-click to add runtime info">
                 <span id="contextMeterValue" class="context-meter-value">—</span>
               </button>
               <div id="contextDetails" class="context-details" role="region" aria-label="Context usage" hidden>
@@ -1111,6 +1114,7 @@
                     <dt>Max length</dt><dd id="contextMax">—</dd>
                   </dl>
                   <p id="contextNote"></p>
+                  <p id="runtimeInfoHint">Share to enable agent communication.</p>
                 </div>
               </div>
             </div>
@@ -2049,6 +2053,11 @@
         pinned = !pinned;
         show(pinned);
       });
+      contextMeter.addEventListener("dblclick", event => {
+        event.preventDefault();
+        close();
+        fillRuntimeInfo();
+      });
       document.addEventListener("pointerdown", event => {
         if (!control.contains(event.target)) close();
       });
@@ -2329,13 +2338,40 @@
       }
     }
 
+    async function fillRuntimeInfo() {
+      const sessionId = activeSessionId;
+      const state = stateForSession(sessionId);
+      if (!sessionId || state.runtimeInfoLoading) return;
+      state.runtimeInfoLoading = true;
+      try {
+        const response = await fetch(relativeUrl(
+          `api/session?session_id=${encodeURIComponent(sessionId)}&runtime_info=true`
+        ), {cache: "no-store"});
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || payload.detail || `HTTP ${response.status}`);
+        if (typeof payload.runtime_info !== "string") throw new Error("Runtime information is unavailable");
+        if (activeSessionId !== sessionId) return;
+        closeContextBlock();
+        // Read the draft now so typing during the request is preserved.
+        const end = Composer.size(composer.parts());
+        composer.replace(end, end, [{type: "text", text: (end ? "\n\n" : "") + payload.runtime_info}]);
+        showToast("Share to enable agent communication.");
+      } catch (error) {
+        if (activeSessionId === sessionId) showToast("Unable to load runtime information: " + error.message);
+      } finally {
+        state.runtimeInfoLoading = false;
+      }
+    }
+
     async function submitPrompt(text) {
+      const sessionId = activeSessionId;
       const response = await fetch(relativeUrl("api/session/message"), {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({prompt: text, sender: "web", session_id: activeSessionId}),
+        body: JSON.stringify({prompt: text, sender: "web", session_id: sessionId}),
       });
       const payload = await response.json();
+      if (activeSessionId !== sessionId) return;
       if (!response.ok || !payload.ok) {
         addEntry("error", payload.error || `HTTP ${response.status}`, "error");
         setSpinner("");

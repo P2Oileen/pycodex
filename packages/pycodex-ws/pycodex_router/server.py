@@ -30,9 +30,11 @@ from .protocol import (
     decode,
     device_id,
     encode,
+    normalize_api_url,
     request_scope,
     response_headers,
     send_event,
+    trusted_agent_request,
 )
 
 
@@ -154,7 +156,11 @@ class Router:
         max_connections=64,
         registration_key=None,
         aliases_path=None,
+        api_url=None,
+        api_port=None,
     ):
+        self.api_url = normalize_api_url(api_url) if api_url is not None else None
+        self.api_port = api_port
         self.registration_key = (
             _base58_encode(os.urandom(16))
             if registration_key is None
@@ -257,6 +263,18 @@ class Router:
         await websocket.accept()
         return True
 
+    def authenticated_device(self, connection):
+        if "origin" in connection.headers or "sec-fetch-site" in connection.headers:
+            return None
+        authorization = connection.headers.get("authorization", "")
+        if not authorization.startswith("Bearer "):
+            return None
+        try:
+            node_id = device_id(authorization[7:])
+        except ValueError:
+            return None
+        return self.nodes.get(node_id)
+
     async def control(self, websocket):
         if not await self.accept_tunnel(websocket):
             return
@@ -295,7 +313,17 @@ class Router:
                 aliases[node_id] = ""
                 self._save_aliases(aliases)
             self.nodes[node_id] = node
-            await websocket.send_text(encode({"type": "registered", "id": node_id}))
+            api_url = self.api_url
+            if api_url is None and self.api_port is not None:
+                host = websocket.url.hostname
+                if ":" in host:
+                    host = "[" + host + "]"
+                api_url = normalize_api_url(
+                    "http://{0}:{1}".format(host, self.api_port)
+                )
+            await websocket.send_text(encode({
+                "type": "registered", "id": node_id, "api_url": api_url,
+            }))
             while True:
                 message = await control_message(websocket)
                 if message.get("type") != "workspaces":
@@ -376,8 +404,12 @@ class Router:
     async def proxy(self, scope, receive, send):
         connection = HTTPConnection(scope)
         blocked = connection.client.host in self.blocked_ips
-        if blocked or not _auth_cookie_matches(
-            self.browser_token, connection.cookies.get("pycodex_router_auth")
+        agent_access = trusted_agent_request(scope)
+        if blocked or not (
+            agent_access
+            or _auth_cookie_matches(
+                self.browser_token, connection.cookies.get("pycodex_router_auth")
+            )
         ):
             await require_login(scope, receive, send)
             return
@@ -423,6 +455,7 @@ class Router:
                         {
                             "type": "open",
                             "scope": request_scope(scope),
+                            "agent_access": agent_access,
                         }
                     )
                 )
@@ -488,8 +521,12 @@ def create_app(
     max_connections=64,
     registration_key=None,
     aliases_path=None,
+    api_url=None,
+    api_port=None,
 ):
-    router = Router(connect_timeout, max_connections, registration_key, aliases_path)
+    router = Router(
+        connect_timeout, max_connections, registration_key, aliases_path, api_url, api_port
+    )
 
     async def index(request):
         return HTMLResponse(
@@ -569,6 +606,14 @@ def build_parser():
         "--tunnel-listen", default="0.0.0.0:6000", help="Device host:port."
     )
     parser.add_argument(
+        "--api-url",
+        help=(
+            "Public browser/API base URL advertised to devices, including any proxy "
+            "path prefix. Defaults to the device connection hostname and browser "
+            "HTTP port; set this for HTTPS, reverse proxies or port forwarding."
+        ),
+    )
+    parser.add_argument(
         "--password",
         required=True,
         help="Password required for browser access to the router.",
@@ -583,6 +628,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.password:
         parser.error("--password must not be empty")
+    if args.api_url is not None:
+        try:
+            args.api_url = normalize_api_url(args.api_url)
+        except ValueError as exc:
+            parser.error(str(exc))
     addresses = [parse_listen(args.listen), parse_listen(args.tunnel_listen)]
     if addresses[0][1] != 0 and addresses[0][1] == addresses[1][1]:
         parser.error("browser and device listeners must use different ports")
@@ -592,6 +642,7 @@ def main(argv=None):
         args.password,
         registration_key=load_registration_key(key_path),
         aliases_path=codex_home / "router-aliases.json",
+        api_url=args.api_url,
     )
     tunnel_app = create_tunnel_app(app.state.router)
     sockets = []
@@ -652,6 +703,7 @@ def main(argv=None):
                 config = listener
         if sockets[0].getsockname()[1] == sockets[1].getsockname()[1]:
             raise ValueError("browser and device listeners must use different ports")
+        app.state.router.api_port = sockets[0].getsockname()[1]
         RouterServer(config).run(sockets=sockets)
     finally:
         for listener_socket in sockets:

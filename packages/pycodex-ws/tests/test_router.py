@@ -14,7 +14,9 @@ import httpx
 import pytest
 import uvicorn
 from pycodex_router.client import RouterClient, attach_router
-from pycodex_router.protocol import decode, device_id, encode, parse_target, tunnel_url
+from pycodex_router.protocol import (
+    decode, device_id, encode, normalize_api_url, parse_target, tunnel_url,
+)
 from pycodex_router.server import create_app, create_tunnel_app, load_registration_key
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, Response, StreamingResponse
@@ -25,7 +27,7 @@ from websockets.exceptions import (
     InvalidHandshake,
     InvalidStatusCode,
 )
-from websockets.legacy.client import connect
+from websockets.legacy.client import connect, unix_connect
 from workspace_server import (
     WorkspaceDefinition,
     WorkspaceEntry,
@@ -44,6 +46,7 @@ from pycodex import (
     ToolRegistry,
 )
 from tests.fakes import ScriptedModelClient
+from workspace_server.owned_process import run_owned_server
 
 
 async def eventually(predicate):
@@ -103,6 +106,7 @@ async def serve_router(gate, root="", listener=None):
     if root:
         tunnel = Starlette(routes=[Mount(root, app=tunnel)])
     async with serve(web) as address:
+        gate.state.router.api_port = urlsplit(address).port
         async with serve(tunnel, listener) as target:
             yield address, client_target(target + root, gate.state.router.registration_key)
 
@@ -161,8 +165,8 @@ async def device(app, target, name="device", workspaces=None):
             await client.close()
 
 
-async def login(browser):
-    response = await browser.post("/login", json={"password": "router-password"})
+async def login(browser, root=""):
+    response = await browser.post(root + "/login", json={"password": "router-password"})
     assert response.status_code == 200
 
 
@@ -202,6 +206,156 @@ def workspace_app(directory, password=None, response_factory=None):
         ]
     )
     return create_multi_workspace_app(registry, password), registry
+
+
+@asynccontextmanager
+async def owned_workspace(app):
+    read_fd, write_fd = os.pipe()
+    task = asyncio.get_running_loop().run_in_executor(
+        None, run_owned_server, app, "127.0.0.1", 0, read_fd,
+    )
+    try:
+        await eventually(lambda: getattr(app.state, "agent_socket_path", None) is not None)
+        address = app.state.local_api_url
+        socket_path = app.state.agent_socket_path
+        async with httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=socket_path),
+            base_url=address, trust_env=False,
+        ) as local:
+            async def ready():
+                while True:
+                    if task.done():
+                        task.result()
+                        raise AssertionError("workspace exited before startup")
+                    try:
+                        await local.get("/api/workspaces")
+                        return
+                    except httpx.ConnectError:
+                        await asyncio.sleep(0.01)
+            await asyncio.wait_for(ready(), 5)
+            yield address, socket_path, local
+    finally:
+        os.close(write_fd)
+        try:
+            await asyncio.wait_for(asyncio.shield(task), 10)
+        finally:
+            os.close(read_fd)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="owner-only Unix socket")
+async def test_private_agent_socket_exempts_local_apis_but_not_tcp(tmp_path):
+    app, registry = workspace_app(tmp_path / "local", "local-password")
+    async with owned_workspace(app) as (address, socket_path, local):
+        assert Path(socket_path).stat().st_mode & 0o777 == 0o600
+        assert Path(socket_path).parent.stat().st_mode & 0o777 == 0o700
+        inventory = await local.get("/api/workspaces")
+        assert inventory.status_code == 200
+        own = inventory.json()["workspaces"][0]["sessions"][0]["id"]
+        response = await local.get("/w/shared/api/session", params={
+            "session_id": own, "runtime_info": "true",
+        })
+        assert response.status_code == 200
+        link = registry.get("shared").manager.get()
+        assert link.snapshot()["turns"] == []
+        prompt = response.json()["runtime_info"]
+        assert "curl --unix-socket " + socket_path in prompt
+        assert "local-password" not in prompt
+        assert (await local.post("/api/workspaces", json={})).status_code == 401
+        assert (await local.get("/w/shared/api/views")).status_code == 401
+        assert (await local.get("/router/api/workspaces")).status_code == 503
+        async with httpx.AsyncClient(base_url=address, trust_env=False) as browser:
+            for headers in [
+                {}, {"X-Pycodex-Agent-Access": "true"},
+                {"Forwarded": "for=127.0.0.1", "X-Forwarded-For": "127.0.0.1"},
+            ]:
+                assert (await browser.get("/api/workspaces", headers=headers)).status_code == 401
+            with pytest.raises(InvalidStatusCode):
+                async with connect(address.replace("http:", "ws:") + "/w/shared/ws/session"):
+                    pass
+        with pytest.raises(InvalidStatusCode):
+            async with unix_connect(
+                socket_path, uri=address.replace("http:", "ws:") + "/w/shared/ws/session",
+            ):
+                pass
+    assert not Path(socket_path).exists()
+    assert app.state.agent_socket_path is None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="owner-only Unix socket")
+@pytest.mark.parametrize("root", ["", "/remote"])
+async def test_registered_agents_contact_password_protected_peers_and_revoke_on_disconnect(tmp_path, root):
+    gate = create_app("router-password")
+    source, source_registry = workspace_app(tmp_path / "source", "source-password")
+    target_app, target_registry = workspace_app(tmp_path / "target", "target-password")
+    async with serve_router(gate, root) as (address, target):
+        gate.state.router.api_url = address + root
+        attach_router(source, source_registry, target, 6007)
+        attach_router(target_app, target_registry, target, 6007)
+        async with serve(target_app):
+            async with owned_workspace(source) as (local_address, socket_path, local):
+                agent = source.state.router_client
+                peer = target_app.state.router_client
+                await eventually(lambda: agent.connected and peer.connected)
+                agent_loop = agent._task.get_loop()
+                info = await local.get("/w/shared/api/session", params={"runtime_info": "true"})
+                assert info.status_code == 200
+                source_link = source_registry.get("shared").manager.get()
+                assert source_link.snapshot()["turns"] == []
+                prompt = info.json()["runtime_info"]
+                assert "GET G" + root + "/api/workspaces" in prompt
+                assert "B=G+url" in prompt
+                assert socket_path in prompt
+                assert agent._identity_key not in prompt
+                assert gate.state.router.registration_key not in prompt
+                assert "source-password" not in prompt
+                discovery = "/router" + root + "/api/workspaces"
+                listing = await local.get(discovery)
+                assert listing.status_code == 200
+                peer_record = next(
+                    item for item in listing.json()["workspaces"]
+                    if item["node_id"] == peer.node_id
+                )
+                prefix = "/router" + peer_record["url"].rstrip("/")
+                sessions = await local.get(prefix + "/api/sessions")
+                assert sessions.status_code == 200
+                own = sessions.json()["sessions"][0]["id"]
+                response = await local.post(prefix + "/api/session/message", json={
+                    "session_id": own, "prompt": "/queue peer request", "sender": "agent:test",
+                })
+                assert response.status_code == 200
+                link = target_registry.get("shared").manager.get()
+                await eventually(lambda: link.snapshot()["turns"] and link.snapshot()["turns"][-1]["response"] == "done")
+                assert link.snapshot()["turns"][-1]["prompt"] == "peer request"
+                # Privileged APIs and arbitrary URLs cannot use the private bridge.
+                assert (await local.get("/router" + root + "/api/registration-key")).status_code == 403
+                async with httpx.AsyncClient(base_url=address, trust_env=False) as public:
+                    headers = {"Authorization": "Bearer " + agent._identity_key}
+                    assert (await public.get(root + "/api/workspaces", headers=headers)).status_code == 200
+                    for invalid in [
+                        {},
+                        {"Authorization": "Bearer " + gate.state.router.registration_key},
+                        {"Authorization": "Bearer " + "0" * 64},
+                        dict(headers, Origin=address),
+                        dict(headers, **{"Sec-Fetch-Site": "same-origin"}),
+                    ]:
+                        assert (await public.get(root + "/api/workspaces", headers=invalid)).status_code == 401
+                    assert (await public.get(root + "/api/registration-key", headers=headers)).status_code == 401
+                    peer_url = peer_record["url"].rstrip("/") + "/api/sessions"
+                    assert (await public.get(peer_url)).status_code == 401
+                    await login(public, root)
+                    assert (await public.get(peer_url)).status_code == 401
+                    public.cookies.clear()
+                    await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(
+                        agent.close(), agent_loop,
+                    ))
+                    await eventually(lambda: agent.node_id not in gate.state.router.nodes)
+                    assert (await public.get(root + "/api/workspaces", headers=headers)).status_code == 401
+                    assert (await local.get(discovery)).status_code == 503
+                    await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(
+                        agent.start(), agent_loop,
+                    ))
+                    await eventually(lambda: agent.connected)
+                    assert (await local.get(prefix + "/api/sessions")).status_code == 200
 
 
 async def test_real_workspace_pages_files_messages_and_namespaces(tmp_path):
@@ -341,6 +495,8 @@ async def test_registration_uses_peer_ip_and_reconnect_keeps_assigned_id(monkeyp
         await second.start()
         try:
             await eventually(lambda: first.connected and second.connected)
+            assert first.api_url == address
+            assert second.api_url == address
             first_id, second_id = first.node_id, second.node_id
             assert first_id != second_id
             assert (
@@ -350,6 +506,7 @@ async def test_registration_uses_peer_ip_and_reconnect_keeps_assigned_id(monkeyp
                 gate.state.router.nodes[second_id].name == "workstation/127.0.0.3:6007"
             )
             original = gate.state.router.nodes[first_id]
+            gate.state.router.api_url = "https://router.example/proxy"
             source_ip = "127.0.0.4"
             await original.websocket.close(code=1012)
             await eventually(
@@ -358,6 +515,7 @@ async def test_registration_uses_peer_ip_and_reconnect_keeps_assigned_id(monkeyp
                 and gate.state.router.nodes[first_id] is not original
             )
             assert first.node_id == first_id
+            assert first.api_url == "https://router.example/proxy"
             assert (
                 gate.state.router.nodes[first_id].name == "workstation/127.0.0.4:6007"
             )
@@ -365,6 +523,53 @@ async def test_registration_uses_peer_ip_and_reconnect_keeps_assigned_id(monkeyp
         finally:
             await first.close()
             await second.close()
+        assert first.api_url is None
+        assert second.api_url is None
+
+
+@pytest.mark.parametrize("value", [
+    "https://user:secret@example.test", "https://example.test?key=secret",
+    "https://example.test/#secret", "ws://example.test", "/relative",
+    "https://example.test:99999", "https://example.test\n", "https://example.test\\path",
+])
+def test_api_url_rejects_credentials_and_invalid_addresses(value):
+    with pytest.raises(ValueError) as error:
+        normalize_api_url(value)
+    assert value not in str(error.value)
+
+
+async def test_registration_advertises_public_api_with_proxy_prefix():
+    gate = create_app(api_url="https://router.example/remote/")
+    async with serve_router(gate) as (_address, target):
+        async with device(Starlette(), target) as client:
+            assert client.api_url == "https://router.example/remote"
+
+
+async def test_runtime_info_through_router_keeps_local_and_public_addresses(tmp_path):
+    gate = create_app("router-password")
+    app, registry = workspace_app(tmp_path / "info")
+    async with serve_router(gate, "/remote") as (address, target):
+        gate.state.router.api_url = address + "/remote"
+        attach_router(app, registry, target, 6007)
+        async with serve(app) as local_address:
+            app.state.local_api_url = local_address
+            await eventually(lambda: app.state.router_client.connected)
+            async with httpx.AsyncClient(trust_env=False) as browser:
+                response = await browser.post(
+                    address + "/remote/login", json={"password": "router-password"}
+                )
+                assert response.status_code == 200
+                records = (await browser.get(address + "/remote/api/workspaces")).json()
+                prefix = address + records["workspaces"][0]["url"].rstrip("/")
+                response = await browser.get(prefix + "/api/session", params={"runtime_info": "true"})
+                assert response.status_code == 200
+                link = registry.get("shared").manager.get()
+                assert link.snapshot()["turns"] == []
+                text = response.json()["runtime_info"]
+                assert "L=" + local_address + "; current workspace=L/w/shared" in text
+                assert "R=" + address + "/remote" in text
+                assert gate.state.router.registration_key not in text
+                assert app.state.router_client._identity_key not in text
 
 
 @pytest.mark.parametrize("root", ["", "/remote"])
@@ -2000,6 +2205,11 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(
             tunnel = tunnel.replace("0.0.0.0", "127.0.0.1")
         else:
             assert urlsplit(target_address).hostname == "localhost"
+        probe = RouterClient(Starlette(), target, "probe", 0, lambda: [])
+        async with probe._connect(probe.control_url) as channel:
+            await probe._register(channel)
+            assert urlsplit(probe.api_url).port == urlsplit(public).port
+            assert urlsplit(probe.api_url).hostname == urlsplit(probe.control_url).hostname
         workspace = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -2037,7 +2247,8 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(
             inventory = await asyncio.wait_for(registered(), 10)
             node = inventory["nodes"][0]
             assert node["id"]
-            assert node["name"] == socket.gethostname() + "/127.0.0.1:0"
+            assert node["name"].startswith(socket.gethostname() + "/127.0.0.1:")
+            assert int(node["name"].rsplit(":", 1)[1]) > 0
             assert inventory["workspaces"] == []
             renamed = await browser.post(
                 "/api/nodes/" + node["id"] + "/alias", json={"alias": "CLI device"}
@@ -2045,7 +2256,8 @@ async def test_cli_starts_two_listeners_and_attaches_an_owned_workspace(
             assert renamed.status_code == 200
             aliases_file = Path(os.environ["CODEX_HOME"]) / "router-aliases.json"
             assert json.loads(aliases_file.read_text(encoding="utf-8")) == {
-                node["id"]: "CLI device"
+                probe.node_id: "",
+                node["id"]: "CLI device",
             }
             assert (await browser.get(node["url"])).status_code == 200
             with pytest.raises(InvalidStatusCode):

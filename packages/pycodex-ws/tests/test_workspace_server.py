@@ -108,6 +108,134 @@ def wait_snapshot(client, predicate, path="/api/session"):
     raise AssertionError("session did not reach expected state")
 
 
+@pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("password", [None, "workspace-test-password"])
+def test_runtime_info_uses_current_identity_and_local_frontend_api(tmp_path, multi, password):
+    model = ScriptedModelClient(
+        response_factory=lambda prompt, count: ModelResponse([AssistantMessage("noted")])
+    )
+    factory = lambda: make_session(model, cwd=tmp_path)
+    if multi:
+        registry = WorkspaceRegistry([WorkspaceEntry(
+            WorkspaceDefinition("alpha", tmp_path / "board", tmp_path),
+            WorkspaceSessionManager(factory, None),
+        )])
+        app = create_multi_workspace_app(registry, password)
+        prefix = "/w/alpha"
+    else:
+        app = create_app(factory, None, password, tmp_path)
+        prefix = ""
+    app.state.local_api_url = "http://127.0.0.1:12345"
+    (tmp_path / "changed").mkdir()
+    with TestClient(app) as browser:
+        if password:
+            assert browser.get(prefix + "/api/session", params={
+                "runtime_info": "true",
+            }).status_code == 401
+            assert browser.post("/login", json={"password": password}).status_code == 200
+        own = browser.get(prefix + "/api/session").json()["session_id"]
+        # A different default tab must not receive this tab's information.
+        other = browser.post(prefix + "/api/sessions").json()["session_id"]
+        for prompt in ["/cd changed", "/title runtime test"]:
+            assert browser.post(prefix + "/api/session/message", json={
+                "session_id": own, "prompt": prompt,
+            }).status_code == 200
+        result = browser.get(prefix + "/api/session", params={
+            "session_id": own, "runtime_info": "true",
+        })
+        assert result.status_code == 200
+        assert "submission_id" not in result.json()
+        assert model.call_count == 0
+        text = result.json()["runtime_info"]
+        assert "Runtime: pycodex / pycodex-ws" in text
+        assert "session: runtime test" in text
+        assert "API ID: " + own in text
+        assert str(tmp_path / "changed") in text
+        assert "L=http://127.0.0.1:12345; current workspace=L" + prefix in text
+        assert ("GET L/api/workspaces" in text) == multi
+        assert "router" not in text.lower()
+        assert "/queue From " + own in text
+        assert "B/api/session/message" in text
+        assert "B/api/session?session_id=" in text
+        assert "login" not in text.lower()
+        assert "cookie" not in text.lower()
+        assert "workspace-test-password" not in text
+        assert not text.startswith("/queue")
+        sent = browser.post(prefix + "/api/session/message", json={
+            "session_id": own, "prompt": text,
+        })
+        assert sent.status_code == 200
+        submission_id = sent.json()["submission_id"]
+        snapshot = wait_snapshot(
+            browser, lambda s: any(
+                turn["submission_id"] == submission_id and turn["response"] == "noted"
+                for turn in s["turns"]
+            ), prefix + "/api/session?session_id=" + own,
+        )
+        assert next(t["prompt"] for t in snapshot["turns"] if t["submission_id"] == submission_id) == text
+        assert any(isinstance(item, UserMessage) and item.text == text
+                   for item in model.prompts[-1].input)
+        assert browser.get(prefix + "/api/session?session_id=" + other).json()["snapshot"]["turns"] == []
+
+
+@pytest.mark.parametrize("connected,api_url", [
+    (False, None), (False, "https://router.example/proxy"),
+    (True, None), (True, "https://router.example/proxy"),
+])
+def test_runtime_info_router_state_contains_no_credentials(connected, api_url):
+    from pycodex_router.client import RouterClient
+
+    app = create_app(make_session, None)
+    client = RouterClient(app, "123456789ABCDEFGH@router.example:6000", "test", 12345, lambda: [])
+    client.connected = connected
+    client.api_url = api_url
+    app.state.router_client = client
+    app.state.local_api_url = "http://127.0.0.1:12345"
+    with TestClient(app) as browser:
+        response = browser.get("/api/session", params={"runtime_info": "true"})
+        assert response.status_code == 200
+        assert response.json()["snapshot"]["turns"] == []
+    text = response.json()["runtime_info"]
+    assert ("router" in text.lower()) == connected
+    assert ("R=" in text) == bool(connected and api_url)
+    if connected and api_url:
+        assert "R=" + api_url in text
+        assert "GET R/api/workspaces" in text
+        assert "device=/n/" + client.node_id in text
+    assert "http://127.0.0.1:12345" in text
+    assert "123456789ABCDEFGH" not in text
+    assert client._identity_key not in text
+
+
+def test_runtime_info_read_does_not_queue_during_active_turn():
+    release = threading.Event()
+    started = threading.Event()
+
+    async def respond(prompt, count):
+        if count == 1:
+            started.set()
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+        return ModelResponse([AssistantMessage("done")])
+
+    model = ScriptedModelClient(response_factory=respond)
+    with TestClient(create_app(lambda: make_session(model), None)) as browser:
+        try:
+            browser.post("/api/session/message", json={"prompt": "active task"})
+            assert started.wait(2)
+            response = browser.get("/api/session", params={"runtime_info": "true"})
+            assert response.status_code == 200
+            assert response.json()["runtime_info"]
+            assert response.json()["snapshot"]["queued_inputs"] == []
+        finally:
+            release.set()
+        snapshot = wait_snapshot(
+            browser, lambda s: s["turns"][-1]["status"] == "completed"
+        )
+        assert [t["status"] for t in snapshot["turns"]] == ["completed"]
+        assert model.call_count == 1
+
+
 @pytest.mark.parametrize("late_poll", ["none", "success", "error"])
 @pytest.mark.parametrize("initial_pane", ["chat", "board"])
 def test_closing_active_tab_restores_visited_tab(late_poll, initial_pane):

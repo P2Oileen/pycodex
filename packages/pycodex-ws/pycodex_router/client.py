@@ -7,7 +7,9 @@ from contextlib import asynccontextmanager
 from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatusCode
 from websockets.legacy.client import connect
 
-from .protocol import decode, device_id, encode, parse_target, send_event, tunnel_url
+from .protocol import (
+    decode, device_id, encode, normalize_api_url, parse_target, send_event, tunnel_url,
+)
 
 
 class NodeIdInUse(Exception):
@@ -37,6 +39,7 @@ class RouterClient:
         self.refresh_seconds = refresh_seconds
         self.reconnect_seconds = reconnect_seconds
         self.connected = False
+        self.api_url = None
         self._task = None
         self._channels = set()
         self._requests = set()
@@ -89,6 +92,7 @@ class RouterClient:
                 failure = exc
             finally:
                 self.connected = False
+                self.api_url = None
 
             try:
                 await self._close_channels()
@@ -133,6 +137,8 @@ class RouterClient:
             raise NodeIdInUse("router node id is still registered")
         if reply.get("type") != "registered" or reply.get("id") != self.node_id:
             raise ValueError("unexpected router registration response")
+        api_url = reply.get("api_url")
+        self.api_url = normalize_api_url(api_url) if api_url is not None else None
 
     async def _session(self, channel):
         async def receive_requests():
@@ -187,6 +193,7 @@ class RouterClient:
                     scope = opening["scope"]
                     if scope["type"] not in {"http", "websocket"}:
                         raise ValueError("unsupported router request type")
+                    scope["pycodex.agent_access"] = opening.get("agent_access") is True
 
                     async def receive():
                         try:

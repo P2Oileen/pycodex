@@ -8,6 +8,29 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlsplit, urlunsplit
 
 
+def normalize_api_url(value):
+    """A public HTTP base URL, without credentials or request parameters."""
+    try:
+        if not isinstance(value, str) or any(
+            char.isspace() or ord(char) < 32 or char in "\\?#" for char in value
+        ):
+            raise ValueError()
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError()
+        parsed.port
+    except ValueError:
+        raise ValueError(
+            "API URL must be an http(s) URL without credentials, query or fragment"
+        ) from None
+    return value.rstrip("/")
+
+
 def device_id(identity_key):
     if not isinstance(identity_key, str) or not re.fullmatch(
         "[0-9a-f]{64}", identity_key
@@ -21,6 +44,25 @@ def route_path(scope):
     path = scope["path"]
     root = scope.get("root_path", "")
     return path[len(root) :] if root and path.startswith(root + "/") else path
+
+
+def agent_api_request(scope):
+    """The existing HTTP discovery, message and polling endpoints."""
+    if scope["type"] != "http":
+        return False
+    match = re.fullmatch(
+        r"(?:/n/[a-z2-7]{52})?(?:/w/[^/]+)?/api/(workspaces|sessions|session|session/message)",
+        route_path(scope),
+    )
+    return match is not None and scope["method"] == (
+        "POST" if match.group(1) == "session/message" else "GET"
+    )
+
+
+def trusted_agent_request(scope):
+    # This flag comes only from the private socket or an authenticated tunnel
+    # envelope, never from HTTP headers or the forwarded ASGI scope.
+    return scope.get("pycodex.agent_access") is True and agent_api_request(scope)
 
 
 def tunnel_url(target, endpoint):
