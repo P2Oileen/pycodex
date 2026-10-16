@@ -4,9 +4,11 @@ import signal
 import subprocess
 import sys
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from tests.fakes import ScriptedModelClient
@@ -102,18 +104,18 @@ import asyncio
 import os
 import signal
 import sys
+from contextlib import asynccontextmanager
+from starlette.applications import Starlette
 from workspace_server.owned_process import run_owned_server
 
-async def app(scope, receive, send):
-    assert (await receive())["type"] == "lifespan.startup"
-    await send({"type": "lifespan.startup.complete"})
+@asynccontextmanager
+async def lifespan(app):
     asyncio.get_event_loop().call_later(
         0.1, os.kill, os.getpid(), getattr(signal, sys.argv[1])
     )
-    assert (await receive())["type"] == "lifespan.shutdown"
-    await send({"type": "lifespan.shutdown.complete"})
+    yield
 
-run_owned_server(app, "127.0.0.1", 0, sys.stdin.fileno())
+run_owned_server(Starlette(lifespan=lifespan), "127.0.0.1", 0, sys.stdin.fileno())
 """
     environment = os.environ.copy()
     environment["HOME"] = str(tmp_path)
@@ -139,20 +141,17 @@ run_owned_server(app, "127.0.0.1", 0, sys.stdin.fileno())
 def test_owner_eof_runs_lifespan_shutdown_even_when_it_precedes_startup(early_eof):
     events = []
 
-    async def app(scope, receive, send):
-        assert scope["type"] == "lifespan"
-        assert (await receive())["type"] == "lifespan.startup"
+    @asynccontextmanager
+    async def lifespan(app):
         events.append("startup")
-        await send({"type": "lifespan.startup.complete"})
         if not early_eof:
             writer.close()
-        assert (await receive())["type"] == "lifespan.shutdown"
+        yield
         events.append("shutdown")
-        await send({"type": "lifespan.shutdown.complete"})
 
     read_fd, write_fd = os.pipe()
     with os.fdopen(read_fd, "rb") as reader, os.fdopen(write_fd, "wb") as writer:
         if early_eof:
             writer.close()
-        run_owned_server(app, "127.0.0.1", 0, reader.fileno())
+        run_owned_server(Starlette(lifespan=lifespan), "127.0.0.1", 0, reader.fileno())
     assert events == ["startup", "shutdown"]
