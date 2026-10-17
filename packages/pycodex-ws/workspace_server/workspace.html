@@ -193,15 +193,33 @@
     .sessions-toggle svg { width: 18px; height: 18px; }
     .sessions-toggle:hover { background: var(--panel-hover); color: var(--ink); }
     .sessions-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-    #sessionsToggle .tab-status {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 10px;
-      height: 10px;
-      background: var(--panel-raised);
+    .mobile-session-float { display: none; }
+    .mobile-session-dot {
+      position: relative;
+      display: grid;
+      place-items: center;
+      flex: 0 0 18px;
+      width: 24px;
+      height: 18px;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
     }
-    .workspace:not(.sessions-collapsed) #sessionsToggle .tab-status { display: none; }
+    .mobile-session-dot.active {
+      background: var(--accent-soft);
+      box-shadow: inset 2px 0 var(--accent);
+    }
+    .mobile-session-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .mobile-session-dot .tab-status { width: 12px; height: 16px; }
+    .mobile-session-dot .unread-dot {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 4px;
+      height: 4px;
+    }
     .session-sidebar {
       min-width: 0;
       min-height: 0;
@@ -367,14 +385,16 @@
       height: 6px;
       box-shadow: 0 0 0 3px rgba(8, 127, 154, 0.08);
     }
-    .session-sidebar .tab:not(.running) .tab-status::before {
+    .session-sidebar .tab:not(.running) .tab-status::before,
+    .mobile-session-dot:not(.running) .tab-status::before {
       animation: none;
       background: #a3aeb7;
       box-shadow: none;
       opacity: 1;
       transform: none;
     }
-    .session-sidebar .tab.completed:not(.running) .tab-status::before { background: #568a73; }
+    .session-sidebar .tab.completed:not(.running) .tab-status::before,
+    .mobile-session-dot.completed:not(.running) .tab-status::before { background: #568a73; }
     .sessions-backdrop {
       position: fixed;
       inset: 0;
@@ -1265,13 +1285,83 @@
       .pane-toggle:hover { background: var(--panel-deep); color: var(--ink); }
       .pane-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       .pane-toggle svg { width: 18px; height: 18px; }
-      .workspace { height: 100dvh; display: block; }
-      .board-pane, .chat { height: 100%; width: calc(100% - var(--session-rail-width)); }
+      .workspace { --session-rail-width: 0px; height: 100dvh; display: block; }
+      .board-pane, .chat { height: 100%; width: 100%; }
+      .session-sidebar,
+      .sessions-collapsed .session-sidebar {
+        width: min(320px, calc(100vw - 40px));
+        transform: translateX(0);
+      }
+      .sessions-collapsed .session-sidebar {
+        transform: translateX(100%);
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .sessions-ready .session-sidebar,
+      .sessions-ready.sessions-collapsed .session-sidebar {
+        transition: transform var(--sidebar-duration) var(--sidebar-ease), visibility 0s;
+      }
+      .sessions-ready.sessions-collapsed .session-sidebar { transition-delay: 0s, var(--sidebar-duration); }
+      .mobile-session-float {
+        position: fixed;
+        top: max(8px, env(safe-area-inset-top));
+        right: max(6px, env(safe-area-inset-right));
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 32px;
+        max-height: min(50dvh, calc(100dvh - 120px));
+        padding: 3px;
+        border: 1px solid rgba(203, 216, 223, 0.65);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 2px 12px rgba(23, 38, 48, 0.08);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        transition: opacity 160ms ease, transform 160ms ease;
+      }
+      .workspace[data-mobile-pane="board"] .mobile-session-float {
+        top: calc(52px + env(safe-area-inset-top));
+      }
+      .sessions-drawer-open .mobile-session-float {
+        visibility: hidden;
+        opacity: 0;
+        transform: translateX(8px);
+        pointer-events: none;
+      }
+      .mobile-session-float .sessions-toggle,
+      .mobile-session-float .pane-toggle {
+        width: 26px;
+        height: 28px;
+        margin: 0;
+        border-radius: 8px;
+      }
+      .workspace[data-mobile-pane="chat"] .mobile-session-float [data-pane="chat"],
+      .workspace[data-mobile-pane="board"] .mobile-session-float [data-pane="board"],
+      .boardbar .pane-toggle { display: none; }
+      .mobile-session-dots {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 0 1 auto;
+        min-height: 0;
+        min-width: 0;
+        padding: 3px 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+      }
+      .mobile-session-dots::-webkit-scrollbar { display: none; }
+      .mobile-sessions-toggle { display: grid; }
+      #activeSessionStatus { display: none; }
       .splitter { display: none; }
       .workspace[data-mobile-pane="chat"] .board-pane,
       .workspace[data-mobile-pane="board"] .chat { display: none; }
-      .topbar { height: 44px; padding: 6px 16px; }
-      .log { padding: 14px 16px; gap: 14px; }
+      .chat { grid-template-rows: minmax(0, 1fr) auto; }
+      .topbar { display: none; }
+      .log { padding: 14px 44px 14px 16px; gap: 14px; }
       .composer { padding: 8px 16px max(10px, env(safe-area-inset-bottom)); }
       .prompt-input { font-size: 16px; line-height: 24px; padding: 2px 0; }
       .context-block-editor { font-size: 16px; }
@@ -1284,6 +1374,7 @@
       .sessions-ready .session-sidebar,
       .sessions-ready .session-sidebar-inner,
       .sessions-ready .sessions-backdrop,
+      .mobile-session-float,
       .session-sidebar .tab,
       .session-sidebar .tab-label,
       .session-sidebar .tab-new span,
@@ -1335,15 +1426,6 @@
               <rect x="3" y="3" width="18" height="18" rx="3"/>
               <path d="M3 9h18M9 9v12"/>
             </svg>
-          </button>
-          <button id="sessionsToggle" class="sessions-toggle" type="button" title="Show sessions"
-                  aria-label="Show sessions" aria-expanded="false" aria-controls="sessionSidebar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="3"/>
-              <path d="M15 3v18M18 8h1M18 12h1M18 16h1"/>
-            </svg>
-            <span id="sessionsToggleStatus" class="tab-status" role="img" aria-label="Sessions running" hidden></span>
           </button>
         </div>
       </div>
@@ -1414,18 +1496,42 @@
         </div>
       </form>
     </section>
+    <div id="mobileSessionFloat" class="mobile-session-float" role="group" aria-label="Session controls">
+      <button class="sessions-toggle mobile-sessions-toggle" type="button" title="Show sessions"
+              aria-label="Show sessions" aria-expanded="false" aria-controls="sessionSidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <path d="M15 3v18M18 8h1M18 12h1M18 16h1"/>
+        </svg>
+      </button>
+      <button class="pane-toggle" type="button" data-pane="board" title="Show board" aria-label="Show board">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <path d="M3 9h18M9 9v12"/>
+        </svg>
+      </button>
+      <button class="pane-toggle" type="button" data-pane="chat" title="Show chat" aria-label="Show chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+        </svg>
+      </button>
+      <div class="mobile-session-dots" role="group" aria-label="Sessions"></div>
+    </div>
     <button id="sessionsBackdrop" class="sessions-backdrop" type="button" tabindex="-1"
             aria-label="Close sessions" aria-hidden="true" inert></button>
     <aside id="sessionSidebar" class="session-sidebar" aria-labelledby="sessionsHeading">
       <div class="session-sidebar-inner">
         <div class="session-sidebar-header">
           <h2 id="sessionsHeading">Sessions</h2>
-          <button id="sessionsClose" class="sessions-toggle" type="button" title="Close sessions"
-                  aria-label="Close sessions">
+          <button id="sessionsClose" class="sessions-toggle" type="button" title="Expand sessions"
+                  aria-label="Expand sessions" aria-expanded="false" aria-controls="sessionSidebar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="3" width="18" height="18" rx="3"/>
-              <path d="M15 3v18M8 9l3 3-3 3"/>
+              <path d="M15 3v18M18 8h1M18 12h1M18 16h1"/>
             </svg>
           </button>
         </div>
@@ -1472,12 +1578,14 @@
     const tabsEl = document.getElementById("tabs");
     const activeSessionTitle = document.getElementById("activeSessionTitle");
     const activeSessionStatus = document.getElementById("activeSessionStatus");
-    const sessionsToggleStatus = document.getElementById("sessionsToggleStatus");
     const sessionSidebar = document.getElementById("sessionSidebar");
-    const sessionsToggle = document.getElementById("sessionsToggle");
     const sessionsClose = document.getElementById("sessionsClose");
     const sessionsBackdrop = document.getElementById("sessionsBackdrop");
     const sessionsDrawerMedia = window.matchMedia("(max-width: 1100px)");
+    const mobileSessionsMedia = window.matchMedia("(max-width: 760px)");
+    const mobileSessionFloat = document.getElementById("mobileSessionFloat");
+    const mobileSessionDots = document.querySelectorAll(".mobile-session-dots");
+    const mobileSessionsToggle = document.querySelector(".mobile-sessions-toggle");
     const sessionsPreferenceKey = "pycodex.workspace.sessionsOpen";
     let sessionsOpen = !sessionsDrawerMedia.matches &&
       window.localStorage.getItem(sessionsPreferenceKey) !== "false";
@@ -1923,12 +2031,14 @@
     function setSessionsOpen(open, restoreFocus = false) {
       sessionsOpen = open;
       workspace.classList.toggle("sessions-collapsed", !open);
-      sessionsClose.title = open ? "Collapse sessions" : "Expand sessions";
-      sessionsClose.setAttribute("aria-label", sessionsClose.title);
-      sessionsClose.setAttribute("aria-expanded", String(open));
-      sessionsToggle.setAttribute("aria-expanded", String(open));
-      updateSessionsToggleStatus();
+      updateSessionControls();
       const modal = open && sessionsDrawerMedia.matches;
+      const hidden = !open && mobileSessionsMedia.matches;
+      const floatHidden = modal || !mobileSessionsMedia.matches;
+      mobileSessionFloat.inert = floatHidden;
+      mobileSessionFloat.setAttribute("aria-hidden", String(floatHidden));
+      sessionSidebar.inert = hidden;
+      sessionSidebar.setAttribute("aria-hidden", String(hidden));
       workspace.classList.toggle("sessions-drawer-open", modal);
       sessionsBackdrop.inert = !modal;
       sessionsBackdrop.setAttribute("aria-hidden", String(!modal));
@@ -1942,19 +2052,28 @@
         window.localStorage.setItem(sessionsPreferenceKey, String(open));
       }
       if (modal) sessionsClose.focus({preventScroll: true});
-      else if (restoreFocus) sessionsToggle.focus({preventScroll: true});
+      else if (restoreFocus) {
+        const button = mobileSessionsMedia.matches ? mobileSessionsToggle : sessionsClose;
+        button.focus({preventScroll: true});
+      }
       requestAnimationFrame(() => {
         resizePrompt();
         restoreSessionScroll();
       });
     }
 
-    function updateSessionsToggleStatus() {
+    function updateSessionControls() {
       const runningCount = sessions.filter(session => session.running).length;
-      sessionsToggleStatus.hidden = runningCount === 0;
-      sessionsToggle.title = (sessionsOpen ? "Close sessions" : "Show sessions") +
-        (runningCount ? ` · ${runningCount} running` : "");
-      sessionsToggle.setAttribute("aria-label", sessionsToggle.title);
+      const status = runningCount ? ` · ${runningCount} running` : "";
+      sessionsClose.title = (sessionsOpen ? "Collapse sessions" : "Expand sessions") + status;
+      sessionsClose.setAttribute("aria-label", sessionsClose.title);
+      sessionsClose.setAttribute("aria-expanded", String(sessionsOpen));
+      sessionsClose.querySelector("path").setAttribute("d", sessionsOpen
+        ? "M15 3v18M8 9l3 3-3 3"
+        : "M15 3v18M18 8h1M18 12h1M18 16h1");
+      mobileSessionsToggle.title = (sessionsOpen ? "Close sessions" : "Show sessions") + status;
+      mobileSessionsToggle.setAttribute("aria-label", mobileSessionsToggle.title);
+      mobileSessionsToggle.setAttribute("aria-expanded", String(sessionsOpen));
     }
 
     function dismissSessionsDrawer() {
@@ -2229,7 +2348,7 @@
       activeSessionTitle.textContent = active ? active.title || `Session ${activeIndex + 1}` : "";
       activeSessionTitle.title = activeSessionTitle.textContent;
       activeSessionStatus.hidden = !active?.running;
-      updateSessionsToggleStatus();
+      updateSessionControls();
       const existingTabs = new Map(
         Array.from(tabsEl.children, tab => [tab.dataset.sessionId, tab])
       );
@@ -2305,6 +2424,47 @@
         }
       });
       existingTabs.forEach(tab => tab.remove());
+      renderMobileSessionDots();
+    }
+
+    function renderMobileSessionDots() {
+      mobileSessionDots.forEach(container => {
+        const existing = new Map(
+          Array.from(container.children, button => [button.dataset.sessionId, button])
+        );
+        sessions.forEach((session, index) => {
+          const sessionId = session.id || "";
+          let button = existing.get(sessionId);
+          if (!button) {
+            button = document.createElement("button");
+            button.type = "button";
+            button.dataset.sessionId = sessionId;
+            button.innerHTML = '<span class="tab-status" aria-hidden="true"></span>' +
+              '<span class="unread-dot" aria-hidden="true" hidden></span>';
+            button.addEventListener("click", () => selectSession(sessionId));
+          }
+          existing.delete(sessionId);
+          const active = sessionId === activeSessionId;
+          button.className = "mobile-session-dot" +
+            (active ? " active" : "") +
+            (session.running ? " running" : "") +
+            (session.last_final_id ? " completed" : "");
+          const state = session.running ? "Running" : session.last_final_id ? "Finished" : "Idle";
+          button.title = `${session.title || `Session ${index + 1}`} · ${state}` +
+            (session.unread ? " · Unread reply" : "");
+          button.setAttribute("aria-label", button.title);
+          button.setAttribute("aria-pressed", String(active));
+          button.querySelector(".unread-dot").hidden = !session.unread;
+          if (container.children[index] !== button) {
+            container.insertBefore(button, container.children[index] || null);
+          }
+        });
+        existing.forEach(button => button.remove());
+        if (container.dataset.activeSessionId !== activeSessionId && container.clientWidth) {
+          container.querySelector(".active")?.scrollIntoView({block: "nearest", inline: "nearest"});
+        }
+        container.dataset.activeSessionId = activeSessionId;
+      });
     }
 
     function editSessionTitle(tab, sessionId) {
@@ -2902,7 +3062,7 @@
     splitter.addEventListener("dblclick", centerSplit);
     spinner.addEventListener("click", toggleSpinnerNotification);
     newTabButton.addEventListener("click", createSession);
-    sessionsToggle.addEventListener("click", () => setSessionsOpen(!sessionsOpen));
+    mobileSessionsToggle.addEventListener("click", () => setSessionsOpen(!sessionsOpen));
     sessionsClose.addEventListener("click", () => setSessionsOpen(!sessionsOpen, sessionsOpen));
     sessionsBackdrop.addEventListener("click", () => setSessionsOpen(false, true));
     sessionsDrawerMedia.addEventListener("change", () => {
@@ -2911,6 +3071,11 @@
         window.localStorage.getItem(sessionsPreferenceKey) !== "false", hadSidebarFocus);
       const current = Number(window.localStorage.getItem("pycodex.workspace.chatWidth") || 0);
       if (current > 0) setChatWidth(current);
+    });
+    mobileSessionsMedia.addEventListener("change", () => {
+      const restoreFocus = mobileSessionsMedia.matches && !sessionsOpen &&
+        sessionSidebar.contains(document.activeElement);
+      setSessionsOpen(sessionsOpen, restoreFocus);
     });
     sessionSidebar.addEventListener("keydown", event => {
       if (event.key === "Escape" && !event.target.matches(".tab-title-input")) {
