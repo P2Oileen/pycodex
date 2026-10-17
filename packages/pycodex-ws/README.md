@@ -82,8 +82,9 @@ sessions show a steady green dot, and unread replies retain their red marker.
 Hover a dot to see its title, or use the sidebar button to expand the titles.
 On narrow screens the expanded sidebar overlays the conversation and returns
 to its collapsed state after selecting or creating a session. On phones the
-collapsed sidebar is completely hidden; compact, clickable status dots remain
-in the chat and board headers instead. Both layouts use
+collapsed sidebar and chat header are hidden. A compact floating control in
+the upper-right corner shows clickable status dots vertically, plus buttons
+to expand the session list or switch between chat and the board. Both layouts use
 smooth transitions and respect the system's reduced-motion preference.
 Session renaming and closing remain available in the expanded sidebar.
 Relative paths resolve from the configuration directory. This example uses
