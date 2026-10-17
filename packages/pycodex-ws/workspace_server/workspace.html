@@ -20,29 +20,17 @@
       --line: #cbd8df;
       --line-strong: #aebfc9;
       --accent: #087f9a;
-      --accent-ink: #ffffff;
       --accent-soft: #e6f6f8;
-      --warn: #b77908;
-      --warn-ink: #62480c;
-      --warn-soft: #fff7df;
       --info: #2868b2;
-      --info-soft: #edf5ff;
-      --success: #247a52;
-      --success-line: #8bc9a8;
       --success-soft: #edf9f2;
       --danger: #b33d50;
       --danger-soft: #fff0f2;
-      --violet: #6850a4;
-      --violet-soft: #f4f0ff;
       --code: #f1f5f7;
-      --entry-shadow: 0 1px 2px rgba(27, 57, 72, 0.06);
       --space-1: 2px;
       --space-2: 4px;
       --space-3: 6px;
       --space-4: 8px;
-      --space-5: 10px;
       --space-6: 12px;
-      --space-7: 14px;
       --radius-sm: 6px;
       --radius-md: 10px;
       --tab-max-width: 180px;
@@ -50,9 +38,10 @@
       --splitter-width: 8px;
       --session-sidebar-size: 280px;
       --session-rail-width: 56px;
-      --session-sidebar-width: var(--session-sidebar-size);
       --sidebar-duration: 320ms;
       --sidebar-ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --breathing-duration: 1.2s;
+      --breathing-ease: cubic-bezier(0.4, 0, 0.2, 1);
     }
     * { box-sizing: border-box; }
     body {
@@ -65,30 +54,35 @@
     }
     button, textarea { font: inherit; }
     .pane-toggle { display: none; }
-    .workspace {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) var(--splitter-width) minmax(0, var(--chat-width)) var(--session-sidebar-width);
-      height: 100dvh;
+    .workspace,
+    .board-pane,
+    .chat,
+    .session-sidebar {
       min-width: 0;
+      height: 100dvh;
+    }
+    .workspace {
+      --session-sidebar-width: min(var(--session-sidebar-size), calc(var(--chat-width) + var(--session-rail-width)));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--splitter-width) minmax(0, calc(var(--chat-width) + var(--session-rail-width) - var(--session-sidebar-width))) var(--session-sidebar-width);
     }
     .workspace.sessions-collapsed { --session-sidebar-width: var(--session-rail-width); }
     .workspace.sessions-ready:not(.resizing) {
       transition: grid-template-columns var(--sidebar-duration) var(--sidebar-ease);
     }
-    .workspace.collapsed .splitter::after {
-      background: var(--accent);
-    }
+    .workspace.collapsed .splitter::after { background: var(--accent); }
     .board-pane {
-      min-width: 0;
-      height: 100dvh;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       background: var(--board-chrome);
     }
-    .boardbar {
+    .boardbar,
+    .topbar {
       min-width: 0;
       border-bottom: 1px solid var(--line);
       height: 44px;
+    }
+    .boardbar {
       padding: 0 8px;
       color: var(--muted);
       font-size: 12px;
@@ -98,9 +92,7 @@
       white-space: nowrap;
       overflow: hidden;
     }
-    .workspace-back {
-      text-decoration: none;
-    }
+    .workspace-back { text-decoration: none; }
     .board {
       border: 0;
       min-width: 0;
@@ -131,33 +123,20 @@
       transform: translate(-50%, -50%);
     }
     .splitter:hover,
-    .workspace.resizing .splitter {
-      background: #dce9ee;
-      border-color: var(--line-strong);
-    }
+    .workspace.resizing .splitter { background: #dce9ee; border-color: var(--line-strong); }
     .splitter:hover::after,
-    .workspace.resizing .splitter::after {
-      background: var(--accent);
-    }
+    .workspace.resizing .splitter::after { background: var(--accent); }
     .workspace.resizing,
-    .workspace.resizing * {
-      cursor: col-resize;
-      user-select: none;
-    }
+    .workspace.resizing * { cursor: col-resize; user-select: none; }
     .chat {
       position: relative;
-      min-width: 0;
-      height: 100dvh;
       overflow: hidden;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
       background: var(--panel-raised);
     }
     .topbar {
-      min-width: 0;
-      height: 44px;
       padding: 6px 20px;
-      border-bottom: 1px solid var(--line);
       display: grid;
       align-content: center;
     }
@@ -170,11 +149,19 @@
     .active-session-title {
       flex: 1;
       min-width: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .active-session-title,
+    .tab-label,
+    .queue-preview,
+    .session-cwd-name,
+    .context-block-heading span,
+    .context-token,
+    .spinner {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 13px;
-      font-weight: 600;
     }
     .sessions-toggle {
       position: relative;
@@ -190,9 +177,18 @@
       color: var(--muted);
       cursor: pointer;
     }
-    .sessions-toggle svg { width: 18px; height: 18px; }
+    .sessions-toggle svg,
+    .pane-toggle svg { width: 18px; height: 18px; }
     .sessions-toggle:hover { background: var(--panel-hover); color: var(--ink); }
-    .sessions-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .sessions-toggle:focus-visible,
+    .pane-toggle:focus-visible,
+    .tab-new:focus-visible,
+    .fullscreen-toggle:focus-visible,
+    .workspace-back:focus-visible,
+    .spinner:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
     .mobile-session-float { display: none; }
     .mobile-session-dot {
       position: relative;
@@ -221,9 +217,7 @@
       height: 4px;
     }
     .session-sidebar {
-      min-width: 0;
       min-height: 0;
-      height: 100dvh;
       overflow: hidden;
       border-left: 1px solid #e5e9ec;
       background: #f7f8fa;
@@ -441,10 +435,7 @@
       cursor: pointer;
       touch-action: manipulation;
     }
-    .context-meter:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 3px;
-    }
+    .context-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
     .context-meter::before {
       content: "";
       position: absolute;
@@ -452,10 +443,7 @@
       border-radius: 999px;
       background: var(--panel-raised);
     }
-    .context-meter-value {
-      position: relative;
-      z-index: 1;
-    }
+    .context-meter-value { position: relative; z-index: 1; }
     .context-details {
       position: absolute;
       bottom: 100%;
@@ -480,10 +468,7 @@
       justify-content: space-between;
       font-weight: 600;
     }
-    .context-details-heading span {
-      color: var(--muted);
-      font-weight: 400;
-    }
+    .context-details-heading span { color: var(--muted); font-weight: 400; }
     .context-details dl {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -506,9 +491,7 @@
       overflow-x: auto;
       scrollbar-width: none;
     }
-    .tabs::-webkit-scrollbar {
-      display: none;
-    }
+    .tabs::-webkit-scrollbar { display: none; }
     .tab {
       position: relative;
       display: inline-flex;
@@ -526,16 +509,7 @@
       cursor: pointer;
       user-select: none;
     }
-    .tab:hover {
-      background: var(--panel-hover);
-      color: var(--ink);
-    }
-    .tab-new:focus-visible,
-    .fullscreen-toggle:focus-visible,
-    .workspace-back:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
+    .tab:hover { background: var(--panel-hover); color: var(--ink); }
     .tab.active {
       background: var(--accent-soft);
       color: var(--accent);
@@ -554,18 +528,16 @@
       padding: 0;
       flex: 0 0 auto;
     }
-    .tab-status::before {
+    .tab-status::before,
+    .spinner:not(:empty)::before {
       content: "";
-      width: 5px;
-      height: 5px;
       border-radius: 999px;
       background: var(--accent);
-      animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      animation: spinner-pulse var(--breathing-duration) var(--breathing-ease) infinite;
     }
+    .tab-status::before { width: 5px; height: 5px; }
     .tab-status[hidden],
-    .tab-label[hidden] {
-      display: none;
-    }
+    .tab-label[hidden] { display: none; }
     .unread-dot {
       flex: 0 0 6px;
       width: 6px;
@@ -575,9 +547,6 @@
     }
     .tab-label {
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
       flex: 1;
       text-align: left;
       border: 0;
@@ -608,11 +577,10 @@
     .tab-new,
     .fullscreen-toggle,
     .workspace-back {
-      width: 31px;
-      height: 31px;
+      display: grid;
+      place-items: center;
       border: 0;
       border-radius: var(--radius-md);
-      background: var(--panel-raised);
       color: var(--muted);
       padding: 0;
       line-height: 1;
@@ -620,11 +588,8 @@
       flex: 0 0 auto;
     }
     .tab-close {
-      display: grid;
-      place-items: center;
       width: 18px;
       height: 18px;
-      border: 0;
       background: transparent;
       opacity: 0;
       visibility: hidden;
@@ -638,8 +603,6 @@
     .tab-new,
     .fullscreen-toggle,
     .workspace-back {
-      display: grid;
-      place-items: center;
       width: 30px;
       height: 30px;
       background: var(--panel-deep);
@@ -657,17 +620,11 @@
       visibility: visible;
       pointer-events: auto;
     }
-    .tab.active .tab-close:disabled {
-      opacity: 0.22;
-      cursor: default;
-    }
+    .tab.active .tab-close:disabled { opacity: 0.22; cursor: default; }
     .tab-close:hover,
     .tab-new:hover,
     .fullscreen-toggle:hover,
-    .workspace-back:hover {
-      color: var(--ink);
-      background: var(--panel-hover);
-    }
+    .workspace-back:hover { color: var(--ink); background: var(--panel-hover); }
     .log {
       min-height: 0;
       overflow-y: auto;
@@ -698,13 +655,8 @@
       border-radius: 10px 10px 3px 10px;
       background: var(--success-soft);
     }
-    .entry.response,
-    .entry.assistant {
-      padding: 0;
-    }
     .entry.thinking,
-    .entry.control,
-    .entry.tool {
+    .entry.control {
       border-left: 2px solid var(--line);
       padding: 2px 0 2px 10px;
       color: var(--muted);
@@ -712,7 +664,7 @@
     }
     .entry.thinking {
       border-left-color: var(--accent);
-      animation: activity-breathe 1.6s ease-in-out infinite;
+      animation: activity-breathe var(--breathing-duration) var(--breathing-ease) infinite;
     }
     .entry.control {
       white-space: pre-wrap;
@@ -731,9 +683,6 @@
       flex: 1;
       border-top: 1px solid var(--line);
     }
-    .entry.tool {
-      font-size: 12px;
-    }
     .entry.error {
       border-left: 2px solid var(--danger);
       border-radius: var(--radius-sm);
@@ -749,32 +698,18 @@
     .empty-chat .entry-label { color: var(--accent); }
     .empty-chat h1 { margin: 12px 0; font-size: 28px; line-height: 1.25; font-weight: 600; letter-spacing: -0.6px; }
     .empty-chat p { margin: 0; color: var(--muted); line-height: 1.75; }
-    .text {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    .markdown {
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
-    .markdown p {
-      margin: 0 0 8px;
-    }
+    .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .markdown { white-space: normal; overflow-wrap: anywhere; }
+    .markdown p { margin: 0 0 8px; }
     .markdown p:last-child,
     .markdown ul:last-child,
     .markdown ol:last-child,
     .markdown pre:last-child,
-    .markdown table:last-child {
-      margin-bottom: 0;
-    }
+    .markdown table:last-child,
+    .markdown .katex-display:last-child { margin-bottom: 0; }
     .markdown ul,
-    .markdown ol {
-      margin: 0 0 8px 18px;
-      padding: 0;
-    }
-    .markdown li {
-      margin: 2px 0;
-    }
+    .markdown ol { margin: 0 0 8px 18px; padding: 0; }
+    .markdown li { margin: 2px 0; }
     .markdown pre {
       margin: 0 0 10px;
       padding: 10px 12px;
@@ -803,17 +738,9 @@
       text-align: left;
       vertical-align: top;
     }
-    .markdown th {
-      background: var(--accent-soft);
-      font-weight: 650;
-    }
-    .markdown a {
-      color: var(--info);
-      text-decoration: none;
-    }
-    .markdown a:hover {
-      text-decoration: underline;
-    }
+    .markdown th { background: var(--accent-soft); font-weight: 650; }
+    .markdown a { color: var(--info); text-decoration: none; }
+    .markdown a:hover { text-decoration: underline; }
     .markdown h1, .markdown h2, .markdown h3 { line-height: 1.4; margin: 16px 0 8px; font-weight: 600; }
     .markdown h1 { font-size: 20px; }
     .markdown h2 { font-size: 18px; }
@@ -828,44 +755,28 @@
       overflow-wrap: normal;
       word-break: normal;
     }
-    .markdown .katex {
-      overflow-wrap: normal;
-      word-break: normal;
-    }
+    .markdown .katex { overflow-wrap: normal; word-break: normal; }
     .markdown .katex .text {
       white-space: normal;
       overflow-wrap: normal;
       word-break: normal;
     }
-    .markdown .katex-display:last-child {
-      margin-bottom: 0;
-    }
-    .markdown .mermaid-figure {
-      margin: 0 0 var(--space-4);
-    }
+    .markdown .mermaid-figure { margin: 0 0 var(--space-4); }
     .markdown .mermaid-diagram {
       overflow-x: auto;
       padding: 8px 0;
       color: var(--muted);
       font-size: 13px;
     }
-    .markdown .mermaid-diagram svg {
-      display: block;
-      height: auto;
-    }
+    .markdown .mermaid-diagram svg { display: block; height: auto; }
     .markdown .mermaid-source {
       flex: 1;
       min-width: 0;
       color: var(--muted);
       font-size: 12px;
     }
-    .markdown .mermaid-source summary {
-      width: fit-content;
-      cursor: pointer;
-    }
-    .markdown .mermaid-source pre {
-      margin-top: 8px;
-    }
+    .markdown .mermaid-source summary { width: fit-content; cursor: pointer; }
+    .markdown .mermaid-source pre { margin-top: 8px; }
     .mermaid-controls,
     .mermaid-viewer-header {
       display: flex;
@@ -885,10 +796,7 @@
       cursor: pointer;
     }
     .mermaid-controls button:hover,
-    .mermaid-viewer button:hover {
-      background: var(--accent-soft);
-      color: var(--ink);
-    }
+    .mermaid-viewer button:hover { background: var(--accent-soft); color: var(--ink); }
     .mermaid-viewer {
       width: min(1400px, calc(100vw - 32px));
       max-height: calc(100dvh - 32px);
@@ -898,29 +806,17 @@
       background: var(--panel);
       color: var(--ink);
     }
-    .mermaid-viewer::backdrop {
-      background: rgba(23, 38, 48, 0.35);
-    }
-    .mermaid-viewer-header {
-      margin-bottom: 12px;
-    }
-    .mermaid-viewer-header strong {
-      flex: 1;
-      font-size: 14px;
-    }
-    .mermaid-viewer-content {
-      max-height: calc(100dvh - 110px);
-      overflow: auto;
-    }
+    .mermaid-viewer::backdrop { background: rgba(23, 38, 48, 0.35); }
+    .mermaid-viewer-header { margin-bottom: 12px; }
+    .mermaid-viewer-header strong { flex: 1; font-size: 14px; }
+    .mermaid-viewer-content { max-height: calc(100dvh - 110px); overflow: auto; }
     .mermaid-viewer-content img {
       display: block;
       max-width: 100%;
       height: auto;
       margin: auto;
     }
-    .mermaid-viewer-content.actual-size img {
-      max-width: none;
-    }
+    .mermaid-viewer-content.actual-size img { max-width: none; }
     .composer {
       position: relative;
       min-width: 0;
@@ -959,9 +855,7 @@
     }
     .queue-hint[hidden],
     .queue-indicator[hidden],
-    .session-cwd[hidden] {
-      display: none;
-    }
+    .session-cwd[hidden] { display: none; }
     .queue-indicator,
     .session-cwd {
       display: inline-flex;
@@ -977,10 +871,7 @@
       color: var(--muted);
       background: var(--panel-deep);
     }
-    .session-cwd {
-      margin-left: auto;
-      max-width: min(160px, 45%);
-    }
+    .session-cwd { margin-left: auto; max-width: min(160px, 45%); }
     .queue-symbol {
       flex-shrink: 0;
       font-size: 12px;
@@ -994,12 +885,7 @@
       flex-shrink: 0;
     }
     .queue-preview,
-    .session-cwd-name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .session-cwd-name { min-width: 0; }
     .prompt-input {
       min-width: 0;
       max-height: 35vh;
@@ -1023,19 +909,12 @@
       color: var(--muted);
       pointer-events: none;
     }
-    .prompt-input::-webkit-scrollbar {
-      display: none;
-    }
-    .prompt-input:focus {
-      outline: 0;
-    }
+    .prompt-input::-webkit-scrollbar { display: none; }
+    .prompt-input:focus { outline: 0; }
     .context-token {
       display: inline-block;
       max-width: min(calc(100% - 4px), var(--tab-max-width));
       vertical-align: middle;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
       border: 1px solid var(--line-strong);
       border-radius: var(--radius-sm);
       padding: 0 6px;
@@ -1067,9 +946,6 @@
     .context-block-heading span {
       flex: 1 1 120px;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
     }
     .context-block-actions {
       display: flex;
@@ -1110,11 +986,6 @@
       overflow: auto;
     }
     .context-block-editor:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-    }
     .spinner-wrap {
       position: relative;
       display: flex;
@@ -1127,12 +998,6 @@
       border-radius: 9px 9px 0 0;
       background: var(--panel);
     }
-    .prompt-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      min-width: 0;
-    }
     .spinner {
       position: relative;
       display: inline-flex;
@@ -1141,10 +1006,6 @@
       min-width: 0;
       height: 22px;
       color: var(--muted);
-      font-size: 12px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
       padding: var(--space-1) var(--space-4) var(--space-1) 18px;
       border-radius: var(--radius-sm);
       background: transparent;
@@ -1153,35 +1014,20 @@
       font-size: 12px;
       cursor: pointer;
     }
-    .spinner:empty {
-      display: none;
-    }
-    .spinner:hover {
-      background: var(--panel-deep);
-    }
+    .spinner:empty { display: none; }
+    .spinner:hover { background: var(--panel-deep); }
     .spinner-wrap:not(:has(.spinner:not(:empty), .queue-hint:not([hidden]), .session-cwd:not([hidden]))) {
       display: none;
     }
-    .spinner:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
     .spinner:not(:empty)::before {
-      content: "";
       position: absolute;
       left: 7px;
       top: 50%;
       width: 6px;
       height: 6px;
       margin-top: -3px;
-      border-radius: 999px;
-      background: var(--accent);
-      animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
     }
-    .spinner.notify-enabled {
-      color: var(--accent);
-      background: var(--accent-soft);
-    }
+    .spinner.notify-enabled { color: var(--accent); background: var(--accent-soft); }
     .toast {
       position: absolute;
       left: 0;
@@ -1202,10 +1048,7 @@
       transition: opacity 120ms ease, transform 120ms ease;
       margin-bottom: var(--space-3);
     }
-    .toast.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
     @keyframes spinner-pulse {
       0%, 100% {
         opacity: 0.45;
@@ -1220,18 +1063,6 @@
       0%, 100% { border-left-color: var(--line); }
       50% { border-left-color: var(--accent); }
     }
-    @media (prefers-reduced-motion: reduce) {
-      .entry.thinking,
-      .tab-status::before,
-      .spinner:not(:empty)::before {
-        animation: none;
-      }
-      .tab-status::before,
-      .spinner:not(:empty)::before {
-        opacity: 0.8;
-        transform: none;
-      }
-    }
     code {
       background: var(--code);
       border: 1px solid var(--line);
@@ -1241,25 +1072,11 @@
       font-size: 12px;
     }
     @media (max-width: 1100px) {
-      .workspace { grid-template-columns: minmax(0, 1fr) var(--splitter-width) minmax(0, var(--chat-width)) var(--session-rail-width); }
+      .workspace { --session-sidebar-size: 320px; }
       .session-sidebar {
-        position: fixed;
-        top: 0;
-        right: 0;
-        z-index: 21;
-        width: min(320px, calc(100vw - 40px));
-        border-radius: 16px 0 0 16px;
         padding-right: env(safe-area-inset-right);
-        box-shadow: -8px 0 32px rgba(27, 57, 72, 0.1);
       }
-      .session-sidebar-inner { width: 100%; }
-      .sessions-ready .session-sidebar,
-      .sessions-ready.sessions-collapsed .session-sidebar {
-        transition: width var(--sidebar-duration) var(--sidebar-ease), border-radius var(--sidebar-duration) ease, box-shadow var(--sidebar-duration) ease;
-      }
-      .sessions-collapsed .session-sidebar { width: var(--session-rail-width); border-radius: 0; box-shadow: none; }
-      .session-sidebar-header { flex-basis: 52px; }
-      .session-sidebar-header { padding: 0 6px; }
+      .session-sidebar-header { flex-basis: 52px; padding: 0 6px; }
       .session-sidebar .sessions-toggle { width: 44px; height: 44px; }
       .session-sidebar .tab { height: 36px; }
       .sessions-collapsed .session-sidebar .tab { height: 32px; }
@@ -1283,13 +1100,17 @@
         cursor: pointer;
       }
       .pane-toggle:hover { background: var(--panel-deep); color: var(--ink); }
-      .pane-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-      .pane-toggle svg { width: 18px; height: 18px; }
-      .workspace { --session-rail-width: 0px; height: 100dvh; display: block; }
+      .workspace { --session-rail-width: 0px; display: block; }
       .board-pane, .chat { height: 100%; width: 100%; }
       .session-sidebar,
       .sessions-collapsed .session-sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 21;
         width: min(320px, calc(100vw - 40px));
+        border-radius: 16px 0 0 16px;
+        box-shadow: -8px 0 32px rgba(27, 57, 72, 0.1);
         transform: translateX(0);
       }
       .sessions-collapsed .session-sidebar {
@@ -1304,7 +1125,7 @@
       .sessions-ready.sessions-collapsed .session-sidebar { transition-delay: 0s, var(--sidebar-duration); }
       .mobile-session-float {
         position: fixed;
-        top: max(8px, env(safe-area-inset-top));
+        top: calc(52px + env(safe-area-inset-top));
         right: max(6px, env(safe-area-inset-right));
         z-index: 10;
         display: flex;
@@ -1321,25 +1142,18 @@
         -webkit-backdrop-filter: blur(10px);
         transition: opacity 160ms ease, transform 160ms ease;
       }
-      .workspace[data-mobile-pane="board"] .mobile-session-float {
-        top: calc(52px + env(safe-area-inset-top));
-      }
       .sessions-drawer-open .mobile-session-float {
         visibility: hidden;
         opacity: 0;
         transform: translateX(8px);
         pointer-events: none;
       }
-      .mobile-session-float .sessions-toggle,
-      .mobile-session-float .pane-toggle {
+      .mobile-session-float .sessions-toggle {
         width: 26px;
         height: 28px;
         margin: 0;
         border-radius: 8px;
       }
-      .workspace[data-mobile-pane="chat"] .mobile-session-float [data-pane="chat"],
-      .workspace[data-mobile-pane="board"] .mobile-session-float [data-pane="board"],
-      .boardbar .pane-toggle { display: none; }
       .mobile-session-dots {
         display: flex;
         flex-direction: column;
@@ -1355,12 +1169,10 @@
       }
       .mobile-session-dots::-webkit-scrollbar { display: none; }
       .mobile-sessions-toggle { display: grid; }
-      #activeSessionStatus { display: none; }
       .splitter { display: none; }
       .workspace[data-mobile-pane="chat"] .board-pane,
       .workspace[data-mobile-pane="board"] .chat { display: none; }
-      .chat { grid-template-rows: minmax(0, 1fr) auto; }
-      .topbar { display: none; }
+      .topbar { padding: 6px 8px 6px 16px; }
       .log { padding: 14px 44px 14px 16px; gap: 14px; }
       .composer { padding: 8px 16px max(10px, env(safe-area-inset-bottom)); }
       .prompt-input { font-size: 16px; line-height: 24px; padding: 2px 0; }
@@ -1369,6 +1181,11 @@
       .empty-chat h1 { font-size: 26px; }
     }
     @media (prefers-reduced-motion: reduce) {
+      .entry.thinking,
+      .tab-status::before,
+      .spinner:not(:empty)::before { animation: none; }
+      .tab-status::before,
+      .spinner:not(:empty)::before { opacity: 0.8; transform: none; }
       .workspace { --sidebar-duration: 0ms; }
       .workspace.sessions-ready,
       .sessions-ready .session-sidebar,
@@ -1505,19 +1322,6 @@
           <path d="M15 3v18M18 8h1M18 12h1M18 16h1"/>
         </svg>
       </button>
-      <button class="pane-toggle" type="button" data-pane="board" title="Show board" aria-label="Show board">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="3" width="18" height="18" rx="3"/>
-          <path d="M3 9h18M9 9v12"/>
-        </svg>
-      </button>
-      <button class="pane-toggle" type="button" data-pane="chat" title="Show chat" aria-label="Show chat">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
-        </svg>
-      </button>
       <div class="mobile-session-dots" role="group" aria-label="Sessions"></div>
     </div>
     <button id="sessionsBackdrop" class="sessions-backdrop" type="button" tabindex="-1"
@@ -1553,6 +1357,25 @@
       <p>Explore an idea, work through a problem, or build something together. Your conversation starts here.</p>
     </div>
   </template>
+  <template id="sessionTab">
+    <div class="tab" role="tab">
+      <span class="unread-dot" role="img" title="Unread reply" aria-label="Unread reply"></span>
+      <button class="tab-status" type="button"></button>
+      <button class="tab-label" type="button"></button>
+      <button class="tab-close" type="button" title="Close session" aria-label="Close session">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 4l8 8M12 4l-8 8"/>
+        </svg>
+      </button>
+    </div>
+  </template>
+  <template id="mobileSessionDot">
+    <button class="mobile-session-dot" type="button">
+      <span class="tab-status" aria-hidden="true"></span>
+      <span class="unread-dot" aria-hidden="true" hidden></span>
+    </button>
+  </template>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
@@ -1581,14 +1404,13 @@
     const sessionSidebar = document.getElementById("sessionSidebar");
     const sessionsClose = document.getElementById("sessionsClose");
     const sessionsBackdrop = document.getElementById("sessionsBackdrop");
-    const sessionsDrawerMedia = window.matchMedia("(max-width: 1100px)");
     const mobileSessionsMedia = window.matchMedia("(max-width: 760px)");
     const mobileSessionFloat = document.getElementById("mobileSessionFloat");
-    const mobileSessionDots = document.querySelectorAll(".mobile-session-dots");
+    const mobileSessionDots = document.querySelector(".mobile-session-dots");
     const mobileSessionsToggle = document.querySelector(".mobile-sessions-toggle");
-    const sessionsPreferenceKey = "pycodex.workspace.sessionsOpen";
-    let sessionsOpen = !sessionsDrawerMedia.matches &&
-      window.localStorage.getItem(sessionsPreferenceKey) !== "false";
+    let sessionsOpen = false;
+    let sessionsPinned = false;
+    let sessionsHoverTimer = null;
     const contextMeter = document.getElementById("contextMeter");
     const contextMeterValue = document.getElementById("contextMeterValue");
     const newTabButton = document.getElementById("newTab");
@@ -1598,7 +1420,6 @@
     let sessionPoll = null;
     let boardPollInFlight = false;
     let lastBoardSignature = null;
-    let lastRenderedSignature = "";
     let resizeStart = null;
     let spinnerText = "";
     let toastTimer = null;
@@ -1675,29 +1496,21 @@
       return new URL(path, window.location.href).toString();
     }
 
-    function addEntry(_role, text, cls, shouldStick = null) {
-      const stickToBottom = shouldStick === null ? isNearBottom() : shouldStick;
-      const entry = document.createElement("div");
-      entry.className = "entry " + (cls || _role);
-      const body = document.createElement("div");
-      body.className = "text";
-      body.textContent = text || "";
-      entry.appendChild(body);
-      log.appendChild(entry);
-      if (stickToBottom) scrollToBottom();
-      return body;
+    function element(tag, className = "", text = "") {
+      const node = document.createElement(tag);
+      node.className = className;
+      node.textContent = text;
+      if (tag === "button") node.type = "button";
+      return node;
     }
 
-    function addMarkdownEntry(role, text, cls, shouldStick = null) {
-      const stickToBottom = shouldStick === null ? isNearBottom() : shouldStick;
-      const entry = document.createElement("div");
-      entry.className = "entry " + (cls || role);
-      const body = document.createElement("div");
-      body.className = "text markdown";
+    function addEntry(cls, text, markdown = false, shouldStick = isNearBottom()) {
+      const entry = element("div", "entry " + cls);
+      const body = element("div", markdown ? "text markdown" : "text", text || "");
       entry.appendChild(body);
       log.appendChild(entry);
-      renderMarkdownInto(body, text || "");
-      if (stickToBottom) scrollToBottom();
+      if (markdown) renderMarkdownInto(body, text || "");
+      if (shouldStick) scrollToBottom();
       return body;
     }
 
@@ -1730,21 +1543,14 @@
         if (!code.isConnected) return;
         const source = code.textContent;
         const pre = code.parentElement;
-        const figure = document.createElement("figure");
-        figure.className = "mermaid-figure";
-        const diagram = document.createElement("div");
-        diagram.className = "mermaid-diagram";
-        diagram.textContent = "Rendering diagram…";
-        const details = document.createElement("details");
-        details.className = "mermaid-source";
+        const figure = element("figure", "mermaid-figure");
+        const diagram = element("div", "mermaid-diagram", "Rendering diagram…");
+        const details = element("details", "mermaid-source");
         details.open = true;
-        const summary = document.createElement("summary");
-        summary.textContent = "Diagram source";
-        details.appendChild(summary);
+        details.appendChild(element("summary", "", "Diagram source"));
         pre.replaceWith(figure);
         details.appendChild(pre);
-        const controls = document.createElement("div");
-        controls.className = "mermaid-controls";
+        const controls = element("div", "mermaid-controls");
         controls.appendChild(details);
         figure.append(diagram, controls);
         try {
@@ -1757,9 +1563,7 @@
           const svg = diagram.querySelector("svg");
           svg.style.width = svg.viewBox.baseVal.width + "px";
           svg.style.maxWidth = "100%";
-          const expand = document.createElement("button");
-          expand.type = "button";
-          expand.textContent = "Expand";
+          const expand = element("button", "", "Expand");
           expand.addEventListener("click", () => showMermaidDiagram(svg));
           controls.appendChild(expand);
           details.open = false;
@@ -1783,26 +1587,17 @@
         [new XMLSerializer().serializeToString(copy)],
         {type: "image/svg+xml"},
       ));
-      const dialog = document.createElement("dialog");
-      dialog.className = "mermaid-viewer";
+      const dialog = element("dialog", "mermaid-viewer");
       dialog.setAttribute("aria-label", "Expanded diagram");
-      const header = document.createElement("div");
-      header.className = "mermaid-viewer-header";
-      const title = document.createElement("strong");
-      title.textContent = "Diagram";
-      const zoom = document.createElement("button");
-      zoom.type = "button";
-      zoom.textContent = "Actual size";
-      const close = document.createElement("button");
-      close.type = "button";
-      close.textContent = "Close";
-      const content = document.createElement("div");
-      content.className = "mermaid-viewer-content";
+      const header = element("div", "mermaid-viewer-header");
+      const zoom = element("button", "", "Actual size");
+      const close = element("button", "", "Close");
+      const content = element("div", "mermaid-viewer-content");
       const image = document.createElement("img");
       image.src = imageUrl;
       image.alt = "Diagram";
       content.appendChild(image);
-      header.append(title, zoom, close);
+      header.append(element("strong", "", "Diagram"), zoom, close);
       dialog.append(header, content);
       zoom.addEventListener("click", () => {
         const actualSize = content.classList.toggle("actual-size");
@@ -1830,9 +1625,7 @@
 
     function countBackticks(source, index) {
       let count = 0;
-      while (source[index + count] === "`") {
-        count += 1;
-      }
+      while (source[index + count] === "`") count += 1;
       return count;
     }
 
@@ -1840,9 +1633,7 @@
       let searchFrom = start + delimiter.left.length;
       while (searchFrom < source.length) {
         const end = source.indexOf(delimiter.right, searchFrom);
-        if (end < 0) {
-          return -1;
-        }
+        if (end < 0) return -1;
         if (!isEscapedAt(source, end)) {
           if (
             delimiter.left === "$" &&
@@ -1887,9 +1678,9 @@
             const end = findMathEnd(source, index, delimiter);
             if (end > index + delimiter.left.length) {
               matched = {
-                delimiter: delimiter,
+                delimiter,
                 start: index,
-                end: end,
+                end,
               };
               break;
             }
@@ -1915,21 +1706,15 @@
       }
       return {
         source: protectedSource,
-        expressions: expressions,
+        expressions,
       };
     }
 
     function renderProtectedMath(root, expressions) {
-      if (!expressions.length) {
-        return;
-      }
-      const expressionByToken = new Map();
-      expressions.forEach((expression, index) => {
-        expressionByToken.set(
-          mathTokenPrefix + index + mathTokenSuffix,
-          expression,
-        );
-      });
+      if (!expressions.length) return;
+      const expressionByToken = new Map(expressions.map((expression, index) => [
+        mathTokenPrefix + index + mathTokenSuffix, expression,
+      ]));
       const textWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       const textNodes = [];
       let textNode = textWalker.nextNode();
@@ -1938,48 +1723,33 @@
         textNode = textWalker.nextNode();
       }
       for (const textNode of textNodes) {
-        let value = textNode.nodeValue || "";
+        const value = textNode.nodeValue || "";
         let cursor = 0;
         let tokenIndex = value.indexOf(mathTokenPrefix, cursor);
-        if (tokenIndex < 0) {
-          continue;
-        }
+        if (tokenIndex < 0) continue;
         const fragment = document.createDocumentFragment();
         while (tokenIndex >= 0) {
           const tokenEnd = value.indexOf(mathTokenSuffix, tokenIndex);
-          if (tokenEnd < 0) {
-            break;
-          }
+          if (tokenEnd < 0) break;
           const token = value.slice(tokenIndex, tokenEnd + mathTokenSuffix.length);
           const expression = expressionByToken.get(token);
-          if (!expression) {
-            break;
-          }
+          if (!expression) break;
           if (tokenIndex > cursor) {
             fragment.appendChild(
               document.createTextNode(value.slice(cursor, tokenIndex)),
             );
           }
           const mathNode = document.createElement("span");
-          const sourceText =
-            expression.delimiter.left +
-            expression.body +
-            expression.delimiter.right;
+          const {delimiter, body} = expression;
           if (window.renderMathInElement) {
-            mathNode.textContent = sourceText;
+            mathNode.textContent = delimiter.left + body + delimiter.right;
             window.renderMathInElement(mathNode, {
-              delimiters: [
-                {
-                  left: expression.delimiter.left,
-                  right: expression.delimiter.right,
-                  display: expression.delimiter.display,
-                },
-              ],
+              delimiters: [{...delimiter}],
               throwOnError: false,
               trust: false,
             });
           } else {
-            mathNode.textContent = expression.body;
+            mathNode.textContent = body;
           }
           fragment.appendChild(mathNode);
           cursor = tokenEnd + mathTokenSuffix.length;
@@ -2003,11 +1773,8 @@
       while (textNode) {
         let value = textNode.nodeValue || "";
         expressionByToken.forEach((expression, token) => {
-          const sourceText =
-            expression.delimiter.left +
-            expression.body +
-            expression.delimiter.right;
-          value = value.split(token).join(sourceText);
+          const {delimiter, body} = expression;
+          value = value.split(token).join(delimiter.left + body + delimiter.right);
         });
         textNode.nodeValue = value;
         textNode = textWalker.nextNode();
@@ -2020,19 +1787,29 @@
     }
 
     function centerSplit() {
-      setChatWidth(Math.max(0, (window.innerWidth - sessionSidebarWidth() - 8) / 2));
+      const sidebarWidth = parseFloat(getComputedStyle(workspace).getPropertyValue(
+        sessionsOpen ? "--session-sidebar-size" : "--session-rail-width"
+      ));
+      setChatWidth(Math.max(0, (window.innerWidth - sidebarWidth - 8) / 2) +
+        sidebarWidth - sessionSidebarWidth());
     }
 
     function sessionSidebarWidth() {
-      const size = sessionsOpen && !sessionsDrawerMedia.matches ? "--session-sidebar-size" : "--session-rail-width";
-      return parseFloat(getComputedStyle(workspace).getPropertyValue(size));
+      return parseFloat(getComputedStyle(workspace).getPropertyValue("--session-rail-width"));
     }
 
-    function setSessionsOpen(open, restoreFocus = false) {
+    function clearSessionsHover() {
+      clearTimeout(sessionsHoverTimer);
+      sessionsHoverTimer = null;
+    }
+
+    function setSessionsOpen(open, restoreFocus = false, pinned = true) {
+      clearSessionsHover();
       sessionsOpen = open;
+      sessionsPinned = open && pinned;
       workspace.classList.toggle("sessions-collapsed", !open);
       updateSessionControls();
-      const modal = open && sessionsDrawerMedia.matches;
+      const modal = open && mobileSessionsMedia.matches;
       const hidden = !open && mobileSessionsMedia.matches;
       const floatHidden = modal || !mobileSessionsMedia.matches;
       mobileSessionFloat.inert = floatHidden;
@@ -2048,9 +1825,6 @@
       for (const pane of workspace.querySelectorAll(".board-pane, .chat, .splitter")) {
         pane.inert = modal;
       }
-      if (!sessionsDrawerMedia.matches) {
-        window.localStorage.setItem(sessionsPreferenceKey, String(open));
-      }
       if (modal) sessionsClose.focus({preventScroll: true});
       else if (restoreFocus) {
         const button = mobileSessionsMedia.matches ? mobileSessionsToggle : sessionsClose;
@@ -2059,6 +1833,7 @@
       requestAnimationFrame(() => {
         resizePrompt();
         restoreSessionScroll();
+        if (!open) markVisibleFinalRead();
       });
     }
 
@@ -2077,7 +1852,7 @@
     }
 
     function dismissSessionsDrawer() {
-      if (sessionsDrawerMedia.matches && sessionsOpen) setSessionsOpen(false, true);
+      if (mobileSessionsMedia.matches && sessionsOpen) setSessionsOpen(false, true);
     }
 
     async function selectSession(sessionId) {
@@ -2113,7 +1888,8 @@
 
     function startResize(event) {
       if (!workspace) return;
-      const chatWidth = document.querySelector(".chat").getBoundingClientRect().width;
+      const chatWidth = document.querySelector(".chat").getBoundingClientRect().width +
+        sessionSidebar.getBoundingClientRect().width - sessionSidebarWidth();
       resizeStart = { pointerId: event.pointerId, startX: event.clientX, startWidth: chatWidth };
       splitter.setPointerCapture(event.pointerId);
       workspace.classList.add("resizing");
@@ -2312,7 +2088,6 @@
         state.scrollTop = log.scrollTop;
       }
       state.draft = composer.read();
-      state.lastRenderedSignature = lastRenderedSignature;
     }
 
     function updateSessions(nextSessions) {
@@ -2349,122 +2124,49 @@
       activeSessionTitle.title = activeSessionTitle.textContent;
       activeSessionStatus.hidden = !active?.running;
       updateSessionControls();
-      const existingTabs = new Map(
-        Array.from(tabsEl.children, tab => [tab.dataset.sessionId, tab])
+      renderSessionList(tabsEl, false);
+      renderSessionList(mobileSessionDots, true);
+      if (mobileSessionDots.dataset.activeSessionId !== activeSessionId && mobileSessionDots.clientWidth) {
+        mobileSessionDots.querySelector(".active")?.scrollIntoView({block: "nearest", inline: "nearest"});
+      }
+      mobileSessionDots.dataset.activeSessionId = activeSessionId;
+    }
+
+    function renderSessionList(container, mobile) {
+      const template = document.getElementById(mobile ? "mobileSessionDot" : "sessionTab");
+      const existing = new Map(
+        Array.from(container.children, tab => [tab.dataset.sessionId, tab])
       );
       sessions.forEach((session, index) => {
         const sessionId = session.id || "";
-        let tab = existingTabs.get(sessionId);
-        if (!tab) {
-          tab = document.createElement("div");
-          tab.dataset.sessionId = sessionId;
-          tab.setAttribute("role", "tab");
-          tab.addEventListener("click", () => selectSession(sessionId));
-
-          const unread = document.createElement("span");
-          unread.className = "unread-dot";
-          unread.title = "Unread reply";
-          unread.setAttribute("role", "img");
-          unread.setAttribute("aria-label", "Unread reply");
-          tab.appendChild(unread);
-
-          const statusButton = document.createElement("button");
-          statusButton.type = "button";
-          statusButton.className = "tab-status";
-          statusButton.addEventListener("click", event => {
-            event.stopPropagation();
-            selectSession(sessionId);
-          });
-          tab.appendChild(statusButton);
-
-          const label = document.createElement("button");
-          label.type = "button";
-          label.className = "tab-label";
-          label.addEventListener("click", event => {
-            if (sessionId !== activeSessionId) return;
-            event.stopPropagation();
-            editSessionTitle(tab, sessionId);
-          });
-          tab.appendChild(label);
-
-          const close = document.createElement("button");
-          close.type = "button";
-          close.className = "tab-close";
-          close.title = "Close session";
-          close.setAttribute("aria-label", "Close session");
-          close.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
-            'stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' +
-            '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
-          close.addEventListener("click", event => {
-            event.stopPropagation();
-            closeSession(sessionId);
-          });
-          tab.appendChild(close);
-        }
-        existingTabs.delete(sessionId);
-        tab.className =
-          "tab" +
-          (sessionId === activeSessionId ? " active" : "") +
-          (session.last_final_id ? " completed" : "") +
-          (session.running ? " running" : "");
-        tab.title = session.title || `Session ${index + 1}`;
-        tab.setAttribute("aria-selected", sessionId === activeSessionId ? "true" : "false");
-        tab.setAttribute("aria-busy", String(Boolean(session.running)));
-        const statusLabel = session.running ? "Running" : session.last_final_id ? "Finished" : "Idle";
-        const statusButton = tab.querySelector(".tab-status");
-        statusButton.title = `${tab.title} · ${statusLabel}${session.unread ? " · Unread reply" : ""}`;
-        statusButton.setAttribute("aria-label", statusButton.title);
+        const tab = existing.get(sessionId) || template.content.firstElementChild.cloneNode(true);
+        existing.delete(sessionId);
+        tab.dataset.sessionId = sessionId;
+        const active = sessionId === activeSessionId;
+        tab.classList.toggle("active", active);
+        tab.classList.toggle("running", Boolean(session.running));
+        tab.classList.toggle("completed", Boolean(session.last_final_id));
+        const title = session.title || `Session ${index + 1}`;
+        const status = session.running ? "Running" : session.last_final_id ? "Finished" : "Idle";
+        const description = `${title} · ${status}${session.unread ? " · Unread reply" : ""}`;
+        tab.title = mobile ? description : title;
+        tab.setAttribute(mobile ? "aria-pressed" : "aria-selected", String(active));
         tab.querySelector(".unread-dot").hidden = !session.unread;
-        const label = tab.querySelector(".tab-label");
-        label.textContent = session.title || `Session ${index + 1}`;
-        label.title = sessionId === activeSessionId ? "Click to rename session" : tab.title;
-        tab.querySelector(".tab-close").disabled = sessions.length <= 1;
-        if (tabsEl.children[index] !== tab) {
-          tabsEl.insertBefore(tab, tabsEl.children[index] || null);
+        if (mobile) {
+          tab.setAttribute("aria-label", description);
+        } else {
+          tab.setAttribute("aria-busy", String(Boolean(session.running)));
+          const statusButton = tab.querySelector(".tab-status");
+          statusButton.title = description;
+          statusButton.setAttribute("aria-label", description);
+          const label = tab.querySelector(".tab-label");
+          label.textContent = title;
+          label.title = active ? "Click to rename session" : title;
+          tab.querySelector(".tab-close").disabled = sessions.length <= 1;
         }
+        if (container.children[index] !== tab) container.insertBefore(tab, container.children[index] || null);
       });
-      existingTabs.forEach(tab => tab.remove());
-      renderMobileSessionDots();
-    }
-
-    function renderMobileSessionDots() {
-      mobileSessionDots.forEach(container => {
-        const existing = new Map(
-          Array.from(container.children, button => [button.dataset.sessionId, button])
-        );
-        sessions.forEach((session, index) => {
-          const sessionId = session.id || "";
-          let button = existing.get(sessionId);
-          if (!button) {
-            button = document.createElement("button");
-            button.type = "button";
-            button.dataset.sessionId = sessionId;
-            button.innerHTML = '<span class="tab-status" aria-hidden="true"></span>' +
-              '<span class="unread-dot" aria-hidden="true" hidden></span>';
-            button.addEventListener("click", () => selectSession(sessionId));
-          }
-          existing.delete(sessionId);
-          const active = sessionId === activeSessionId;
-          button.className = "mobile-session-dot" +
-            (active ? " active" : "") +
-            (session.running ? " running" : "") +
-            (session.last_final_id ? " completed" : "");
-          const state = session.running ? "Running" : session.last_final_id ? "Finished" : "Idle";
-          button.title = `${session.title || `Session ${index + 1}`} · ${state}` +
-            (session.unread ? " · Unread reply" : "");
-          button.setAttribute("aria-label", button.title);
-          button.setAttribute("aria-pressed", String(active));
-          button.querySelector(".unread-dot").hidden = !session.unread;
-          if (container.children[index] !== button) {
-            container.insertBefore(button, container.children[index] || null);
-          }
-        });
-        existing.forEach(button => button.remove());
-        if (container.dataset.activeSessionId !== activeSessionId && container.clientWidth) {
-          container.querySelector(".active")?.scrollIntoView({block: "nearest", inline: "nearest"});
-        }
-        container.dataset.activeSessionId = activeSessionId;
-      });
+      existing.forEach(tab => tab.remove());
     }
 
     function editSessionTitle(tab, sessionId) {
@@ -2522,7 +2224,7 @@
           renderTabs();
         }
       } catch (error) {
-        addEntry("error", `Could not rename session: ${error.message}`, "error");
+        addEntry("error", `Could not rename session: ${error.message}`);
       }
     }
 
@@ -2666,12 +2368,6 @@
       pollTimer = setInterval(pollSession, 2000);
     }
 
-    function stopPolling() {
-      if (!pollTimer) return;
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-
     async function pollBoard() {
       if (boardPollInFlight) return;
       boardPollInFlight = true;
@@ -2685,11 +2381,6 @@
         }
         const signature = `${payload.mtime_ns || ""}:${payload.size || ""}`;
         // Automatic Canvas refreshes must not add browser Back history entries.
-        if (lastBoardSignature === null) {
-          lastBoardSignature = signature;
-          boardFrame.contentWindow.location.replace(relativeUrl(`board?t=${Date.now()}`));
-          return;
-        }
         if (signature !== lastBoardSignature) {
           lastBoardSignature = signature;
           boardFrame.contentWindow.location.replace(relativeUrl(`board?t=${Date.now()}`));
@@ -2735,7 +2426,6 @@
         return;
       }
       state.lastRenderedSignature = signature;
-      lastRenderedSignature = signature;
       const shouldStick = state.scrollTop === null || isNearBottom();
       const previousScrollTop = log.scrollTop;
       const viewportTop = log.getBoundingClientRect().top;
@@ -2783,8 +2473,7 @@
         key = `${activeSessionId}:${key}`;
         let entry = previous.get(key);
         if (!entry || entry.className !== `entry ${cls}`) {
-          const add = markdown ? addMarkdownEntry : addEntry;
-          entry = add(cls, text, cls, false).parentElement;
+          entry = addEntry(cls, text, markdown, false).parentElement;
           entry.dataset.entryKey = key;
         } else if (entry.renderedSource !== text) {
           const body = entry.firstElementChild;
@@ -2844,6 +2533,7 @@
     }
 
     async function markVisibleFinalRead() {
+      if (sessionsOpen && mobileSessionsMedia.matches) return;
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       const sessionId = activeSessionId;
       const session = sessionById(sessionId);
@@ -2915,7 +2605,7 @@
       const payload = await response.json();
       if (activeSessionId !== sessionId) return;
       if (!response.ok || !payload.ok) {
-        addEntry("error", payload.error || `HTTP ${response.status}`, "error");
+        addEntry("error", payload.error || `HTTP ${response.status}`);
         setSpinner("");
         return;
       }
@@ -2939,7 +2629,6 @@
       updateContextMeter();
       const state = stateForSession(sessionId);
       state.lastRenderedSignature = "";
-      lastRenderedSignature = "";
       closeContextBlock();
       composer.set(state.draft);
       resizePrompt();
@@ -2958,7 +2647,7 @@
       const response = await fetch(relativeUrl("api/sessions"), {method: "POST"});
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
-        addEntry("error", payload.error || `HTTP ${response.status}`, "error");
+        addEntry("error", payload.error || `HTTP ${response.status}`);
         return;
       }
       activeSessionId = payload.session_id || "";
@@ -2966,7 +2655,6 @@
       state.draft = {parts: []};
       state.scrollTop = null;
       state.lastRenderedSignature = "";
-      lastRenderedSignature = "";
       closeContextBlock();
       composer.set(state.draft);
       resizePrompt();
@@ -2983,7 +2671,7 @@
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
-        addEntry("error", payload.error || `HTTP ${response.status}`, "error");
+        addEntry("error", payload.error || `HTTP ${response.status}`);
         return;
       }
       updateSessions(payload.sessions || []);
@@ -3049,9 +2737,10 @@
     });
 
     log.addEventListener("scroll", () => {
-      if (suppressScrollSave || !log.clientHeight || !lastRenderedSignature) return;
-      if (!activeSessionId) return;
-      stateForSession(activeSessionId).scrollTop = log.scrollTop;
+      if (suppressScrollSave || !log.clientHeight || !activeSessionId) return;
+      const state = stateForSession(activeSessionId);
+      if (!state.lastRenderedSignature) return;
+      state.scrollTop = log.scrollTop;
       requestAnimationFrame(markVisibleFinalRead);
     });
 
@@ -3062,27 +2751,51 @@
     splitter.addEventListener("dblclick", centerSplit);
     spinner.addEventListener("click", toggleSpinnerNotification);
     newTabButton.addEventListener("click", createSession);
+    for (const container of [tabsEl, mobileSessionDots]) {
+      container.addEventListener("click", event => {
+        const tab = event.target.closest("[data-session-id]");
+        if (!tab) return;
+        const sessionId = tab.dataset.sessionId;
+        if (event.target.closest(".tab-close")) closeSession(sessionId);
+        else if (sessionId === activeSessionId && event.target.closest(".tab-label")) {
+          editSessionTitle(tab, sessionId);
+        } else selectSession(sessionId);
+      });
+    }
     mobileSessionsToggle.addEventListener("click", () => setSessionsOpen(!sessionsOpen));
-    sessionsClose.addEventListener("click", () => setSessionsOpen(!sessionsOpen, sessionsOpen));
-    sessionsBackdrop.addEventListener("click", () => setSessionsOpen(false, true));
-    sessionsDrawerMedia.addEventListener("change", () => {
-      const hadSidebarFocus = sessionSidebar.contains(document.activeElement);
-      setSessionsOpen(!sessionsDrawerMedia.matches &&
-        window.localStorage.getItem(sessionsPreferenceKey) !== "false", hadSidebarFocus);
-      const current = Number(window.localStorage.getItem("pycodex.workspace.chatWidth") || 0);
-      if (current > 0) setChatWidth(current);
+    sessionsClose.addEventListener("click", () => setSessionsOpen(!sessionsPinned, true));
+    sessionSidebar.addEventListener("pointerenter", event => {
+      if (event.pointerType !== "mouse" || mobileSessionsMedia.matches) return;
+      clearSessionsHover();
+      if (!sessionsOpen) {
+        sessionsHoverTimer = setTimeout(() => setSessionsOpen(true, false, false), 100);
+      }
     });
-    mobileSessionsMedia.addEventListener("change", () => {
-      const restoreFocus = mobileSessionsMedia.matches && !sessionsOpen &&
-        sessionSidebar.contains(document.activeElement);
-      setSessionsOpen(sessionsOpen, restoreFocus);
+    sessionSidebar.addEventListener("pointerleave", event => {
+      if (event.pointerType !== "mouse") return;
+      clearSessionsHover();
+      if (sessionsOpen && !sessionsPinned) {
+        sessionsHoverTimer = setTimeout(() => setSessionsOpen(false), 150);
+      }
     });
-    sessionSidebar.addEventListener("keydown", event => {
-      if (event.key === "Escape" && !event.target.matches(".tab-title-input")) {
+    sessionSidebar.addEventListener("click", event => {
+      if (event.target.closest("#sessionsClose")) return;
+      if (!sessionsOpen) {
         event.preventDefault();
+        event.stopPropagation();
+        setSessionsOpen(true, true);
+      } else if (!sessionsPinned) {
+        setSessionsOpen(true);
+      } else if (!event.target.closest("button, input, .tab")) {
         setSessionsOpen(false, true);
       }
-      if (event.key !== "Tab" || !sessionsDrawerMedia.matches || !sessionsOpen) return;
+    }, true);
+    sessionsBackdrop.addEventListener("click", () => setSessionsOpen(false, true));
+    mobileSessionsMedia.addEventListener("change", () => {
+      setSessionsOpen(false, sessionSidebar.contains(document.activeElement));
+    });
+    sessionSidebar.addEventListener("keydown", event => {
+      if (event.key !== "Tab" || !mobileSessionsMedia.matches || !sessionsOpen) return;
       const focusable = Array.from(sessionSidebar.querySelectorAll("button:not(:disabled), input"))
         .filter(element => element.getClientRects().length && getComputedStyle(element).visibility !== "hidden");
       const first = focusable[0];
@@ -3093,6 +2806,13 @@
       } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault();
         first.focus();
+      }
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && sessionsOpen && !event.defaultPrevented &&
+          !event.target.closest("dialog")) {
+        event.preventDefault();
+        setSessionsOpen(false, true);
       }
     });
     document.querySelectorAll(".fullscreen-toggle").forEach(button => {
@@ -3125,18 +2845,29 @@
       });
     });
     window.addEventListener("resize", () => {
-      const current = Number(window.localStorage.getItem("pycodex.workspace.chatWidth") || 0);
-      if (current > 0) setChatWidth(current);
+      loadChatWidth();
       resizePrompt();
       restoreSessionScroll();
       requestAnimationFrame(markVisibleFinalRead);
     });
     window.addEventListener("focus", () => requestAnimationFrame(markVisibleFinalRead));
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        if (!sessionsPinned) setSessionsOpen(false);
+        return;
+      }
       pollSession();
       pollBoard();
+      contentTabs.poll();
       requestAnimationFrame(markVisibleFinalRead);
+    });
+
+    document.addEventListener("animationstart", event => {
+      if (event.animationName !== "spinner-pulse" && event.animationName !== "activity-breathe") return;
+      // Include pseudo-elements and anchor new indicators to the page's breathing phase.
+      for (const animation of event.target.getAnimations({subtree: true})) {
+        if (animation.animationName === event.animationName) animation.startTime = 0;
+      }
     });
 
     setSessionsOpen(sessionsOpen);
@@ -3144,6 +2875,7 @@
     loadChatWidth();
     setupContextDetails();
     resizePrompt();
+    new ResizeObserver(resizePrompt).observe(document.querySelector(".chat"));
     startPolling();
     startBoardPolling();
     document.querySelectorAll(".content-tabs").forEach(tabs => {
@@ -3217,11 +2949,9 @@
     }
 
     startContentViews();
+    window.addEventListener("pagehide", clearSessionsHover);
     window.addEventListener("pagehide", stopContentViews);
     window.addEventListener("pageshow", startContentViews);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") contentTabs.poll();
-    });
   </script>
 </body>
 </html>

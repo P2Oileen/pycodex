@@ -253,6 +253,31 @@ including compact dividers and earlier questions/replies within that window.
 Compaction adds a divider to the existing conversation list. Display restoration
 reuses the rollout parser; model context still resumes from the latest checkpoint.
 
+In the workspace's single-pane phone layout, the conversation header retains
+the active session title and running status. Board/chat switches occupy the
+same top-right position in their respective headers; the board switch follows
+the fullscreen button in the board toolbar. Floating session controls stay below
+the headers and contain only the session-list button and status dots.
+
+In the two-pane layout, the session sidebar starts collapsed on every page load.
+Hovering for 100 ms previews it; leaving schedules dismissal after 150 ms,
+and returning cancels dismissal. Clicking pins it open; another click on the
+toggle or empty sidebar space, or Escape, closes it. The chat and sidebar share
+a fixed total width: expansion takes space from the chat without moving the
+board or splitter. Dragging the splitter resizes that combined region;
+double-clicking balances the visible board and chat. Both panes remain
+interactive; only the phone drawer is modal. The composer follows chat-width
+changes so wrapped input keeps the correct height. Replies remain readable
+beside the sidebar; replies covered by the phone drawer are marked read after
+it closes.
+Hover timers are cleared by explicit actions, mode changes and page hiding.
+
+Status dots, activity spinners and thinking borders use the same 1.2-second
+breathing cycle and easing. The workspace, workspace list and router set these
+CSS animations to the document timeline origin when they start, so indicators
+created or revealed later share the page's current phase. Reduced-motion
+preferences disable these animations.
+
 Assistant replies render fenced `mermaid` blocks as diagrams. The browser loads
 the renderer on demand, uses strict mode and sanitizes the generated SVG.
 Diagrams fit the chat column; `Expand` opens a larger view with an `Actual size`

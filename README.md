@@ -1,896 +1,171 @@
 # pycodex
 
-English README. Chinese version: `README_ZH.md`
+[中文](README_ZH.md)
 
-0.4.0 core/workspace package split and dependency cleanup: [release notes](docs/RELEASE_0.4.0.md).
+pycodex brings the [Codex](https://github.com/openai/codex) agent loop to Python,
+with a CLI, reusable Agent API and browser workspace. It aims to follow upstream
+behavior; supported features and deliberate differences are documented in
+[Alignment](docs/ALIGNMENT.md).
 
-0.3.3 workspace viewers and reasoning stream fix: [release notes](docs/RELEASE_0.3.3.md).
+| Package | Provides | Python |
+| --- | --- | --- |
+| `python-codex` | Agent, runtime, CLI, tools, Responses compatibility server and portable storage | 3.6.2+ |
+| `pycodex-ws` | Browser workspace, Canvas, file/diff viewers and optional Feishu integration | 3.7+ |
 
-0.3.2 startup fixes: [release notes](docs/RELEASE_0.3.2.md).
+The workspace package installs the matching core version. Python imports use
+`pycodex`; the commands are `pycodex` and `pycodex-ws`.
 
-0.3.0 release preparation and Python API migration: `docs/RELEASE_0.3.0.md`.
+## Install and run
 
-PyPI distributions:
-
-- Core package: `python-codex`
-- Workspace and integrations: `pycodex-ws`
-
-The import path remains `pycodex`; the CLI commands are `pycodex` and
-`pycodex-ws`.
-
-`python-codex` contains the Agent, runtime, CLI, standard tools, Responses
-compatibility server and portable storage support. `pycodex-ws` depends on the
-exact matching core version and contains the browser workspace, viewer assets
-and optional Feishu integration. It owns the
-`workspace_server` and `pycodex_ws` modules and the `pycodex-ws` command.
-
-The Feishu SDK is not installed automatically. Install it in the workspace's
-Python environment with `python3 -m pip install lark-oapi` to enable `/link`.
-If `lark_oapi` cannot be imported, `/link` reports that it is unavailable.
-
-Core does not require Pillow. Without it, `view_image` sends the original image
-bytes with `detail="original"`, including when `high` is requested. With Pillow
-installed, the default path retains resizing to a maximum dimension of 2048.
-`pycodex-ws` installs Pillow for image preview validation.
-
-Portable encryption uses a bundled pure Python AES-GCM subset of pyaes and
-tlslite-ng, under MIT and BSD licenses. Core does not require a crypto package
-or compiler and ships a `py3-none-any` wheel. Existing `PCX1` bundles and call
-tokens remain compatible; large bundles take longer to encrypt and decrypt.
-See the [source notes](pycodex/utils/_aes_gcm/README.md).
-
-The Responses compatibility server and workspace HTTP server use Starlette
-and Uvicorn directly. Neither package requires FastAPI, Pydantic or
-`pydantic-core`. Python 3.6 uses Starlette 0.19.x; newer interpreters resolve
-a compatible Starlette release through its Python version metadata.
-
-This repository extracts the core Codex agent loop from upstream Codex
-(`https://github.com/openai/codex`) into a deliberately small Python version,
-while preserving the two most important layers:
-
-- `submission_loop`: sequentially consumes submitted operations.
-- `run_turn`: keeps executing `model sample -> tool call -> feed tool result
-  back into the model` inside a single turn until a final answer is reached.
-
-Relevant Rust reference points:
-
-- `codex-rs/core/src/codex.rs` -> `submission_loop`
-- `codex-rs/core/src/codex.rs` -> `run_turn`
-- `codex-rs/core/src/codex.rs` -> `run_sampling_request`
-- `codex-rs/core/src/tools/router.rs` -> `ToolRouter`
-- `codex-rs/core/src/stream_events_utils.rs` -> `handle_output_item_done`
-
-## Quick Start
-
-Install the core CLI, or install the workspace package for the browser frontend:
+Install the core CLI:
 
 ```bash
 python3 -m pip install python-codex
-python3 -m pip install pycodex-ws
+pycodex
 ```
 
-The core supports Python 3.6.2 or newer. The workspace package requires Python
-3.7 or newer. Commands are installed into
-that interpreter's scripts directory. On a machine with multiple Python
-installations, select the same interpreter explicitly for startup:
+Or install the browser workspace, which includes core:
 
 ```bash
-python3 -m pycodex
-python3 -m workspace_server --help
+python3 -m pip install pycodex-ws
+pycodex-ws --help
 ```
 
-If `pycodex` is missing from `PATH` or resolves to an older installation, use these
-module entry points. `python3 -m pip --version` shows which Python environment
-received the installation.
+Use `python3 -m pip install --upgrade pycodex-ws` to upgrade both packages
+together. If a command is missing from `PATH`, use `python3 -m pycodex` or
+`python3 -m workspace_server` with the interpreter used for installation.
 
-For an existing Web installation, use `python3 -m pip install --upgrade pycodex-ws`
-to upgrade the workspace and its matching core together. Installing only
-`python-codex` provides the CLI and core API.
+## Model configuration
 
-For development from this repository, install dependencies first:
+pycodex reads `~/.codex/config.toml` and the adjacent `.env`. Configure `model`,
+`model_provider`, and the provider's `base_url` and `env_key` as needed.
+The built-in `openai` provider uses `OPENAI_API_KEY`. Authentication uses API
+keys; ChatGPT sign-in credentials from `auth.json` or the OS keychain are not
+loaded.
+
+```bash
+pycodex --profile my_profile "Summarize this repository."
+pycodex --config /path/to/config.toml
+pycodex doctor
+```
+
+Models use the streaming Responses API. For a Chat Completions backend, set
+`use_chat_completion = true` in its provider table. Other backend options include:
+
+```bash
+pycodex --vllm-endpoint http://127.0.0.1:18000
+pycodex --profile my_profile --use-messages
+```
+
+See [context and configuration](docs/CONTEXT.md) and the
+[Responses compatibility server](docs/responses_server/README.md).
+
+## CLI
+
+Run `pycodex` without a prompt for an interactive session, or supply a prompt
+for a single turn:
+
+```bash
+pycodex "Summarize this repository in one sentence."
+printf 'Reply with exactly OK.' | pycodex
+pycodex --json "Reply with exactly OK."
+```
+
+| Command | Purpose |
+| --- | --- |
+| `/model`, `/effort` | Show or change the model and reasoning effort |
+| `/cd <directory>` | Change the session's working directory while idle |
+| `/title`, `/history` | Manage the title and inspect conversation history |
+| `/resume` | List saved sessions; pass an index or session UUID to resume |
+| `/compact` | Summarize history to free context |
+| `/fork` | Continue the current history under a new session ID |
+| `/queue <message>` | Wait for the active turn to finish before submitting |
+
+Ordinary input during a turn steers at the next safe sampling boundary.
+Sessions are saved under `CODEX_HOME/sessions`. Set
+`model_auto_compact_token_limit` in the configuration to compact automatically.
+
+Ctrl+D or Ctrl+C closes the CLI after accepted work finishes. A second Ctrl+C
+during closing exits immediately. Use `pycodex --help` for startup options.
+
+## Browser workspace
+
+Create `workspaces.json`:
+
+```json
+{
+  "workspaces": [
+    {"id": "demo", "work_dir": ".", "state_path": "demo", "enable_board": true}
+  ]
+}
+```
+
+```bash
+pycodex-ws --listen 127.0.0.1:6007 --workspace-config workspaces.json
+```
+
+Open `http://127.0.0.1:6007`. The workspace combines conversations with a live
+HTML Canvas and read-only file/diff viewers. Click file links in replies to open
+them, and use **Insert into chat** to add selected code to an editable draft.
+Keep the server's stdin open: EOF initiates shutdown.
+
+See the [workspace guide](packages/pycodex-ws/README.md) for session controls,
+storage and Feishu setup. The separately distributed
+[VS Code extension](packages/pycodex-ws/extensions/vscode/README.md) uses the same
+workspace backend, including on Remote SSH hosts.
+
+## Python API
+
+Use the standard model and tool setup from Python:
+
+```python
+from pycodex.bootstrap import build_agent, build_model
+
+agent = build_agent(build_model())
+try:
+    result = agent.ask("Summarize this repository in one sentence.")
+    print(result.output_text)
+finally:
+    agent.shutdown()
+```
+
+For custom integrations, `Agent` accepts a model client, `ToolRegistry` and
+`ContextConfig`. `await agent.run_turn([...])` runs an asynchronous turn;
+`AgentRuntime` adds input queues, commands and frontend subscriptions.
+See [runtime contracts and examples](docs/RUNTIME.md).
+
+## Portable configuration
+
+Portable mode transfers an encrypted bundle of your configuration, instructions
+and skills to another machine. Start a storage service in a separate terminal:
+
+```bash
+python3 -m pycodex.portable.server --root .tmp/pycodex_storage --host 127.0.0.1 --port 5577
+```
+
+Upload the default Codex home, or specify another directory:
+
+```bash
+pycodex --put @127.0.0.1:5577
+pycodex --put /path/to/.codex/@127.0.0.1:5577
+```
+
+After verifying a download round trip, the command prints a reusable
+`pycodex --call ...` command. Run it on the target machine using a storage
+address reachable from that machine.
+
+## Development and reference
 
 ```bash
 uv sync --dev
-```
-
-Try the real entry points:
-
-```bash
-uv run pycodex "Reply with exactly OK."
 uv run pycodex
+uv run --dev pytest
 ```
 
-Tests are split by package. `uv run --dev pytest` runs both suites;
-`uv run --dev pytest packages/pycodex-ws/tests` runs workspace and integration
-tests. To check core without installing workspace, use a separate
-environment:
-
-```bash
-UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv sync --group test
-UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test pytest tests
-```
-
-See [test environments and coverage](tests/TESTS.md). Core tests support Python
-3.6.2+; workspace tests require Python 3.7+.
-
-A VS Code frontend is available in [`packages/pycodex-ws/extensions/vscode`](packages/pycodex-ws/extensions/vscode/README.md).
-It belongs to the workspace frontend and is packaged separately as a VSIX.
-It reuses an existing `pycodex-ws>=0.4.0` installation. On first use, missing
-or older backends are installed/upgraded with pip in the selected Python
-environment on the workspace host; compatible versions need no network check.
-It starts a dedicated `pycodex-ws` workspace on the project's host and opens a
-chat in the left sidebar using VS Code's stable WebviewView API. Each chat
-creates a workspace session with no code context attached. You can insert code
-from editors, diffs or file-tree selections as editable tokens among your words.
-Each token expands at its position when you send the message.
-Previous chats fold into live status entries; each can be
-reopened or closed, and models can be changed with `/model`.
-Remote workspaces run Python on the remote host. A stdin pipe ties each backend
-to its extension host; normal closure or host failure triggers draining and exit.
-`pycodex-ws` always shuts down on stdin EOF, after accepted work finishes.
-Keep stdin open while running the server; redirecting it from `/dev/null`
-causes the server to shut down.
-Workspace configuration uses a temporary JSON file passed to `--workspace-config`;
-normal backend exit removes the temporary directory.
-The extension uses that host's `~/.codex/config.toml` by default.
-The chat settings menu selects a project venv or another Python interpreter
-and edits the Codex profile. Changes offer a window reload when a backend is
-already running.
-Its context ring shows the same remaining budget and usage details as the
-workspace web frontend.
-See the extension README for building a VSIX, server setup and Remote SSH usage.
-
-## Design Tradeoffs
-
-This is not a 1:1 port of the Rust implementation. The current goal is a
-minimal reusable kernel that converges on the upstream behavior over time:
-
-1. Use a thin `ModelClient` protocol to abstract the model side.
-2. Use `ToolRegistry` to manage tool specs and executors.
-3. Use `AgentLoop` to implement the core closed loop.
-4. Use `AgentRuntime` to preserve the outer submission queue so it can keep
-   converging toward Rust's `submission_loop` later.
-
-Intentionally not included yet:
-
-- TUI / streaming incremental rendering
-- MCP / connectors / sandbox / approvals
-- memory / compact / review mode
-- a full production OpenAI adapter surface
-
-All of those can be layered on later. For now, the project is focused on
-nailing the core tool-augmented reasoning loop first.
-
-## Layout
-
-The top level of `pycodex/` contains the core components and package entry points.
-Supporting services live in `tools/`, `portable/` and `utils/`.
-
-- `pycodex/agent.py`: inner turn loop
-- `pycodex/runtime.py`: session commands, submission queues and frontend event subscriptions
-- `pycodex/model.py`: model client protocol and Responses API adapter
-- `pycodex/context.py`: configuration, prompt assembly and instruction loading
-- `pycodex/protocol.py`: minimal conversation item / prompt protocol
-- `pycodex/events.py`: typed events, plain-text views and stateful presentation
-- `pycodex/bootstrap.py`: frontend-independent model, tools, Agent and session assembly
-- `pycodex/cli.py`: single-turn/interactive entry points, terminal I/O executor and input loop
-- `pycodex/tools/base_tool.py`: `BaseTool`, `ToolRegistry`, `ToolContext`
-- `pycodex/tools/runtime_services.py`: plan, sub-agent, user-input and permissions services
-- `pycodex/tools/`: concrete tools and their execution managers
-- `pycodex/portable/`: Codex home storage client and server, both included in core
-- `pycodex/utils/compat.py`: supported-Python compatibility helpers
-- `pycodex/utils/doctor.py`: configuration and connectivity diagnostics
-- `pycodex/utils/model_metadata.py`: vendored model metadata lookup
-- `pycodex/utils/debug.py`: debug paths and the `pycodex.debug()` implementation
-- `pycodex/utils/event_helpers.py`: stateless text, color, summary and result-formatting helpers
-- `pycodex/utils/image_utils.py`: image loading, resizing and data-URL preparation
-- `pycodex/prompts/`: vendored prompts and model metadata
-- `packages/pycodex-ws/workspace_server/`: Web board, API and file/diff viewers
-- `packages/pycodex-ws/pycodex_ws/`: Feishu and workspace assembly
-- `packages/pycodex-ws/extensions/vscode/`: workspace's VS Code frontend, built separately as a VSIX
-- `tests/`: core tests
-- `packages/pycodex-ws/tests/`: workspace and cross-frontend integration tests
-
-See [package layout and import paths](docs/RUNTIME.md#package-layout).
-
-## Current Alignment Status
-
-Current progress is easiest to read in layers:
-
-- prompt/context alignment:
-  - the 2026-09-23 audit uses Codex CLI 0.153.4: shared context matches for
-    `gpt-5.4` first/resume/tool-follow-up requests and suffixed Astra first/resume
-    requests, with explicit exclusions recorded in `docs/CONTEXT.md`;
-  - this layer is now mainly handled by `pycodex/context.py` plus vendored
-    prompt data; model lookup uses the longest matching slug prefix without
-    rewriting the requested model name.
-- turn-loop semantic alignment:
-  - `AgentLoop` no longer uses a fixed 12-iteration cap by default;
-  - like upstream, it now converges naturally based on whether there is still
-    follow-up work or tool handoff to do;
-  - the local iteration-limit parameter is gone.
-- request-level alignment:
-  - full raw request parity is **not** claimed: client-generated message/result
-    IDs, the tool catalog, new upstream telemetry, and some permission profiles
-    still differ;
-  - the default CLI keeps the `codex-tui` client identity, but intentionally
-    omits collaboration-mode developer instructions;
-  - `User-Agent` and rollout `cli_version` use the fixed upstream alignment
-    version `0.153.4`; session creation does not run `codex --version`;
-  - `tests/compare_context_requests.py` keeps raw differences separate from
-    shared-context exclusions; older interactive captures are not a fresh
-    certification of 0.153.4 interactive behavior.
-- structured user input:
-  - `request_user_input` remains declared, but calls return
-    `request_user_input is unavailable in Default mode` without opening a question;
-  - attaching a frontend or input handler does not enable it. The generic runtime
-    input and permission services remain available;
-  - local tool-result `success` metadata is omitted from API requests, including
-    when replaying answers from older rollouts.
-
-See `docs/ALIGNMENT.md` for more detailed notes.
-
-`PYCODEX_DUMP` records downstream `stream_completed` and `stream_error_type`
-alongside usage, finish reason, and exact token IDs. Failed attempts remain
-in the dump, including failures before the first chunk. Chat SSE `error`
-payloads propagate as `response.failed`, never as an empty completed response.
-Chained failures also retain `stream_error_cause_type` and, for HTTP errors,
-`stream_error_http_status`; exception messages, headers and URLs are not
-copied into these diagnostic fields.
-
-Downstream errors include elapsed time, timeout, failure stage, response-header
-and first-chunk timing, and received chunk count directly in the error message.
-
-## Live Model Integration
-
-If this machine already has a Codex CLI configuration, `pycodex` can reuse the
-`model`, `model_provider`, `base_url`, and `env_key` from
-`~/.codex/config.toml` directly:
-
-```python
-from pycodex import ResponsesModelClient
-
-client = ResponsesModelClient.from_codex_config()
-```
-
-`model_provider` is optional and defaults to `openai`. The built-in provider
-does not require a `[model_providers.openai]` table: it uses
-`https://api.openai.com/v1` and reads `OPENAI_API_KEY`. Set `openai_base_url` to
-override this address. Explicit provider tables retain their configured
-`base_url` and optional `env_key`; unknown provider names raise a configuration
-error. The model still comes from `model` in the configuration or selected
-profile.
-
-Authentication currently uses API keys from environment variables or `.env`;
-Codex desktop/CLI ChatGPT sign-in credentials in `auth.json` or the OS keychain
-are not loaded.
-
-The current implementation uses the streaming OpenAI-compatible `/responses`
-endpoint. This path has already been validated against the local
-`~/.codex/config.toml` setup.
-
-When launched through the CLI, `pycodex` also loads `.env` from the same
-configuration directory before reading config (typically `~/.codex/.env`), so
-provider keys and similar environment variables can live there. To match
-upstream Codex, variables starting with `CODEX_` are not imported from `.env`.
-
-## pycodex CLI
-
-`pycodex` now defaults to a minimal interactive entry point. Internally it uses
-`AgentRuntime` to drive the turn submission loop and reuses
-`~/.codex/config.toml` by default:
-
-```bash
-pycodex
-pycodex "Summarize this repo in one sentence."
-printf 'Reply with exactly OK.' | pycodex
-pycodex --json "Reply with exactly OK."
-pycodex --profile model_proxy "Reply with exactly OK."
-pycodex --profile opus --use-messages "Reply with exactly OK."
-pycodex --vllm-endpoint http://127.0.0.1:18000 "Reply with exactly OK."
-pycodex --put @127.0.0.1:5577
-pycodex --put /data/.codex/@127.0.0.1:5577
-pycodex --call SECRET-CALLID@127.0.0.1:5577 "Reply with exactly OK."
-pycodex doctor
-pycodex-ws --listen 0.0.0.0:6007 --workspace-config ./workspaces.json
-pycodex-ws --listen 0.0.0.0:6007 --workspace-config ./workspaces.json --password 12345
-```
-
-Current behavior:
-
-- with no argv prompt and a TTY stdin, enter interactive mode
-- with an argv prompt or piped stdin, run a single turn
-- `pycodex-ws` starts the standalone browser workspace manager and serves each
-  workspace with a board pane and a pycodex session pane
-- the left pane is the board, containing an optional live HTML Canvas tab and closable read-only file/diff tabs that
-  scroll together in one toolbar; a mouse wheel scrolls overflowing tab strips
-  horizontally.
-  Click Markdown file links such as `[source](src/app.py:42)` or
-  `[source](/data/project/app.py#L42)` to open a view. Git-style diff links use
-  `[changes](diff:HEAD:src/app.py)` for working changes,
-  `[versions](diff:HEAD~1..HEAD:src/app.py)` for two revisions, and
-  `[files](diff:old.py..new.py)` for two local files. Append `#L42` or `#R42`
-  to a diff link to select a 1-based line on the left or right.
-  Views open when the user clicks; model replies alone do not create tabs.
-  Reopening the same file or comparison selects its existing tab in that
-  browser, including when the line changes. Other pages keep their selection.
-  Tabs show filenames first, adding a short directory suffix
-  for duplicate names. Git versions use short commit IDs in a secondary label.
-  Long labels use the same width limit as session tabs, shortening the secondary
-  information before the filename;
-  hover titles retain the complete paths and revisions. Text,
-  Markdown, HTML, common raster images and text diffs are supported. Monaco
-  provides syntax highlighting, find, folding and character-level diffs.
-  Right-click code and choose **Insert into chat**, or select text and use the
-  toolbar button, to insert context at the current chat draft's cursor.
-  Context appears as a separate block among your words. Click it to edit or
-  remove it; Backspace and Delete also remove a block as one element.
-  Context identifies the full view label, including both revisions of a diff.
-  Selections include only the selected text and range; otherwise it records the
-  cursor location. Diff context also identifies the selected side.
-  The draft stays editable until you send it.
-  Its code and styles load only when a code or diff view opens, so Canvas,
-  Markdown and HTML previews do not load the editor. Viewer assets use gzip
-  when supported and revalidate cached content with ETags.
-  Narrow content panes automatically use a unified diff; targeting the left
-  side keeps both sides visible. Markdown and HTML links default to previews;
-  line targets open their source. Clicking a link without a line returns that
-  same tab to preview. Manual tab switches preserve the chosen mode and reading state.
-  All views remain
-  read-only, with text selection and copying available. Local files update
-  automatically, including both sides of file diffs and the working side of
-  Git diffs; Git revisions stay fixed. Updates keep the active editor and
-  reading state without replaying an earlier line request.
-  Canvas is for explanations and custom visuals; source and diffs use links.
-  `[Canvas](workspace://canvas)` returns to the live page; an HTML file link opens
-  a preview tab, and `page.html:1` opens its source. File links work even with an empty `--toolset`.
-  Canvas and HTML previews share the same origin and script permissions;
-  the browser loads their resources with the workspace login cookie.
-  Open views survive reloads and server restarts. See
-  [workspace content views](docs/RUNTIME.md#workspace-content-views) for the
-  complete syntax and limits.
-- interactive mode exits through Ctrl+D on an empty prompt or a single Ctrl+C;
-  accepted work finishes before cleanup and normal exit.
-  A `[closing]` message explains the wait. Press Ctrl+C again while closing
-  to immediately exit the CLI with status 130. This skips remaining cleanup;
-  external tool processes may keep running.
-- interactive mode shows a compact event stream for user-visible phases such as
-  tool execution and model follow-up after tool results
-- startup shows a welcome, model, effort, endpoint and available commands.
-- assistant text is printed from streaming deltas directly
-- interactive mode supports `/history`, `/title`, `/cd`, `/model`, `/effort`, `/resume`,
-  `/compact`, and `/fork`
-- `/model <name>` switches the model used by later turns in the current
-  interactive session; `/model` shows the current model and available choices
-- `/cd <directory>` changes the current session's working directory while idle;
-  `/cd` shows it. Relative paths and `~` are supported; paths containing spaces
-  can be entered directly without quotes. Later tools and context use the new directory.
-- `/effort low` switches effort while idle; `/effort` shows the current value,
-  and `/effort default` restores the model default. Frontend labels show
-  `model:effort`.
-- `/resume` with no argument lists the currently resumable sessions by their
-  first user-message preview; `/resume 1` resumes the first listed session
-- `/resume <session_id>` accepts a full session UUID, including sessions older
-  than the displayed list. Both forms search `CODEX_HOME/sessions` and
-  `CODEX_HOME/archived_sessions` and replace the in-memory history with the
-  selected recorded Codex rollout. Tool calls without recorded results
-  are omitted during restore; later saved messages and completed tools remain
-  available, and the source file is left intact.
-- `/compact` synthesizes a local handoff summary, replaces the in-memory
-  conversation history with the compacted view, and appends a compacted-history
-  entry to the rollout so later `/resume` sees the same state. The handoff remains
-  model context, but is omitted from frontend conversation blocks and `/history`;
-  real replies after compaction remain visible, including after resume or fork.
-- `/fork` allocates a new Agent/provider session id and lazy rollout while
-  preserving current history and the workspace tab; the original rollout stays intact
-- workspace tabs follow the fork's rollout once it is written. Before that,
-  restart restores the source recording and creates a fresh fork, preserving
-  history and title without appending to the source file.
-- `model_auto_compact_token_limit = <tokens>` in `config.toml` enables the same
-  compaction path automatically when the latest reported usage reaches that
-  threshold before a follow-up sampling request or the next user turn
-- `service_tier = "fast"` enables Fast mode for models whose vendored metadata
-  advertises the `priority` service tier; pycodex follows upstream Codex by
-  sending `service_tier = "priority"` on the Responses request, while
-  `service_tier = "default"` or unsupported tiers are omitted
-- if a model request fails with `context_length_exceeded`, pycodex now treats
-  the provider-reported requested token count as a failed-request usage sample,
-  triggers the same compact path immediately, and retries the request once; if
-  the compact request is also over the limit, it repeatedly drops the oldest
-  tool response plus its matching tool call before retrying compact
-- new sessions are now recorded under `CODEX_HOME/sessions/.../rollout-*.jsonl`
-  with a stable session/thread id and per-item append+flush semantics so
-  `/resume` reads back the same rollout format
-- if `TURN_HOOK.md` exists in the workspace root and is non-empty, each
-  completed turn also forks the just-finished history into a temporary,
-  non-persisted follow-up session and submits the file contents as the next
-  user instruction; this is intended for side-effect follow-ups such as
-  Feishu notifications
-- `/link <feishu-email|open_id|chat_id>` in a workspace session attaches it
-  to a Feishu card when the optional `lark-oapi` SDK can be imported;
-  multiple sessions in the same workspace process share
-  one Feishu long-connection listener and route card actions by message id
-- Feishu user OAuth stores its refresh token only in
-  `~/.codex/.feishu_refresh_token` (mode `0600`). Run
-  `python3 -m pycodex_ws.feishu_oauth` after installing `pycodex-ws` to authorize.
-  From this repository, use `env -u VIRTUAL_ENV uv run --dev python -m pycodex_ws.feishu_oauth`.
-  App credentials can stay in `~/.codex/.env`. Each refresh reads
-  the latest token from the dedicated file and saves its replacement there.
-  `FEISHU_REFRESH_TOKEN` in `.env` or the environment is no longer used and
-  can be removed. Refresh is triggered by API calls, with no idle keepalive.
-- `pycodex-ws --workspace-config workspaces.json` serves workspace boards from
-  one process. The JSON file can be either a list or
-  `{"workspaces": [...]}`; each entry uses `state_path` and `work_dir`, with optional
-  display/URL `id` and `enable_board` (default `true`), and is exposed at `/w/<id>/`.
-  `state_path` is a filename prefix: `/data/demo` uses
-  `/data/demo.pycodex-ws.json` for the session index,
-  `/data/demo.pycodex-views.json` for file views and `/data/demo.html` for Canvas.
-  Suffixes are appended, so prefixes containing dots remain distinct.
-  The resolved `state_path` is the workspace identity; duplicates are rejected
-  regardless of name or Canvas setting. Relative `state_path` and `work_dir` paths
-  resolve from the config file directory. The root path `/` shows a workspaces
-  management page with create/delete controls; omitted names become `workspace-1`,
-  `workspace-2`, etc. Omitted `state_path` when creating a workspace generates a
-  writable `/tmp/pcws-*` prefix. `enable_board: false` hides Canvas and disables its
-  routes, polling and context injection; sessions and file views still persist.
-  Existing `board: "demo.html"` and `board: false` configurations load with their
-  original state paths and are saved in the new format. See the
-  [workspace configuration example](packages/pycodex-ws/README.md).
-  Add/delete actions and later session-state saves refresh the JSON file.
-  Each session starts in `work_dir` and can switch independently with `/cd`.
-  A small folder indicator appears inside the composer only when the session
-  directory differs from `work_dir`; hover for the full path. Directories persist
-  across workspace restarts, including for empty sessions. Relative chat/Canvas file links use the selected
-  session's directory; Canvas and workspace state files stay at their configured paths.
-  Board HTML can reference local
-  images beside the board (including nested paths) with relative URLs; only
-  `image/*` files contained by the board directory are served.
-  Assistant Markdown supports KaTeX formulas with `$...$`, `$$...$$`,
-  `\(...\)`, and `\[...\]` delimiters.
-  `--password <value>` enables a password-only login page for workspace pages,
-  APIs, and websocket connections. After login, the browser returns to the
-  requested workspace path with its query parameters.
-  Questions and permission requests appear below the conversation only while
-  waiting for input; they disappear when answered, cancelled, or timed out,
-  leaving the continuing assistant output at the bottom.
-  Queued enqueue/steer messages become user conversation blocks when their
-  turns start, in execution order. Small capsules to the left of the status
-  pill preview pending Steer (`↑`) and Queue (`◷`) text. Long text is truncated;
-  hover shows the full pending content. Each disappears when that type has
-  no waiting input.
-- steer is enabled by default in interactive mode: normal input goes into the
-  runtime steer path, the current request stops at the next safe boundary, and
-  later steer text is appended to the next model request's `input` in order;
-  for explicit queueing, use `/queue <message>`, which prints
-  `[steer] queued: ...` and later `[steer] inserted: ...`
-- the default local tool set includes the upstream-aligned subset plus the
-  pycodex `clock` extension: `shell`, `shell_command`, `exec_command`,
-  `write_stdin`, `clock`, `exec`, `wait`, `web_search`, `update_plan`,
-  `request_user_input`, `request_permissions`, `spawn_agent`, `send_input`,
-  `resume_agent`, `wait_agent`, `close_agent`, `apply_patch`, `grep_files`,
-  `read_file`, `list_dir`, `view_image`
-- `clock(period_m)` sets one periodic clock for the current Agent session;
-  `null` cancels it. The countdown restarts after each reply and wakes the
-  Agent with a `<clock_tick>` message containing the current timezone-aware
-  time when it expires.
-- while a background command or clock is pending, the idle status is
-  `idle: sleeping`
-- only the active workspace session tab shows its close button; closing it restores
-  the selected tab's conversation, draft, and scroll position immediately
-  after its snapshot loads
-- `--vllm-endpoint http://host:port` automatically launches a local
-  `responses_server` compatibility layer; when the URL path is empty it is
-  normalized to `/v1`, and `/responses` requests are still forwarded to the
-  downstream `/v1/chat/completions` endpoint. This local compat path always
-  uses the canonical Responses request shape, even when the selected model's
-  metadata enables `responses_lite`. With `--vllm-endpoint`, startup also reads
-  `/v1/models` and uses the last returned model id for the downstream request.
-  For `model_provider = "vllm"`, reasoning is preserved across this path:
-  chat chunks with `reasoning` or `reasoning_content` are translated back into
-  Responses `reasoning` items, and
-  historical `reasoning` items are replayed into downstream assistant messages
-  via the `reasoning` field. Streaming token usage is also requested from vLLM
-  and forwarded to the final `response.completed.response.usage`. If a
-  downstream chat stream terminates after emitting only reasoning, with no
-  assistant content and no tool call, the compat layer discards that partial
-  reasoning, retries the same downstream request once, and only then emits
-  `response.failed` with `type = "model_output_invalid"` if the retry is still
-  reasoning-only
-- compat reasoning fragments are forwarded immediately as
-  `response.reasoning_text.delta`, including thinking from `/v1/messages`.
-  Continuous reasoning keeps the client's read idle timeout from expiring
-  while it waits for assistant text; only finalized reasoning items enter history
-- malformed JSON in ordinary downstream function-call arguments is detected by
-  `responses_server` and returned as `response.failed` with `type = "server_error"`;
-  the client's existing `stream_max_retries` policy retries the current request
-  before its local tools execute
-- downstream connection failures before HTTP response headers or during SSE
-  reading are converted to `response.failed` for provider retries. Downstream
-  requests honor environment proxies; see the
-  [connection troubleshooting notes](docs/responses_server/README.md#连接排查)
-  for `RemoteDisconnected` and proxy bypass configuration
-- standalone `responses_server` now also supports downstream `/v1/messages`
-  backends via `--outcomming-api messages`, while keeping the internal
-  canonical request/route logic in chat-completions shape
-- `pycodex doctor` checks config, `.env`, API keys, DNS, TCP/TLS, and an
-  optional live Responses API request
-
-Current primary uses:
-
-- verify provider / model / auth configuration
-- debug `ResponsesModelClient`
-- run minimal single-turn and multi-turn smoke tests
-
-`doctor` examples:
-
-```bash
-pycodex doctor
-pycodex doctor --skip-live
-pycodex doctor --json
-```
-
-## Portable Mode
-
-`Portable Mode` is the quickest way to bring your usual `pycodex` setup into a
-fresh machine, container, or debug image.
-
-The storage client and server are both included in `python-codex`. To start a
-local storage service, run this in a separate terminal:
-
-```bash
-python -m pycodex.portable.server --root .tmp/pycodex_storage --host 127.0.0.1 --port 5577
-```
-
-Use it like this:
-
-```bash
-pycodex --put @127.0.0.1:5577
-pycodex --put /data/.codex/@127.0.0.1:5577
-```
-
-- `--put` prints a reusable `SECRET-CALLID@host:port` plus a final one-line
-  `pycodex --call ...` command
-- on the new environment or image, run that printed `--call` command directly
-- quickly restoring your usual `config.toml`, `.env`, `AGENTS.md`, and
-  `skills/` into a clean debug environment
-- keeping a new image focused on the bug you are debugging instead of spending
-  time rebuilding local Codex setup by hand
-- bootstrapping `pycodex` even when the target environment does not already
-  have a populated `~/.codex`
-- bare `--put` uses the current user's `~/.codex`
-- `--put /path/.codex/@host:port` lets you publish a different Codex home
-
-## Example
-
-```python
-import asyncio
-from pathlib import Path
-
-from pycodex import (
-    Agent,
-    BaseTool,
-    ContextConfig,
-    ResponsesModelClient,
-    ToolRegistry,
-)
-
-
-class EchoTool(BaseTool):
-    name = "echo"
-    description = "Echo the provided text."
-    input_schema = {
-        "type": "object",
-        "properties": {"text": {"type": "string"}},
-        "required": ["text"],
-    }
-
-    async def run(self, context, args):
-        del context
-        return args["text"]
-
-
-async def main() -> None:
-    config_path = Path.home() / ".codex" / "config.toml"
-    model = ResponsesModelClient.from_codex_config(config_path)
-    context_config = ContextConfig.from_codex_config(config_path)
-
-    tools = ToolRegistry()
-    tools.register(EchoTool())
-
-    agent = Agent(model, tools, context_config)
-    result = await agent.run_turn(
-        ["Call the echo tool with text=hello, then tell me what it returned."]
-    )
-    print(result.output_text)
-
-
-asyncio.run(main())
-```
-
-### Turn lifecycle
-
-`Agent` requires a model client, tool registry, and `ContextConfig`. It creates
-its own `ContextManager`; cwd, instruction overrides and
-extra contextual messages belong in that config. The client's model identifier
-is authoritative for the Agent's context. Standalone context construction uses
-`ContextManager(config)`; load files through `ContextConfig.from_codex_config`.
-
-Collaboration modes and their prompt templates are removed. There is no mode
-switch in `ContextConfig`, `ToolContext` or `build_agent`; normal interaction,
-`update_plan`, structured user input and sub-agents remain independent features.
-
-Dependencies are ordinary attributes: `model_client`, `tool_registry`,
-`context_manager` and `event_handler`. The Agent has no Runtime/Queue reference;
-`AgentRuntime` calls its public methods and subscribes to its events.
-Pure getter/setter wrappers are removed. `history` remains a tuple snapshot,
-and `model_name` and lifecycle properties remain derived values.
-
-`session_file_path=None`, the default, means **keep history in memory without
-recording**. Passing a file path creates an internal rollout recorder. Every
-Agent still receives a stable UUIDv7 session id unless an explicit id is supplied.
-CLI, Web and Feishu use `build_agent`, which assigns an id and a matching path
-under the configured Codex home's `sessions/` directory. Sub-agents leave the path
-as `None`, so their turns, compaction, forks and reopening stay in memory.
-
-When a path is supplied, construction does not create the file or its parent
-directories. The first history append or successful compaction creates it,
-writing metadata and the current initial history before the new records.
-An existing destination raises `FileExistsError`; exclusive creation also
-prevents overwriting a file that appears before the first write.
-`agent.session_id` and the read-only `agent.session_file_path` expose the identity
-and optional recording path without exposing the recorder.
-
-```python
-agent = Agent(model, tools, context_config)  # In-memory session.
-agent.resume("~/.codex/sessions/2026/09/22/rollout-example.jsonl")
-```
-
-`resume(path)` reads an existing file, restores history and session identity, and
-continues appending to that same file. Paths accept `~`; the existing
-concatenated-JSON and compact-checkpoint loader is reused. Constructing an Agent
-and immediately resuming another file leaves no unused rollout behind. Initial
-history is recorded only when the new recorded session first writes. `history`
-is read-only; there is no public `replace_history()` interface.
-
-An `Agent` executes one turn or manual compaction at a time.
-There are two public turn interfaces:
-
-- `agent.ask(text)` blocks and returns the turn result.
-- `await agent.run_turn(texts, turn_id=None)` executes the ordinary coroutine
-  and returns the turn result.
-
-The Agent does not create, hold or return a per-turn Task. Creating a coroutine
-does not start it or mark the Agent busy. A host that needs concurrent UI/input
-handling can schedule the coroutine with `asyncio.create_task`; synchronous code
-can use `ask` or `asyncio.run(agent.run_turn([...]))`. `start_turn` is removed.
-
-`agent.is_running` reflects actual execution. One idle event backs both that
-state and `await agent.wait_until_idle()`; `finally` releases it on exit.
-Starting an overlapping operation raises `RuntimeError`; use `AgentRuntime`
-for queued or steer submissions. `maybe_invoke` skips a busy or closed Agent;
-when idle, it directly awaits the same `run_turn` path and propagates errors.
-It returns `True` after that turn finishes, not immediately after scheduling.
-
-`runtime.is_busy` includes active Agent work and pending submissions, including
-direct/background turns that bypass the queue. CLI, web, and Feishu use this
-state instead of tracking another busy flag. There is no Agent cancellation API:
-`agent.cancel()`, `runtime.cancel_current()` and Task listeners are removed.
-
-Steer asks `agent.stop_asap()` to end the current execution at a safe boundary.
-The in-flight request and all issued tools finish first; the Agent records their
-results, emits `turn_interrupted` and raises `TurnInterrupted`, without knowing
-why the stop was requested. Runtime alone settles submission futures and starts
-the next batch. Runtime-owned steer retains its logical turn id, but starts a new
-`run_turn` execution with a fresh iteration count. `/queue` does not request a stop.
-Checks after compaction prevent an extra sample when steer arrives during it.
-Direct Agent calls never consume Runtime queues; their caller observes
-`TurnInterrupted`, and pending input waits for the Runtime worker.
-
-The core loop has one threshold-compaction entry, then samples, commits output
-and executes tools or finishes. Before the first sample, compaction precedes new
-user input; later it includes completed tool results. Context-overflow recovery
-stays inside sampling: compact and retry once without counting another iteration
-or replaying tools. Stops are checked before each request attempt and after the
-issued tool batch, without a separate preparation wrapper. Network retries remain
-inside the provider.
-
-`await agent.compact()` computes a summary and commits the replacement history
-only after the summary and rollout checkpoint succeed. Failed compaction leaves
-the active history unchanged, including tool results pruned from retry prompts.
-History persistence failures are surfaced rather than silently ignored.
-Manual and automatic compaction share the same execution/observation path.
-
-Sub-agent status comes from Agent lifecycle events and current busy/queue state,
-including direct and background invocations. Bare `Agent.shutdown()` rejects new
-calls and disables background hooks, but lets the current turn finish. `runtime.close()`,
-`close_agent`, and workspace close wait for accepted work and child workers to
-finish naturally; a stuck request can therefore keep close waiting.
-`resume_agent` explicitly reopens the child. No turn-abort or synthetic
-interruption-result recovery is performed.
-
-Queue lifecycle uses only `start()` and `close()`. Closing switches off admission;
-the worker exits when the queues are empty, without a special shutdown request.
-Background invocations obey the same admission switch. Tool shutdown hooks run
-once, after draining accepted work. Concurrent or repeated close calls share the
-worker's completion and errors; cancelling a caller does not cancel its Agent turn.
-
-CLI, web and Feishu restore through the backend's `runtime.resume(session_file_path)`,
-which delegates to `agent.resume(session_file_path)`. It rejects
-active or queued work, loads history, restores supported provider session
-identity, switches its internal recorder, and clears stale usage in one
-synchronous operation. Load failures leave the existing session unchanged.
-The backend broadcasts restored history/title/identity to all attached views.
-`agent.resume()` without a path reopens the same in-memory Agent and rebinds its
-tool callbacks, without reading or writing a file or changing history, identity,
-recorder or usage. It returns `None` and also rejects active or queued work.
-Sub-agent services use this form to reopen the child's in-memory history.
-There is no separate `reopen()` method.
-Model switching and history replacement remain explicit operations because they
-enforce state consistency, not merely assign a field.
-
-### Shared session backend
-
-CLI, Web and Feishu all use `AgentRuntime.submit_input`: not just `/model`
-and `/resume`, but every session command, steer/queue admission, interactive
-questions and permissions, state notifications and shutdown. Frontends only
-adapt input and render events. Web no longer imports or runs the CLI shell.
-Workspace assembly uses `pycodex_ws.build_runtime()` to add
-`/link` and `/unlink`; `pycodex.bootstrap.build_runtime()` provides core commands.
-
-```python
-from pycodex.bootstrap import build_agent, build_model, build_runtime
-
-async def run_session():
-    runtime = build_runtime(build_agent(build_model()))
-    await runtime.start()
-    observer = runtime.attach(lambda event: print(event.kind))
-    try:
-        receipt = await runtime.submit_input("/model", sender="application")
-        result = await receipt.future
-        return result
-    finally:
-        await runtime.close()
-        runtime.detach(observer)
-```
-
-Attach immediately supplies a state snapshot; subsequent events synchronize
-all views. Detach does not close the backend. Plain input steers at the next
-sampling boundary, `/queue` waits for its own turn, and busy Feishu cards still
-accept steer or question answers. Unknown slash commands report errors instead
-of silently entering model history. See [runtime contracts](docs/RUNTIME.md)
-for command receipts, structured answers and session ownership.
-
-Python observers receive typed `Event` dataclasses from `pycodex.events`, such
-as `TurnStartedEvent` and `ToolCompletedEvent`, not generic payload dictionaries.
-Custom model clients emit `ModelEvent` variants such as `AssistantDeltaEvent`.
-Events provide reusable plain text through `event.visualize()`, or render through
-`event.render(display)`. Each CLI view and Feishu card owns an `EventDisplay` with
-independent stream/queue state and log/status/prompt callbacks. Events own colors,
-flushing, status transitions and prompt text; frontends execute I/O or update their
-display fields. Feishu disables colors and shows a bounded recent transcript plus
-the live stream, rather than a separate last-answer/last-turn projection.
-There is no display-handler mapping. Web retains its own projection and unchanged
-event JSON format.
-
-### Internal contracts
-
-- Tools implement async `BaseTool.run`; synchronous implementations are not
-  implicitly accepted. Tool-specific follow-up messages come from
-  `BaseTool.follow_up_messages`, not tool-name checks in the Agent loop.
-- Completed tool results are committed individually. Explicitly parallel tool
-  batches wait for all their operations before propagating a commit failure;
-  they do not cancel remaining operations or invent interruption results.
-- Background tools bind their own callbacks through `BaseTool.bind_agent`.
-  The Agent does not reach into specific tools' private managers.
-- Event observers report failures to the asyncio exception handler without
-  changing the execution result. Provider stream callbacks run on the owning
-  event loop and stop delivering when their request is finished or cancelled.
-- `ModelClient.model` is a required read-only model identifier, also supplied by
-  test clients. `Agent.model_name` reads it directly, without `getattr` fallback.
-  `ModelClient.complete` returns a `ModelResponse` containing only supported
-  output item types. Context overflow is reported as `ContextLengthExceeded`;
-  provider-specific text classification stays inside the Responses client.
-- A terminal `response.incomplete` is not a disconnected stream and is not
-  retried. For `max_output_tokens`, done assistant/reasoning items are retained
-  for the next turn, but uncommitted text deltas and unresolved tool calls are not.
-- Interactive clients expose the `ModelControl` interface in `pycodex.model`.
-  Use `agent.set_model(name)` to update provider metadata, context instructions,
-  context limits, and usage state together.
-- Runtime services belong to the tool registry. Pass an explicit environment to
-  `ToolRegistry(environment)` or `get_tools(environment)` when needed; the Agent
-  uses `agent.tool_registry.runtime_environment`, not a forwarding Agent property.
-  The global `get_agent_runtime_environment()` and
-  separate `Agent(..., runtime_environment=...)` entry points are removed.
-- Configure cwd once with `ContextConfig(cwd=...)` or `build_agent(cwd=...)`.
-  Tools use the required `ToolContext.cwd` for each call; tool constructors
-  and `get_tools` do not take a separate default directory.
-- Each sub-agent gets its own context manager and runtime services. The sub-agent
-  service retains terminal event status and queues one notification per terminal
-  event. The parent consumes these notifications before its next normal model
-  request, without requiring `wait_agent`; an idle parent waits for its next turn.
-- Every Agent records its session, including direct and child Agents; external
-  callers no longer construct or inject `SessionRolloutRecorder`. The outer queue
-  remains optional and no worker starts implicitly. Empty initial history and a
-  no-op event callback remain valid defaults.
-
-See `docs/RUNTIME.md` for state ownership and failure semantics.
-
-## Alignment Checklist
-
-See `docs/ALIGNMENT.md` for more detail. This section keeps a high-level
-checklist for quick status scanning.
-
-### Tool Alignment
-
-Official upstream tools:
-
-- [x] `shell` - run shell commands in argv form.
-- [x] `shell_command` - run shell scripts in string form.
-- [x] `exec_command` - start long-running commands with a session.
-- [x] `write_stdin` - write stdin to an existing execution session or poll
-  output.
-- [x] `web_search` - expose provider-native web search capability.
-- [x] `update_plan` - update the task plan and maintain step status.
-- [x] `request_user_input` - retain the declaration and return the upstream
-  Default-mode unavailable response.
-- [x] `request_permissions` - request extra permissions before continuing.
-- [x] `spawn_agent` - create and start a sub-agent.
-- [x] `send_input` - continue feeding input to an existing sub-agent.
-- [x] `resume_agent` - reopen a closed sub-agent.
-- [x] `wait_agent` - wait for a sub-agent to reach a terminal state.
-- [x] `close_agent` - close a sub-agent that is no longer needed.
-- [x] `apply_patch` - edit files precisely with a freeform patch.
-- [x] `grep_files` - search file contents by pattern.
-- [x] `read_file` - read file slices while preserving line-number semantics.
-- [x] `list_dir` - list directory tree slices.
-- [x] `view_image` - turn a local image into model-visible input.
-
-Upstream low-frequency / special-mode tools not yet modeled separately:
-
-- [ ] `wait_infinite` - long blocking wait for external events or later input.
-- [ ] `spawn_agents_on_csv` - create sub-agent jobs in bulk from CSV.
-- [ ] `report_agent_job_result` - report batch agent job results.
-- [ ] `js_repl` - JavaScript REPL / code-mode primary entry point.
-- [ ] `js_repl_reset` - reset `js_repl` state.
-- [ ] `artifacts` - generate or manage structured artifact outputs.
-- [ ] `list_mcp_resources` - list MCP resources.
-- [ ] `list_mcp_resource_templates` - list MCP resource templates.
-- [ ] `read_mcp_resource` - read MCP resource contents.
-- [ ] `multi_tool_use.parallel` - parallel wrapper around multiple developer
-  tool calls.
-
-Repository-specific compatibility / transition tools:
-
-- [x] `clock` - pycodex periodic Agent wake-up extension.
-- [x] `exec` - current local approximation of code mode.
-- [x] `wait` - current local approximation of code-mode waiting behavior.
-
-### Behavior Alignment
-
-- [x] `AgentLoop` / `AgentRuntime` main loop skeleton - turn loop and submission
-  queue are in place.
-- [x] non-interactive `exec` `instructions` alignment - base instructions match
-  upstream.
-- [x] shared `exec` context content - the audited first/resume/tool-follow-up
-  scenarios match after documented exclusions; raw item identity is not equal.
-- [x] developer/contextual-user message shape alignment - message/content shape
-  matches upstream.
-- [x] `AGENTS.md` + `<environment_context>` injection alignment - context
-  assembly order matches upstream.
-- [ ] complete 0.153.4 tool catalog alignment - local `clock`, legacy sub-agent
-  tools, and upstream goal/deferred/code-mode-v2 surfaces still differ.
-- [x] `include = ["reasoning.encrypted_content"]` - reasoning include field is
-  aligned.
-- [x] `prompt_cache_key` - request-level prompt cache key is implemented.
-- [x] `x-client-request-id` - request id header is implemented.
-- [x] `x-codex-turn-metadata` - turn id / sandbox header is implemented.
-- [x] `originator` - mode-aware originator header is implemented.
-- [ ] current identity/telemetry header parity - local identity remains
-  unchanged; the audit records upstream's newer headers and `client_metadata`.
-- [x] field-by-field upstream exec-mode tool schema alignment - aligned tools
-  use class-level specs; `clock` is documented separately as an extension.
-- [ ] full interactive-mode and non-`exec` behavior alignment - the non-exec
-  first-turn context is now on the `codex-tui` path, but continuous REPL
-  multi-turn behavior is not fully verified yet.
-- [ ] sandbox / approvals / compact / memory and other outer behavior alignment
-  - these systems are still in later scope.
+- [Test environments and coverage](tests/TESTS.md)
+- [Architecture, package layout and runtime contracts](docs/RUNTIME.md)
+- [Prompts, configuration and context](docs/CONTEXT.md)
+- [Upstream alignment](docs/ALIGNMENT.md)
+- [Responses compatibility server](docs/responses_server/README.md)
+
+Release notes and implementation details live in `docs/`.

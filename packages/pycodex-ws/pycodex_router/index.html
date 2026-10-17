@@ -19,6 +19,8 @@
       --danger: #b54739;
       --unread-bg: #fff7f4;
       --unread-line: #ead0c8;
+      --breathing-duration: 1.2s;
+      --breathing-ease: cubic-bezier(0.4, 0, 0.2, 1);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     @media (prefers-color-scheme: dark) {
@@ -97,7 +99,7 @@
     .activity-badge[hidden] { display: none; }
     .workspace-group-name .device-working { margin-left: 8px; white-space: nowrap; }
     .activity-badge[data-state="working"] { color: var(--green); background: var(--green-soft); }
-    .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    .activity-badge[data-state="working"]::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: spinner-pulse var(--breathing-duration) var(--breathing-ease) infinite; }
     @keyframes spinner-pulse {
       0%, 100% { opacity: .45; transform: scale(.82); }
       50% { opacity: 1; transform: scale(1.08); }
@@ -642,6 +644,14 @@
         const running = data.workspaces.filter(workspace => workspace.running).length;
         document.getElementById("activity").textContent = running ? `${running} working` : "";
       }
+
+      document.addEventListener("animationstart", event => {
+        if (event.animationName !== "spinner-pulse") return;
+        // Include pseudo-elements and anchor new indicators to the page's breathing phase.
+        for (const animation of event.target.getAnimations({subtree: true})) {
+          if (animation.animationName === event.animationName) animation.startTime = 0;
+        }
+      });
 
       async function refresh() {
         if (refreshing) return;
