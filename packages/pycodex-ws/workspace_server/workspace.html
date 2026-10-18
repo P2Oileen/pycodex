@@ -54,6 +54,7 @@
     }
     button, textarea { font: inherit; }
     .pane-toggle { display: none; }
+    .boardbar .customize-frontend { display: none; }
     .workspace,
     .board-pane,
     .chat,
@@ -180,6 +181,7 @@
     .sessions-toggle svg,
     .pane-toggle svg { width: 18px; height: 18px; }
     .sessions-toggle:hover { background: var(--panel-hover); color: var(--ink); }
+    .sessions-toggle:disabled { opacity: 0.45; cursor: wait; }
     .sessions-toggle:focus-visible,
     .pane-toggle:focus-visible,
     .tab-new:focus-visible,
@@ -656,12 +658,19 @@
       background: var(--success-soft);
     }
     .entry.thinking,
-    .entry.control {
+    .entry.control,
+    .entry.setup {
       border-left: 2px solid var(--line);
       padding: 2px 0 2px 10px;
       color: var(--muted);
       font-size: 13px;
     }
+    .entry.setup > .text { white-space: normal; }
+    .entry.setup details { margin-top: 6px; }
+    .entry.setup summary { cursor: pointer; }
+    .entry.setup .setup-source { margin-top: 8px; white-space: pre-wrap; }
+    .frontend-notice { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .frontend-notice a { color: var(--accent); }
     .entry.thinking {
       border-left-color: var(--accent);
       animation: activity-breathe var(--breathing-duration) var(--breathing-ease) infinite;
@@ -1085,6 +1094,7 @@
       .session-sidebar .tab:hover:not(.active):not(:focus-within) .tab-close { display: none; }
     }
     @media (max-width: 760px) {
+      .boardbar .customize-frontend { display: grid; }
       .pane-toggle {
         display: inline-grid;
         place-items: center;
@@ -1199,7 +1209,10 @@
     }
   </style>
 </head>
-<body data-enable-board="__ENABLE_BOARD__">
+<body data-enable-board="__ENABLE_BOARD__"
+      data-frontend-directory="__FRONTEND_DIRECTORY__"
+      data-package-directory="__PACKAGE_DIRECTORY__"
+      data-package-version="__PACKAGE_VERSION__">
   <div class="workspace sessions-collapsed" data-mobile-pane="chat">
     <section class="board-pane" aria-label="workspace board">
       <div class="boardbar">
@@ -1213,6 +1226,14 @@
              data-board-path="__BOARD_LABEL__"
              data-board-title="Workspace: __WORKSPACE_TITLE__&#10;Current dir: __CWD_LABEL__&#10;Canvas file: __BOARD_LABEL__"></div>
         <span id="viewStatus" class="content-status" role="status" hidden></span>
+        <button class="sessions-toggle customize-frontend" type="button"
+                title="Customize interface" aria-label="Customize interface">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 3-1 3-3 1-2 4 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-4-3-1-1-3Z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
         <button class="fullscreen-toggle" type="button" title="Enter fullscreen" aria-label="Enter fullscreen" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1237,6 +1258,14 @@
         <div class="tabbar">
           <span id="activeSessionStatus" class="tab-status" role="img" aria-label="Running" title="Running" hidden></span>
           <span id="activeSessionTitle" class="active-session-title"></span>
+          <button class="sessions-toggle customize-frontend" type="button"
+                  title="Customize interface" aria-label="Customize interface">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 3-1 3-3 1-2 4 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-4-3-1-1-3Z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
           <button class="pane-toggle" type="button" data-pane="board" title="Show board" aria-label="Show board">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1248,6 +1277,10 @@
       </div>
       <div id="log" class="log" aria-label="Conversation"></div>
       <form id="composer" class="composer">
+        <p id="frontendRecovery" class="frontend-notice" hidden>
+          Using the built-in interface; customizations are temporarily ignored.
+          <a>Re-enable customizations</a>
+        </p>
         <div class="composer-surface">
           <div class="spinner-wrap">
             <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -1415,6 +1448,8 @@
     const contextMeterValue = document.getElementById("contextMeterValue");
     const newTabButton = document.getElementById("newTab");
     const workspaceTitle = document.title;
+    const activeSessionKey = "pycodex.workspace.activeSession:" + window.location.pathname;
+    const builtinFrontend = new URLSearchParams(window.location.search).get("builtin") === "1";
     let pollTimer = null;
     let boardPollTimer = null;
     let sessionPoll = null;
@@ -1494,6 +1529,13 @@
 
     function relativeUrl(path) {
       return new URL(path, window.location.href).toString();
+    }
+
+    function frontendUrl(builtin) {
+      const url = new URL(window.location.href);
+      if (builtin) url.searchParams.set("builtin", "1");
+      else url.searchParams.delete("builtin");
+      return url.toString();
     }
 
     function element(tag, className = "", text = "") {
@@ -2118,6 +2160,7 @@
     }
 
     function renderTabs() {
+      if (activeSessionId) window.sessionStorage.setItem(activeSessionKey, activeSessionId);
       const active = sessionById(activeSessionId);
       const activeIndex = sessions.findIndex(session => session.id === activeSessionId);
       activeSessionTitle.textContent = active ? active.title || `Session ${activeIndex + 1}` : "";
@@ -2348,6 +2391,14 @@
         if (sessionPoll !== request || requestedSessionId !== activeSessionId) {
           return;
         }
+        const savedId = !requestedSessionId && window.sessionStorage.getItem(activeSessionKey);
+        if (savedId && savedId !== payload.session_id &&
+            payload.sessions.some(session => session.id === savedId)) {
+          activeSessionId = savedId;
+          updateSessions(payload.sessions);
+          await pollSession();
+          return;
+        }
         if (payload.session_id && payload.session_id !== activeSessionId) {
           activeSessionId = payload.session_id;
         }
@@ -2515,7 +2566,25 @@
       }
       const isControl = turn.kind === "control";
       if (turn.prompt) {
-        renderEntry(`${key}:prompt`, turn.prompt, isControl ? "control" : "user");
+        const setup = turn.prompt.startsWith("<frontend_customization>\n") &&
+          turn.prompt.endsWith("\n</frontend_customization>");
+        const body = renderEntry(`${key}:prompt`, turn.prompt, setup ? "setup" : isControl ? "control" : "user");
+        if (setup && !body.firstElementChild) {
+          const notice = element("p", "frontend-notice",
+            "Changes affect all workspaces for this server user. Refresh to apply. ");
+          const recovery = element("a", "",
+            builtinFrontend ? "Re-enable customizations" : "Open built-in interface");
+          recovery.href = frontendUrl(!builtinFrontend);
+          notice.append(recovery);
+          const details = element("details");
+          details.append(
+            element("summary", "", "Interface customization context"),
+            element("div", "setup-source", turn.prompt.slice(
+              "<frontend_customization>\n".length, -"\n</frontend_customization>".length
+            ))
+          );
+          body.replaceChildren(notice, details);
+        }
       }
       if (turn.response) {
         const response = renderEntry(
@@ -2642,9 +2711,97 @@
       renderTabs();
     }
 
-    async function createSession() {
+    function frontendCustomizationPrompt() {
+      const {frontendDirectory, packageDirectory, packageVersion} = document.body.dataset;
+      return [
+        "<frontend_customization>",
+        "Help me customize my pycodex workspace interface. First briefly explain " +
+          "what you can change, the shared scope, and how to apply/revert changes, " +
+          "then wait for my specific request before editing files.",
+        "",
+        "Use the user's preferred language for all replies, starting with your " +
+          "introduction. Prioritize explicit language preferences, then the " +
+          "language of the user's own messages. When neither is available, use " +
+          "the browser language preferences below, in order. This English setup " +
+          "message is generated context; choose your reply language from those " +
+          "user signals. Do not infer the user's language from the time zone " +
+          "or the server's system locale.",
+        "Browser language preferences (most preferred first): " +
+          (navigator.languages.join(", ") || "not supplied"),
+        "",
+        `Frontend files (pycodex-ws ${packageVersion}):`,
+        `- User customization directory: ${frontendDirectory}`,
+        `- Original page: ${packageDirectory}/workspace.html`,
+        `- Packaged viewer/composer module: ${packageDirectory}/content_views.mjs`,
+        `- Packaged viewer styles: ${packageDirectory}/content_views.css`,
+        "",
+        "Prefer small overrides in custom.css for styling and custom.js for " +
+          "additional behavior. They are automatically loaded after the page's " +
+          "styles and module, even without a custom workspace.html. custom.js " +
+          "is an ES module; it can use the DOM and HTTP APIs, but the page's " +
+          "module variables are private. Read existing custom files first and " +
+          "preserve unrelated changes. If markup or core page logic must change, " +
+          "copy the original workspace.html only if the user's copy does not " +
+          "exist. Keep package-installed files unchanged. Create the user " +
+          "directory and supporting files only when needed.",
+        "",
+        "Module execution and DOMContentLoaded do not mean asynchronous content " +
+          "is ready: session tabs, messages and file views arrive later. Renderers " +
+          "update/reuse/remove their nodes. Prefer event delegation from stable " +
+          "containers and idempotent initialization; use a scoped MutationObserver " +
+          "only when needed. Avoid depending on private module state or replacing " +
+          "renderer-owned nodes. custom.css follows packaged styles, including " +
+          "the lazily loaded editor stylesheet; normal CSS specificity still applies.",
+        "",
+        "All supporting files belong inside the customization directory. The " +
+          "workspace-relative URL frontend/<path> serves files from it; for example " +
+          "frontend/assets/logo.svg. CSS URLs and module imports resolve normally " +
+          "relative to their files. Existing assets/content_views.mjs, " +
+          "assets/content_views.css and assets/editor.* remain package resources.",
+        "",
+        "Page map: .workspace is the layout; .board-pane hosts Canvas and file " +
+          "views; .chat/.log/.composer hold the conversation and input; " +
+          "#sessionSidebar and #mobileSessionFloat are session controls. " +
+          "renderTabs/renderSessionList update session controls; renderSnapshot/" +
+          "renderConversation update messages; setSessionsOpen controls the sidebar. " +
+          "Composer and mountContentViews come from the packaged module. Locate " +
+          "the relevant selectors/functions and read only the sections needed.",
+        "",
+        "Preserve the HTML structure including closing head/body tags, existing " +
+          "template placeholders, body metadata attributes and relative API/asset " +
+          "URLs. api/sessions manages conversations; api/session and " +
+          "api/session/message read and submit to the runtime; api/views manages " +
+          "file views. Keep the Customize interface button available; it assembles " +
+          "the title and prompt for the ordinary session creation API. The Canvas " +
+          "HTML is a separate workspace document, not the interface template.",
+        "",
+        "Changes affect all workspaces served by this OS user, independently " +
+          "of CODEX_HOME. Refresh the page to apply changes; no server restart is " +
+          "needed. Add ?builtin=1 to the workspace page URL to load the packaged " +
+          "interface without any customization. Remove that parameter to use " +
+          "customizations again. To keep using defaults, rename the customization " +
+          "directory rather than deleting it, so the change can be undone.",
+        "",
+        "Before substantial edits, keep a recoverable copy outside the served " +
+          "directory. On the first full HTML override, keep the original template " +
+          "and its package version with that backup for future comparisons. Full " +
+          "overrides are not automatically merged on upgrades; compare that " +
+          "baseline, the user's edits and the new packaged template without " +
+          "overwriting existing customizations. After editing, verify the affected " +
+          "desktop/phone interactions, asynchronous updates and browser errors " +
+          "with available tools. Report what was verified, and give the user " +
+          "concrete refresh, recovery and undo steps.",
+        "</frontend_customization>",
+      ].join("\n");
+    }
+
+    async function createSession(title = "", initialPrompt = "") {
       saveActiveSessionUiState();
-      const response = await fetch(relativeUrl("api/sessions"), {method: "POST"});
+      const response = await fetch(relativeUrl("api/sessions"), {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({title, prompt: initialPrompt}),
+      });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
         addEntry("error", payload.error || `HTTP ${response.status}`);
@@ -2750,7 +2907,21 @@
     splitter.addEventListener("pointercancel", endResize);
     splitter.addEventListener("dblclick", centerSplit);
     spinner.addEventListener("click", toggleSpinnerNotification);
-    newTabButton.addEventListener("click", createSession);
+    newTabButton.addEventListener("click", () => createSession());
+    const customizeButtons = document.querySelectorAll(".customize-frontend");
+    customizeButtons.forEach(button => {
+      button.addEventListener("click", async () => {
+        customizeButtons.forEach(control => { control.disabled = true; });
+        try {
+          workspace.dataset.mobilePane = "chat";
+          await createSession("Customize interface", frontendCustomizationPrompt());
+        } catch (error) {
+          showToast("Unable to start customization: " + error.message);
+        } finally {
+          customizeButtons.forEach(control => { control.disabled = false; });
+        }
+      });
+    });
     for (const container of [tabsEl, mobileSessionDots]) {
       container.addEventListener("click", event => {
         const tab = event.target.closest("[data-session-id]");
@@ -2870,6 +3041,9 @@
       }
     });
 
+    const recoveryNotice = document.getElementById("frontendRecovery");
+    recoveryNotice.hidden = !builtinFrontend;
+    recoveryNotice.querySelector("a").href = frontendUrl(false);
     setSessionsOpen(sessionsOpen);
     requestAnimationFrame(() => requestAnimationFrame(() => workspace.classList.add("sessions-ready")));
     loadChatWidth();

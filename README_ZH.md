@@ -103,6 +103,7 @@ pycodex-ws --listen 127.0.0.1:6007 --workspace-config workspaces.json
 访问 `http://127.0.0.1:6007`。工作区同时提供对话、实时 HTML Canvas 和只读
 文件/diff 查看器。点击回复中的文件链接打开视图，通过 **Insert into chat**
 把选中的代码插入可编辑草稿。运行期间保持服务器 stdin 打开，EOF 会触发关闭。
+点击齿轮按钮可开启界面定制会话，让 Agent 修改 `~/.pycodex/frontend/` 中的文件。
 
 会话操作、存储和飞书配置见[工作区说明](packages/pycodex-ws/README.md)。
 独立分发的 [VS Code 扩展](packages/pycodex-ws/extensions/vscode/README.md)

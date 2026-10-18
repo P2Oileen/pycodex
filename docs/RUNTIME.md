@@ -567,6 +567,71 @@ completed/failed status, but active execution and pending inputs take precedence
 when reporting busy. Direct calls and background invokes produce the same events;
 status observers no longer inspect raw Task results.
 
+## Workspace session API
+
+`POST api/sessions` creates a session with optional string fields `title` and
+`prompt`. Both default to an empty string; requests with no body still create
+an empty session. A nonempty prompt is submitted unchanged through the Runtime.
+The response includes the new session ID, session list and snapshot. These
+fields are general frontend inputs: the API does not select prompts, infer
+reply languages or interpret feature-specific flags.
+
+## Frontend customization
+
+Browser workspace pages use the server OS user's `~/.pycodex/frontend/`,
+independently of `CODEX_HOME` and the workspace configuration. A
+`workspace.html` in that directory replaces the packaged template. Only a
+missing file selects the package default; read failures remain errors.
+Optional `custom.css` and `custom.js` are inserted after the page's styles and
+module, respectively, including when using the packaged template. Lazy-loaded
+editor styles are inserted before `custom.css`, preserving that order when a
+code view first opens; normal CSS specificity still applies. The script is an
+ES module; page module variables remain private.
+
+Custom templates retain closing `head`/`body` tags and the placeholders
+`__WORKSPACE_TITLE__`, `__BOARD_LABEL__`, `__CWD_LABEL__`, `__ENABLE_BOARD__` and
+`__BOARD_URL__`. The page also receives `__FRONTEND_DIRECTORY__`,
+`__PACKAGE_DIRECTORY__` and `__PACKAGE_VERSION__` as escaped body data attributes
+for frontend code to use. API and packaged asset URLs stay relative to the workspace.
+The `frontend/<path>` route serves supporting files from the customization
+directory with normal CSS URL/module import resolution. Paths and symlinks
+cannot escape that directory; directories are not listed. Existing
+`assets/content_views.*` and `assets/editor.*` continue to serve package files.
+Custom pages and resources use `Cache-Control: no-store`; refresh applies
+edits without restarting the server.
+
+`?builtin=1` on the workspace page bypasses the template override and both
+automatic additions, even if custom files are unreadable or invalid. It does
+not delete files or change sessions; removing the parameter restores custom
+loading. The recovery page shows that customizations are disabled and links
+back to the customized interface. Authentication applies to recovery pages
+and custom resources just as it does to the rest of the workspace.
+
+The gear button in `workspace.html` assembles the `Customize interface` title
+and introductory prompt, then passes both to the ordinary session creation
+API. The prompt and its development guidance belong to the editable frontend;
+the Python customization module only loads templates and serves their resources.
+The button uses the page's path/version metadata and `navigator.languages`
+in preference order. The Agent is instructed to explain the available changes
+and wait for the user's request before editing. Replies, including the
+introduction, follow explicit user language preferences first, then the user's
+own conversation language, then the browser's language preferences. Time zone,
+server locale and the generated English setup text are not used to infer
+the user's language.
+The prompt uses a `<frontend_customization>` envelope, shown as an
+expandable context block in chat and preserved in history. Shared scope,
+refresh instructions and a recovery link remain visible outside the block.
+Creating this session does not create customization files. Normal session
+persistence, tools, drafts and history apply. Each browser tab remembers its
+active session per workspace in `sessionStorage`, including across refresh
+and recovery navigation; a missing saved session selects the default.
+
+The prompt directs the Agent to read existing customizations, use event
+delegation and idempotent setup for asynchronously rendered content, and
+verify the affected interactions. Substantial changes need recoverable copies
+outside the served directory. A first full HTML override also preserves the
+original template and package version for comparison with future upgrades.
+
 ## Workspace content views
 
 The entire left workspace pane is the board. When `enable_board` is true, it starts

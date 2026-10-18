@@ -54,6 +54,20 @@ device names.
 The [VS Code extension](extensions/vscode/README.md) uses this backend and is
 distributed separately as a VSIX.
 
+## Customize the interface
+
+Click the gear button to start a customization conversation with the Agent.
+Custom files live in the server user's `~/.pycodex/frontend/`:
+
+- `custom.css` and `custom.js`: optional styles and an ES module, loaded automatically.
+- `workspace.html`: optional full-page override; otherwise the packaged page is used.
+- Other files: available at workspace-relative `frontend/<path>` URLs.
+
+Refresh to apply changes and keep the selected conversation. Open the workspace
+with `?builtin=1` to bypass all customizations; click “Re-enable customizations”
+to return. Changes apply to all workspaces for that OS user.
+See the [customization contract](../../docs/RUNTIME.md#frontend-customization).
+
 ## Storage
 
 Paths in `workspaces.json` resolve from the configuration directory.

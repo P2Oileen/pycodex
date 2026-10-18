@@ -328,7 +328,9 @@ export class SnapshotDisplay {
         stylesheet.addEventListener("error",
           () => reject(new Error("Editor stylesheet request failed.")), {once: true});
       });
-      this.document.head.appendChild(stylesheet);
+      this.document.head.insertBefore(
+        stylesheet, this.document.head.querySelector("[data-pycodex-custom-style]")
+      );
       this.editorAssets = Promise.all([import("./editor.mjs"), styles])
         .then(([module]) => module)
         .catch(error => {

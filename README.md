@@ -108,6 +108,8 @@ Open `http://127.0.0.1:6007`. The workspace combines conversations with a live
 HTML Canvas and read-only file/diff viewers. Click file links in replies to open
 them, and use **Insert into chat** to add selected code to an editable draft.
 Keep the server's stdin open: EOF initiates shutdown.
+The gear button starts an Agent conversation for customizing the interface
+through files in `~/.pycodex/frontend/`.
 
 See the [workspace guide](packages/pycodex-ws/README.md) for session controls,
 storage and Feishu setup. The separately distributed

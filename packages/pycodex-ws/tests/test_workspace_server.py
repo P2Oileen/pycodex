@@ -109,6 +109,60 @@ def wait_snapshot(client, predicate, path="/api/session"):
 
 
 @pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("fields", [
+    {"title": "Project review", "prompt": "请检查这个项目"},
+    {"title": "Notes"},
+    {"prompt": "Summarize the project"},
+])
+def test_new_session_accepts_title_and_initial_prompt(tmp_path, multi, fields):
+    model = ScriptedModelClient(
+        response_factory=lambda prompt, count: ModelResponse([AssistantMessage("done")])
+    )
+    factory = lambda: make_session(model, cwd=tmp_path)
+    manager = WorkspaceSessionManager(factory, tmp_path / "state")
+    if multi:
+        app = create_multi_workspace_app(WorkspaceRegistry([WorkspaceEntry(
+            WorkspaceDefinition("test", tmp_path / "state", tmp_path, False), manager,
+        )]))
+    else:
+        app = create_app(manager, tmp_path / "state", work_dir=tmp_path, enable_board=False)
+    prefix = "/w/test" if multi else ""
+    with TestClient(app) as browser:
+        original = browser.get(prefix + "/api/session").json()["session_id"]
+        response = browser.post(prefix + "/api/sessions", json=fields)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"]
+        assert payload["session_id"] != original
+        assert len(payload["sessions"]) == 2
+        path = prefix + "/api/session?session_id=" + payload["session_id"]
+        if fields.get("prompt"):
+            snapshot = wait_snapshot(
+                browser, lambda state: state["turns"] and state["turns"][-1]["status"] == "completed", path
+            )
+            assert snapshot["turns"][0]["prompt"] == fields["prompt"]
+            assert [item.text for item in model.prompts[0].input if isinstance(item, UserMessage)] == [
+                fields["prompt"]
+            ]
+        else:
+            snapshot = browser.get(path).json()["snapshot"]
+            assert snapshot["turns"] == []
+            assert model.call_count == 0
+        if "title" in fields:
+            assert snapshot["title"] == fields["title"]
+        assert browser.get(prefix + "/api/session?session_id=" + original).json()["snapshot"]["turns"] == []
+
+
+@pytest.mark.parametrize("field", ["title", "prompt"])
+@pytest.mark.parametrize("value", [None, 7, ["text"]])
+def test_new_session_rejects_non_string_fields(field, value):
+    with TestClient(create_app(make_session, None)) as browser:
+        before = browser.get("/api/sessions").json()["sessions"]
+        assert browser.post("/api/sessions", json={field: value}).status_code == 422
+        assert browser.get("/api/sessions").json()["sessions"] == before
+
+
+@pytest.mark.parametrize("multi", [False, True])
 @pytest.mark.parametrize("password", [None, "workspace-test-password"])
 def test_runtime_info_uses_current_identity_and_local_frontend_api(tmp_path, multi, password):
     model = ScriptedModelClient(
@@ -295,6 +349,8 @@ const document = {
 const requestAnimationFrame = () => {};
 const markVisibleFinalRead = () => {};
 const workspaceTitle = document.title;
+const activeSessionKey = "test-workspace";
+const window = {sessionStorage: {getItem: () => null}};
 const relativeUrl = path => path;
 const resizePrompt = () => {};
 const dismissSessionsDrawer = () => {};

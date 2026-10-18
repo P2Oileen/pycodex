@@ -68,6 +68,7 @@ from pycodex.events import (
 )
 from pycodex.model import DEFAULT_CODEX_CONFIG_PATH
 from pycodex.utils import uuid7_string
+from pycodex.utils.compat import importlib_metadata
 from pycodex.utils.event_helpers import (
     completed_history,
     shorten_title,
@@ -76,6 +77,11 @@ from pycodex.utils.session_persist import load_display_history
 from pycodex_ws import build_runtime
 from pycodex_router.protocol import trusted_agent_request
 
+from .customization import (
+    frontend_asset_response,
+    frontend_directory,
+    load_workspace_template,
+)
 from .runtime_info import runtime_info_prompt
 from .workspace_views import WorkspaceViewOpener
 from .workspaces import (
@@ -950,6 +956,7 @@ def create_multi_workspace_app(
                 entry.definition.board_path,
                 title=entry.definition.workspace_id,
                 work_dir=entry.definition.work_dir,
+                builtin=request.query_params.get("builtin") == "1",
             )
         )
 
@@ -996,7 +1003,11 @@ def create_multi_workspace_app(
 
     async def workspace_new_session(request: Request) -> JSONResponse:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
-        return await _new_session_response(entry.manager)
+        return await _new_session_response(entry.manager, request)
+
+    def workspace_frontend_asset(request: Request) -> Response:
+        _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return frontend_asset_response(request.path_params["asset_path"])
 
     async def workspace_delete_session(request: Request) -> JSONResponse:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
@@ -1082,6 +1093,10 @@ def create_multi_workspace_app(
         ),
         Route("/w/{workspace_id}/api/sessions", workspace_sessions, methods=["GET"]),
         Route("/w/{workspace_id}/api/sessions", workspace_new_session, methods=["POST"]),
+        Route(
+            "/w/{workspace_id}/frontend/{asset_path:path}",
+            workspace_frontend_asset, methods=["GET", "HEAD"],
+        ),
         Route(
             "/w/{workspace_id}/api/sessions/{session_id}",
             workspace_delete_session, methods=["DELETE"],
@@ -1368,7 +1383,10 @@ def _install_workspace_routes(
     view_asset_cache = {}
 
     async def index(request: Request) -> HTMLResponse:
-        return _html_response(_render_workspace_shell(board_path, work_dir=work_dir))
+        return _html_response(_render_workspace_shell(
+            board_path, work_dir=work_dir,
+            builtin=request.query_params.get("builtin") == "1",
+        ))
 
     async def favicon(request: Request) -> Response:
         return Response(status_code=204)
@@ -1404,7 +1422,10 @@ def _install_workspace_routes(
         return _sessions_response(manager)
 
     async def new_session(request: Request) -> JSONResponse:
-        return await _new_session_response(manager)
+        return await _new_session_response(manager, request)
+
+    def frontend_asset(request: Request) -> Response:
+        return frontend_asset_response(request.path_params["asset_path"])
 
     async def delete_session(request: Request) -> JSONResponse:
         return await _delete_session_response(manager, request.path_params["session_id"])
@@ -1449,6 +1470,7 @@ def _install_workspace_routes(
         Route("/ws/session", websocket_backend_hint, methods=["GET"]),
         Route("/api/sessions", sessions, methods=["GET"]),
         Route("/api/sessions", new_session, methods=["POST"]),
+        Route("/frontend/{asset_path:path}", frontend_asset, methods=["GET", "HEAD"]),
         Route("/api/sessions/{session_id}", delete_session, methods=["DELETE"]),
         Route("/api/sessions/{session_id}/read", read_session, methods=["POST"]),
         Route("/api/session", session, methods=["GET"]),
@@ -1619,15 +1641,27 @@ def _read_session_response(
     return _sessions_response(manager)
 
 
-async def _new_session_response(manager: "WorkspaceSessionManager") -> JSONResponse:
-    session_id = await manager.create_session()
+async def _new_session_response(
+    manager: "WorkspaceSessionManager", request: Request,
+) -> JSONResponse:
+    payload = await _json_object_body(request) if await request.body() else {}
+    title = payload.get("title", "")
+    prompt = payload.get("prompt", "")
+    if not isinstance(title, str) or not isinstance(prompt, str):
+        raise HTTPException(status_code=422, detail="title and prompt must be strings")
+    session_id = await manager.create_session(title=title)
+    result = (
+        await manager.get(session_id).submit(prompt, sender="web")
+        if prompt else {"ok": True}
+    )
     return JSONResponse(
         {
-            "ok": True,
+            **result,
             "session_id": session_id,
             "sessions": manager.list_sessions(),
             "snapshot": session_snapshot(manager.get(session_id)),
-        }
+        },
+        status_code=200 if result["ok"] else 400,
     )
 
 
@@ -2034,17 +2068,21 @@ def _render_workspace_shell(
     board_path: "typing.Union[Path, None]",
     title: "typing.Union[str, None]" = None,
     work_dir: "typing.Union[Path, None]" = None,
+    builtin: bool = False,
 ) -> str:
     board_label = str(board_path) if board_path is not None else "No board"
     cwd_label = str(work_dir or Path.cwd())
     page_title = str(title or "pycodex workspace")
-    template = (Path(__file__).with_name("workspace.html")).read_text(encoding="utf-8")
+    template = load_workspace_template(builtin)
     return (
         template.replace("__WORKSPACE_TITLE__", html.escape(page_title))
         .replace("__BOARD_LABEL__", html.escape(board_label))
         .replace("__CWD_LABEL__", html.escape(cwd_label))
         .replace("__ENABLE_BOARD__", "true" if board_path is not None else "false")
         .replace("__BOARD_URL__", "board" if board_path is not None else "about:blank")
+        .replace("__FRONTEND_DIRECTORY__", html.escape(str(frontend_directory())))
+        .replace("__PACKAGE_DIRECTORY__", html.escape(str(Path(__file__).resolve().parent)))
+        .replace("__PACKAGE_VERSION__", html.escape(importlib_metadata.version("pycodex-ws")))
     )
 
 
