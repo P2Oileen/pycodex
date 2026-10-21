@@ -1,16 +1,5 @@
 # pycodex
 
-Providers may configure a positive `stream_first_data_timeout_ms` to bound
-the initial wait for response body data, including waiting for headers. After
-body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
-preserves the existing timeout behavior. These are transport timeouts, not a
-total generation deadline.
-
-Each HTTP attempt emits `model_request_timing` with the model, elapsed seconds,
-first-data seconds and completed/failed outcome. Without the first-data option,
-the first-data measurement uses the first streamed line. Timing events are
-available through workspace event records, including compaction requests.
-
 [中文](README_ZH.md)
 
 pycodex brings the [Codex](https://github.com/openai/codex) agent loop to Python,
@@ -182,3 +171,16 @@ uv run --dev pytest
 - [Responses compatibility server](docs/responses_server/README.md)
 
 Release notes and implementation details live in `docs/`.
+
+## Responses reliability
+
+Providers may configure a positive `stream_first_data_timeout_ms` to bound
+the initial wait for response body data, including waiting for headers. After
+body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
+preserves the existing timeout behavior. These are transport timeouts, not a
+total generation deadline.
+
+Each HTTP attempt emits `model_request_timing` with the model, elapsed seconds,
+first-data seconds and completed/failed outcome. Without the first-data option,
+the first-data measurement uses the first streamed line. Timing events are
+available through workspace event records, including compaction requests.
