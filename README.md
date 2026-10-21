@@ -1,10 +1,5 @@
 # pycodex
 
-The workspace message box supports Up/Down input history. Up recalls earlier
-human inputs in the current conversation; Down returns to the unsent draft.
-Automatic wake-up messages are excluded, and arrows retain normal cursor
-movement inside multiline drafts.
-
 [中文](README_ZH.md)
 
 pycodex brings the [Codex](https://github.com/openai/codex) agent loop to Python,
@@ -176,3 +171,10 @@ uv run --dev pytest
 - [Responses compatibility server](docs/responses_server/README.md)
 
 Release notes and implementation details live in `docs/`.
+
+## Workspace input history
+
+The workspace message box supports Up/Down input history. Up recalls earlier
+human inputs in the current conversation; Down returns to the unsent draft.
+Automatic wake-up messages are excluded, and arrows retain normal cursor
+movement inside multiline drafts.
