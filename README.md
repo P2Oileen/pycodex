@@ -1,9 +1,5 @@
 # pycodex
 
-Markdown file views include a Show source / Show preview button. Switching
-modes preserves each mode's reading position without replaying a previous line
-target.
-
 [中文](README_ZH.md)
 
 pycodex brings the [Codex](https://github.com/openai/codex) agent loop to Python,
@@ -175,3 +171,9 @@ uv run --dev pytest
 - [Responses compatibility server](docs/responses_server/README.md)
 
 Release notes and implementation details live in `docs/`.
+
+## Markdown view modes
+
+Markdown file views include a Show source / Show preview button. Switching
+modes preserves each mode's reading position without replaying a previous line
+target.
