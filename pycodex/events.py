@@ -272,6 +272,17 @@ class TokenCountEvent(ModelEvent):
 
 
 @dataclass(frozen=True)
+class ModelRequestTimingEvent(ModelEvent):
+    model: "str"
+    elapsed_seconds: "float"
+    first_data_seconds: "typing.Union[float, None]"
+    outcome: "str"
+    turn_id: "str" = ""
+    submission_id: "typing.Union[str, None]" = None
+    kind: ClassVar[str] = "model_request_timing"
+
+
+@dataclass(frozen=True)
 class StreamErrorEvent(ModelEvent):
     message: "str"
     attempt: "int"

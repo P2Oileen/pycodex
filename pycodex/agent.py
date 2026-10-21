@@ -17,6 +17,7 @@ from .events import (
     ModelCalledEvent,
     ModelCompletedEvent,
     ModelEvent,
+    ModelRequestTimingEvent,
     StreamErrorEvent,
     TerminalEvent,
     TokenCountEvent,
@@ -558,7 +559,7 @@ class Agent:
         self._emit(started_type(*details))
 
         def handle_compact_stream_event(event: "ModelEvent") -> "None":
-            if isinstance(event, StreamErrorEvent) or (
+            if isinstance(event, (StreamErrorEvent, ModelRequestTimingEvent)) or (
                 phase == "manual" and isinstance(event, TokenCountEvent)
             ):
                 self._emit(replace(event, turn_id=turn_id))

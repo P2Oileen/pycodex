@@ -35,7 +35,12 @@ from pycodex import (
     UserMessage,
 )
 from pycodex.utils.compat import ThreadingHTTPServer
-from pycodex.events import AssistantDeltaEvent, TokenCountEvent, ToolCalledEvent
+from pycodex.events import (
+    AssistantDeltaEvent,
+    ModelRequestTimingEvent,
+    TokenCountEvent,
+    ToolCalledEvent,
+)
 from pycodex.model import (
     RESPONSES_LITE_HEADER,
     ResponsesApiError,
@@ -1650,6 +1655,11 @@ async def test_responses_model_client_retries_retryable_stream_failures() -> "No
         item.text for item in response.items if isinstance(item, AssistantMessage)
     ] == ["done"]
     assert len(send_calls) == 2
+    timings = [event for event in events if isinstance(event, ModelRequestTimingEvent)]
+    assert [event.outcome for event in timings] == ["failed", "completed"]
+    events = [
+        event for event in events if not isinstance(event, ModelRequestTimingEvent)
+    ]
     assert len(events) == 2
     assert events[0].kind == "stream_error"
     assert events[0].message == "Reconnecting... 1/1"
@@ -1870,9 +1880,9 @@ async def test_responses_model_client_retries_compat_function_argument_errors(
     assert [
         item.call_id for item in agent.history if isinstance(item, ToolResult)
     ] == expected_calls
-    assert [
-        item.text for item in agent.history if isinstance(item, UserMessage)
-    ] == ["continue"]
+    assert [item.text for item in agent.history if isinstance(item, UserMessage)] == [
+        "continue"
+    ]
     stream_errors = [event for event in events if event.kind == "stream_error"]
     assert len(stream_errors) == retries
     for event in stream_errors:
@@ -2068,7 +2078,10 @@ async def test_responses_model_client_retries_initial_compat_backend_disconnect(
     assert "RemoteDisconnected" in stream_errors[0].error
     assert "response.failed" in stream_errors[0].error
     assert "phase=waiting_response_headers" in stream_errors[0].error
-    assert "headers=not_received, first_chunk=not_received, chunks=0" in stream_errors[0].error
+    assert (
+        "headers=not_received, first_chunk=not_received, chunks=0"
+        in stream_errors[0].error
+    )
 
 
 @pytest.mark.asyncio
@@ -2253,7 +2266,9 @@ async def test_responses_model_client_does_not_retry_context_length_failed_strea
         requests.Session.send = original_send
 
     assert len(send_calls) == 1
-    assert events == []
+    assert len(events) == 1
+    assert isinstance(events[0], ModelRequestTimingEvent)
+    assert events[0].outcome == "failed"
 
 
 @pytest.mark.asyncio
@@ -2361,7 +2376,9 @@ async def test_responses_model_client_does_not_retry_invalid_model_output_stream
         requests.Session.send = original_send
 
     assert len(send_calls) == 1
-    assert events == []
+    assert len(events) == 1
+    assert isinstance(events[0], ModelRequestTimingEvent)
+    assert events[0].outcome == "failed"
 
 
 def test_responses_model_client_parses_reasoning_output_item() -> "None":
