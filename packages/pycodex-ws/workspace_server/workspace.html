@@ -686,6 +686,15 @@
       color: var(--muted);
       font-size: 12px;
     }
+    .entry.model-error {
+      border-left: 2px solid #c98100;
+      padding: 8px 10px;
+      background: color-mix(in srgb, #c98100 8%, transparent);
+      color: #7a4600;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .entry.compaction::before,
     .entry.compaction::after {
       content: "";
@@ -2368,6 +2377,7 @@
           item.status || "",
           item.error || "",
           item.kind || "",
+          item.model_errors || [],
         ]),
         snapshot.input_request || null,
       ]);
@@ -2594,6 +2604,11 @@
         response.dataset.sessionId = activeSessionId;
       }
       if (turn.thinking) renderEntry(`${key}:thinking`, turn.thinking, "thinking");
+      if (Array.isArray(turn.model_errors)) {
+        turn.model_errors.forEach((message, index) => {
+          renderEntry(`${key}:model-error:${index}`, message, "model-error");
+        });
+      }
       if (turn.error) {
         const error = renderEntry(`${key}:error`, turn.error, "error");
         error.dataset.finalId = isControl ? "" : (turn.final_id || "");

@@ -285,9 +285,14 @@ class StreamErrorEvent(ModelEvent):
     def visualize(self) -> "str":
         return self.message
 
+    def detail(self) -> "str":
+        if not self.error:
+            return self.message
+        return "{0}\n{1}".format(self.message, self.error)
+
     def render(self, display: "EventDisplay") -> "None":
         display.stream_buffer = ""
-        display.write("[status] " + self.visualize(), "status")
+        display.write("[status] " + self.detail(), "status")
         display.set_status("reconnecting")
 
 

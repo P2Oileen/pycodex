@@ -604,11 +604,15 @@ class AgentRuntime:
                 "user_texts": list(event.user_texts),
                 "assistant_text": "",
                 "completed_history": conversation_history_to_turns(self.agent.history),
+                "model_errors": [],
             }
         elif self._active_turn is not None:
             if isinstance(event, AssistantDeltaEvent):
                 self._active_turn["assistant_text"] += event.delta
-            elif isinstance(event, (StreamErrorEvent, ToolCompletedEvent)):
+            elif isinstance(event, StreamErrorEvent):
+                self._active_turn["assistant_text"] = ""
+                self._active_turn["model_errors"].append(event.detail())
+            elif isinstance(event, ToolCompletedEvent):
                 self._active_turn["assistant_text"] = ""
             elif isinstance(event, AutoCompactCompletedEvent):
                 self._active_turn["completed_history"] = conversation_history_to_turns(
