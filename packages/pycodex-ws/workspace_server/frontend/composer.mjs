@@ -1,11 +1,13 @@
 /** A plain-text editor whose context tokens occupy one cursor position each. */
 export class Composer {
-  constructor(element, changed, submit, editContext, error) {
+  constructor(element, changed, submit, editContext, error, recallInput = null) {
     this.element = element;
     this.changed = changed;
     this.submit = submit;
     this.editContext = editContext;
     this.error = error;
+    this.recallInput = recallInput;
+    this.recalledParts = null;
     this.composing = false;
     this.selection = { start: 0, end: 0 };
     this.undo = [];
@@ -124,6 +126,7 @@ export class Composer {
   }
 
   set(value) {
+    this.recalledParts = null;
     this.undo = [];
     this.redo = [];
     this.render(value);
@@ -256,7 +259,30 @@ export class Composer {
   keydown(event) {
     if (event.isComposing || this.composing || event.keyCode === 229) return;
     const modifier = event.ctrlKey || event.metaKey;
-    if (modifier && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
+    if (this.recallInput && ["ArrowUp", "ArrowDown"].includes(event.key) &&
+        !modifier && !event.altKey && !event.shiftKey) {
+      const current = this.read();
+      if (current.selection.start === current.selection.end) {
+        const offset = current.selection.start;
+        const text = Composer.text(current.parts);
+        // Keep vertical cursor movement inside multiline drafts.
+        const back = event.key === "ArrowUp";
+        const prefix = Composer.text(Composer.slice(current.parts, 0, offset));
+        const suffix = Composer.text(Composer.slice(current.parts, offset, Composer.size(current.parts)));
+        const browsing = this.recalledParts === JSON.stringify(current.parts);
+        if (browsing || !text || !(back ? prefix : suffix).includes("\n")) {
+          const recalled = this.recallInput(back, current);
+          if (recalled) {
+            event.preventDefault();
+            this.render(recalled);
+            this.recalledParts = JSON.stringify(recalled.parts);
+            this.focus();
+            this.record();
+            this.changed();
+          }
+        }
+      }
+    } else if (modifier && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
       event.preventDefault();
       this.history(event.key.toLowerCase() === "z" && !event.shiftKey);
     } else if (event.key === "Enter") {

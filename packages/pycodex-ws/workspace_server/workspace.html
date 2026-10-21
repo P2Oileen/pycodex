@@ -1331,7 +1331,7 @@
             </div>
             <div id="prompt" class="prompt-input empty" contenteditable="true" role="textbox"
                  aria-multiline="true" aria-label="Message" spellcheck="false"
-                 title="Enter to send · Shift + Enter for a new line" data-placeholder="Message…"></div>
+                 title="Enter to send · Shift + Enter for a new line · ↑ / ↓ for input history" data-placeholder="Message…"></div>
           </div>
           <div id="contextBlockDetail" class="context-block-detail" hidden>
             <div class="context-block-heading">
@@ -1414,7 +1414,7 @@
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"></script>
   <script type="module">
-    import {Composer, isWorkspaceLink, mountContentViews} from "./assets/content_views.mjs";
+    import {Composer, PromptHistory, isWorkspaceLink, mountContentViews} from "./assets/content_views.mjs";
 
     const log = document.getElementById("log");
     const spinner = document.getElementById("spinner");
@@ -1467,7 +1467,9 @@
     const composer = new Composer(prompt, () => {
       stateForSession(activeSessionId).draft = composer.read();
       resizePrompt();
-    }, () => form.requestSubmit(), editContextBlock, showToast);
+    }, () => form.requestSubmit(), editContextBlock, showToast,
+    (back, current) => stateForSession(activeSessionId).promptHistory.recall(back, current));
+    prompt.addEventListener("input", () => stateForSession(activeSessionId).promptHistory.reset());
     composer.set({parts: []});
     const markdownRenderer = window.markdownit
       ? window.markdownit({html: false, linkify: true, breaks: false})
@@ -2114,6 +2116,7 @@
           lastRenderedSignature: "",
           scrollTop: null,
           draft: {parts: []},
+          promptHistory: new PromptHistory(),
           notifyWhenDone: false,
           wasRunning: false,
           inputRequest: null,
@@ -2468,6 +2471,7 @@
       updateSessionDirectory(snapshot);
       const state = stateForSession(activeSessionId);
       state.inputRequest = snapshot.input_request || null;
+      state.promptHistory.update(snapshot.turns);
       renderQueueHint(snapshot.queued_inputs);
       requestAnimationFrame(markVisibleFinalRead);
       const signature = messageSignature(snapshot);
@@ -2866,8 +2870,10 @@
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const text = Composer.text(composer.parts()).trim();
+      const draft = composer.read();
+      const text = Composer.text(draft.parts).trim();
       if (!text && !stateForSession(activeSessionId).inputRequest) return;
+      stateForSession(activeSessionId).promptHistory.remember(draft);
       closeContextBlock();
       composer.set({parts: []});
       resizePrompt();
