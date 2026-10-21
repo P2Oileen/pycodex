@@ -197,6 +197,45 @@ async def test_state_changes_reach_every_frontend_and_detach_is_not_close():
 
 @pytest.mark.parametrize("frontend", ["cli", "web", "feishu"])
 @pytest.mark.asyncio
+async def test_frontends_preserve_slash_paths_and_leading_space_escape(frontend):
+    inputs = ["/data/project", "/tmp/", " /model changed", " /queue literal"]
+    client = ControlClient(
+        [ModelResponse([AssistantMessage("done")]) for _ in inputs]
+    )
+    queue = make_queue(client)
+    events = []
+    queue.event_handler = events.append
+    await run_frontend(frontend, queue, inputs + ["/modle", "/tmp"])
+    queued = [event for event in events if event.kind == "input_queued"]
+    assert [event.prompt for event in queued] == [text.strip() for text in inputs]
+    assert all(event.queue == "steer" for event in queued)
+    assert queue.agent.model_name == "scripted"
+    assert [event.command for event in events if event.kind == "command_failed"] == [
+        "/modle", "/tmp",
+    ]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"form_value": {"prompt": " /model changed"}},
+        {"form_value": {"prompt_input": " /model changed"}},
+        {"input_value": " /model changed"},
+        {"value": {"input_value": " /model changed"}},
+        {"form_value": {"custom": " /model changed"}},
+    ],
+)
+def test_feishu_sdk_action_preserves_leading_space_escape(action):
+    event = types.SimpleNamespace(
+        event=types.SimpleNamespace(
+            action=types.SimpleNamespace(**action), operator=None, context=None,
+        )
+    )
+    assert PycodexCard().parse_action(event)["prompt"] == " /model changed"
+
+
+@pytest.mark.parametrize("frontend", ["cli", "web", "feishu"])
+@pytest.mark.asyncio
 async def test_frontends_share_effort_command(frontend):
     client = ResponsesModelClient(
         ResponsesProviderConfig(

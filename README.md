@@ -82,6 +82,11 @@ pycodex --json "Reply with exactly OK."
 | `/queue <message>` | Wait for the active turn to finish before submitting |
 
 Ordinary input during a turn steers at the next safe sampling boundary.
+Slash input uses Codex's command rules: `/data/project` and `/tmp/` are
+ordinary messages, while an unknown single-component name such as `/modle`
+or `/tmp` reports a command error. Start the input with a space to send any
+slash-prefixed text literally, including known commands such as ` /model`.
+These rules also apply to the browser workspace and Feishu.
 Sessions are saved under `CODEX_HOME/sessions`. Set
 `model_auto_compact_token_limit` in the configuration to compact automatically.
 
@@ -172,15 +177,9 @@ uv run --dev pytest
 
 Release notes and implementation details live in `docs/`.
 
-## Responses reliability
+## Workspace input history
 
-Providers may configure a positive `stream_first_data_timeout_ms` to bound
-the initial wait for response body data, including waiting for headers. After
-body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
-preserves the existing timeout behavior. These are transport timeouts, not a
-total generation deadline.
-
-Each HTTP attempt emits `model_request_timing` with the model, elapsed seconds,
-first-data seconds and completed/failed outcome. Without the first-data option,
-the first-data measurement uses the first streamed line. Timing events are
-available through workspace event records, including compaction requests.
+The workspace message box supports Up/Down input history. Up recalls earlier
+human inputs in the current conversation; Down returns to the unsent draft.
+Automatic wake-up messages are excluded, and arrows retain normal cursor
+movement inside multiline drafts.
