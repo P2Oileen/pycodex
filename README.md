@@ -177,6 +177,14 @@ uv run --dev pytest
 
 Release notes and implementation details live in `docs/`.
 
+## Responses reliability
+
+Responses HTTP 408/429 and server errors use the provider retry budget.
+Rate-limit messages containing `try again in` or `retry after` supply the retry
+delay. CLI and workspace retry notices include the underlying error details;
+workspace notices survive browser refresh and active-turn reattachment, and
+remain separate from the assistant reply. They are not persisted in rollouts.
+
 ## Workspace input history
 
 The workspace message box supports Up/Down input history. Up recalls earlier

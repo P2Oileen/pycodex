@@ -51,7 +51,7 @@ DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 INITIAL_RETRY_DELAY_SECONDS = 0.2
 RETRY_BACKOFF_FACTOR = 2.0
 RATE_LIMIT_RETRY_AFTER_RE = re.compile(
-    r"(?i)try again in\s*(\d+(?:\.\d+)?)\s*(s|ms|seconds?)"
+    r"(?i)(?:try again in|retry after)\s*(\d+(?:\.\d+)?)\s*(ms|seconds?|s)"
 )
 
 
@@ -599,8 +599,14 @@ class ResponsesModelClient:
                         )
                         if _is_context_length_error_message(error_body):
                             raise ContextLengthExceeded(message)
-                        if response.status_code >= 500:
-                            raise ResponsesRetryableError(message)
+                        if response.status_code >= 500 or response.status_code in (408, 429):
+                            raise ResponsesRetryableError(
+                                message,
+                                retry_delay_seconds=self._try_parse_retry_after_seconds(
+                                    "rate_limit_exceeded" if response.status_code == 429 else "",
+                                    error_body,
+                                ),
+                            )
                         raise ResponsesApiError(message)
                     if first_timeout is not None:
                         remaining = first_timeout - (monotonic() - diagnostics.started_at)

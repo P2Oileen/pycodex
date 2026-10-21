@@ -1316,6 +1316,12 @@ sampling-boundary steer behavior and Python 3.6 syntax requirement remain in pla
 
 ## Responses reliability
 
+Responses HTTP 408/429 and server errors use the provider retry budget.
+Rate-limit messages containing `try again in` or `retry after` supply the retry
+delay. CLI and workspace retry notices include the underlying error details;
+workspace notices survive browser refresh and active-turn reattachment, and
+remain separate from the assistant reply. They are not persisted in rollouts.
+
 Providers may configure a positive `stream_first_data_timeout_ms` to bound
 the initial wait for response body data, including waiting for headers. After
 body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
