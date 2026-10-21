@@ -243,6 +243,38 @@ async function clickedLinesDoNotReplayOnPollOrManualSelection() {
   assert.equal(state.tabs.displayMode, "preview");
 }
 
+async function modeToggleClearsLineTargetsAndOverridesPendingOpens() {
+  const state = fixture();
+  state.setViews(["a"]);
+  state.reveal("a", 1, {document: 0, line: 12});
+  await state.tabs.poll();
+  await state.tabs.open("a");
+  const snapshot = state.tabs.snapshot;
+  const requests = state.requests.length;
+  const selections = state.selections.length;
+  state.tabs.setDisplayMode("preview");
+  assert.equal(state.tabs.displayMode, "preview");
+  assert.equal(state.tabs.selection, null);
+  assert.equal(state.tabs.snapshot, snapshot);
+  assert.equal(state.requests.length, requests);
+  assert.equal(state.selections.length, selections);
+  await state.tabs.poll();
+  assert.equal(state.tabs.displayMode, "preview");
+  state.tabs.setDisplayMode("source");
+  assert.equal(state.tabs.selection, null);
+
+  const old = deferred();
+  state.pending.set("POST api/views/open", old);
+  const opening = state.tabs.open("a");
+  const signal = state.signals.get("POST api/views/open");
+  state.tabs.setDisplayMode("preview");
+  assert.equal(signal.aborted, true);
+  old.resolve({view: {id: "a", revision: 99}, views: [{id: "a"}]});
+  await opening;
+  assert.equal(state.tabs.snapshot, snapshot);
+  assert.equal(state.tabs.displayMode, "preview");
+}
+
 async function oldOpensCannotOverrideTheLatestIntent(action, fail) {
   const state = fixture("board");
   state.setViews(["a", "b"]);
@@ -681,6 +713,24 @@ async function markupLinksChoosePreviewOrSource(extension) {
   else assert.equal(state.content.querySelector(".snapshot-markdown").textContent, "a");
 }
 
+async function togglingMarkdownRestoresEachModesReadingPosition() {
+  const state = selectionFixture();
+  state.display.retain(["a"]);
+  const snapshot = state.snapshot("a", "a.md");
+  await state.display.show("a", snapshot, {document: 0, line: 12, revision: 1}, "source");
+  const editor = state.display.editor;
+  editor.reading = {document: 0, line: 30};
+  await state.display.show("a", snapshot, null, "preview");
+  assert.equal(editor.destroyed, true);
+  assert.equal(state.content.querySelector(".snapshot-markdown").textContent, "a");
+  state.content.scrollTop = 240;
+  await state.display.show("a", snapshot, null, "source");
+  assert.deepEqual(state.display.editor.saved, {document: 0, line: 30});
+  assert.equal(state.display.editor.reveals.length, 0);
+  await state.display.show("a", {...snapshot, revision: 2}, null, "preview");
+  assert.equal(state.content.scrollTop, 240);
+}
+
 async function htmlUpdatesReuseTheFrameAndSwitchingReleasesIt() {
   const state = selectionFixture();
   state.display.retain(["a", "b"]);
@@ -1029,6 +1079,7 @@ async function main() {
   await pollingNeverFollowsOtherClients();
   await revealingDuringRefreshKeepsVisibleContent();
   await clickedLinesDoNotReplayOnPollOrManualSelection();
+  await modeToggleClearsLineTargetsAndOverridesPendingOpens();
   for (const action of ["open", "select", "canvas", "close", "stop"]) {
     await oldOpensCannotOverrideTheLatestIntent(action, false);
     await oldOpensCannotOverrideTheLatestIntent(action, true);
@@ -1046,6 +1097,7 @@ async function main() {
   await liveEditorUpdatesReuseTheActiveInstance();
   await lineSelectionReusesEditorsWithoutReplayingDuringRefresh();
   await lineSelectionWaitsForTheRequestedContentRevision();
+  await togglingMarkdownRestoresEachModesReadingPosition();
   for (const extension of ["md", "markdown", "html", "htm", "HTML"]) {
     await markupLinksChoosePreviewOrSource(extension);
   }
