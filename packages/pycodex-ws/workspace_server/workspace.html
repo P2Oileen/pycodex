@@ -2866,8 +2866,8 @@
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const text = Composer.text(composer.parts()).trim();
-      if (!text && !stateForSession(activeSessionId).inputRequest) return;
+      const text = Composer.text(composer.parts());
+      if (!text.trim() && !stateForSession(activeSessionId).inputRequest) return;
       closeContextBlock();
       composer.set({parts: []});
       resizePrompt();
