@@ -1313,3 +1313,53 @@ turn id, including the parent turn id for automatic compaction.
 
 The existing compact templates, append-only checkpoint format, truncation limits,
 sampling-boundary steer behavior and Python 3.6 syntax requirement remain in place.
+
+## Responses reliability
+
+Configure an ordered `fallback_models` array in the selected provider table to
+enable automatic failover at the same endpoint:
+
+```toml
+[model_providers.example]
+base_url = "https://your-provider.example/v1"
+env_key = "PROVIDER_API_KEY"
+fallback_models = ["backup-one", "backup-two"]
+stream_max_retries = 1
+fallback_cooldown_seconds = 900
+```
+
+Transient errors exhaust the retry budget for each model before advancing.
+Unavailable-model errors and configured first-data timeouts advance immediately.
+Failed models enter a session-local cooldown; subsequent completions skip them
+until expiry. Zero disables cooldown, explicit model selection clears it, and
+if all models are cooling the next completion retries the full chain.
+Sessions and subagents have separate cooldowns. An absent or empty list disables
+failover; terminal input, context-length and incomplete errors are not masked.
+
+Failover retains the selected primary and conversation, while rebuilding
+model-dependent request settings for each target. The workspace displays the
+actual model, switch reason, elapsed time and primary retry time, and keeps
+per-turn switch notes across browser refresh. Routing notes remain in memory
+and are not restored after a service restart.
+
+Fallbacks should support the same tools and active context size as the primary.
+Automatic compaction continues to use the selected model's context policy;
+a fallback context-length error propagates through the existing context-error
+handling rather than silently choosing another model.
+
+Responses HTTP 408/429 and server errors use the provider retry budget.
+Rate-limit messages containing `try again in` or `retry after` supply the retry
+delay. CLI and workspace retry notices include the underlying error details;
+workspace notices survive browser refresh and active-turn reattachment, and
+remain separate from the assistant reply. They are not persisted in rollouts.
+
+Providers may configure a positive `stream_first_data_timeout_ms` to bound
+the initial wait for response body data, including waiting for headers. After
+body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
+preserves the existing timeout behavior. These are transport timeouts, not a
+total generation deadline.
+
+Each HTTP attempt emits `model_request_timing` with the model, elapsed seconds,
+first-data seconds and completed/failed outcome. Without the first-data option,
+the first-data measurement uses the first streamed line. Timing events are
+available through workspace event records, including compaction requests.
