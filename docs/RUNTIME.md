@@ -1313,3 +1313,11 @@ turn id, including the parent turn id for automatic compaction.
 
 The existing compact templates, append-only checkpoint format, truncation limits,
 sampling-boundary steer behavior and Python 3.6 syntax requirement remain in place.
+
+## Responses reliability
+
+Responses HTTP 408/429 and server errors use the provider retry budget.
+Rate-limit messages containing `try again in` or `retry after` supply the retry
+delay. CLI and workspace retry notices include the underlying error details;
+workspace notices survive browser refresh and active-turn reattachment, and
+remain separate from the assistant reply. They are not persisted in rollouts.

@@ -1,11 +1,5 @@
 # pycodex
 
-Responses HTTP 408/429 and server errors use the provider retry budget.
-Rate-limit messages containing `try again in` or `retry after` supply the retry
-delay. CLI and workspace retry notices include the underlying error details;
-workspace notices survive browser refresh and active-turn reattachment, and
-remain separate from the assistant reply. They are not persisted in rollouts.
-
 [中文](README_ZH.md)
 
 pycodex brings the [Codex](https://github.com/openai/codex) agent loop to Python,
@@ -177,3 +171,11 @@ uv run --dev pytest
 - [Responses compatibility server](docs/responses_server/README.md)
 
 Release notes and implementation details live in `docs/`.
+
+## Responses reliability
+
+Responses HTTP 408/429 and server errors use the provider retry budget.
+Rate-limit messages containing `try again in` or `retry after` supply the retry
+delay. CLI and workspace retry notices include the underlying error details;
+workspace notices survive browser refresh and active-turn reattachment, and
+remain separate from the assistant reply. They are not persisted in rollouts.
