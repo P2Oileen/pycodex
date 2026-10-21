@@ -1531,6 +1531,16 @@ error must explicitly set it to 0 (see [test guidance](../tests/TESTS.md#provide
 Provider `use_chat_completion = true` persistently enables the local compat
 transport; an explicit CLI `--use-chat-completion` still overrides that setting.
 
+The selected provider's `stream_max_retries` accepts `-1` for unlimited
+retries, `0` for no retries, and positive integers for a finite retry budget.
+The default remains five. Unlimited mode uses the same bounded exponential
+backoff and provider retry-after delays as finite mode; retry events carry
+`max_retries = -1` and display the limit as `∞`. Terminal errors retain their
+normal handling. With failover configured, ordinary transient errors keep the
+current target indefinitely; unavailable models and first-data timeouts still
+advance to the next target. Graceful shutdown continues to wait for accepted
+work, including an indefinitely retrying request.
+
 Do not add a model-level `model_max_output_tokens` config or
 `max_output_tokens` request field for upstream parity: upstream does not send
 that model limit. The similarly named tool-output limits are separate.

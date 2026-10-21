@@ -213,6 +213,8 @@ class ResponsesProviderConfig:
     def effective_stream_max_retries(self) -> "int":
         if self.stream_max_retries is None:
             return DEFAULT_STREAM_MAX_RETRIES
+        if self.stream_max_retries == -1:
+            return -1
         return max(int(self.stream_max_retries), 0)
 
     def effective_stream_idle_timeout_seconds(self) -> "float":
@@ -566,7 +568,7 @@ class ResponsesModelClient:
                     if (
                         isinstance(exc, ResponsesModelUnavailableError)
                         or (isinstance(exc, ResponsesFirstDataTimeout) and len(models) > 1)
-                        or retries >= max_retries
+                        or (max_retries >= 0 and retries >= max_retries)
                     ):
                         cooldown = self._config.fallback_cooldown_seconds
                         if len(models) > 1 and cooldown > 0:
@@ -594,7 +596,7 @@ class ResponsesModelClient:
                         delay_seconds = self._retry_delay_seconds(retries)
                     event_handler(
                         StreamErrorEvent(
-                            f"Reconnecting... {retries}/{max_retries}",
+                            f"Reconnecting... {retries}/{max_retries if max_retries >= 0 else '∞'}",
                             retries,
                             max_retries,
                             delay_seconds,

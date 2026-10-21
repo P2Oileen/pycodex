@@ -217,6 +217,15 @@ An absent or empty list disables failover. Invalid input, context-length and
 terminal incomplete errors retain their existing handling. Backups must support
 the active tools and context size; compaction keeps the selected model's policy.
 
+Set `stream_max_retries = -1` in the selected `[model_providers.<name>]`
+table to retry transient model request failures indefinitely. Omitting the
+option keeps the default of five retries; `0` disables retries and positive
+values set a finite budget. Unlimited retries preserve exponential backoff
+and provider retry-after delays, and display `Reconnecting... <attempt>/∞`.
+Terminal input, context-length and incomplete-response errors still propagate.
+With failover configured, unlimited transient retries keep the current target;
+unavailable models and first-data timeouts still advance immediately.
+
 Responses HTTP 408/429 and server errors use the provider retry budget.
 Rate-limit messages containing `try again in` or `retry after` supply the retry
 delay. CLI and workspace retry notices include the underlying error details;
