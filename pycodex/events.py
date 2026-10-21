@@ -272,6 +272,30 @@ class TokenCountEvent(ModelEvent):
 
 
 @dataclass(frozen=True)
+class ModelRequestStartedEvent(ModelEvent):
+    model: "str"
+    selected_model: "str"
+    previous_model: "typing.Union[str, None]" = None
+    turn_id: "str" = ""
+    submission_id: "typing.Union[str, None]" = None
+    fallback_cooldown_until: "typing.Union[float, None]" = None
+    fallback_reason: "typing.Union[str, None]" = None
+    failed_after_seconds: "typing.Union[float, None]" = None
+    cooldown_reset: "bool" = False
+    kind: ClassVar[str] = "model_request_started"
+
+    def visualize(self) -> "str":
+        if self.previous_model is None:
+            return ""
+        text = "Fallback: {0} → {1}".format(self.previous_model, self.model)
+        if self.fallback_reason:
+            text += " · " + self.fallback_reason
+        if self.failed_after_seconds is not None:
+            text += " · failed after {:.1f}s".format(self.failed_after_seconds)
+        return text
+
+
+@dataclass(frozen=True)
 class ModelRequestTimingEvent(ModelEvent):
     model: "str"
     elapsed_seconds: "float"

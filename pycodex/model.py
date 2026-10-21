@@ -8,7 +8,7 @@ import urllib.parse
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 from typing import Callable
 
 import requests
@@ -24,6 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 path
 from .events import (
     AssistantDeltaEvent,
     ModelEvent,
+    ModelRequestStartedEvent,
     ModelRequestTimingEvent,
     StreamErrorEvent,
     TokenCountEvent,
@@ -100,9 +101,14 @@ class ResponsesProviderConfig:
     stream_idle_timeout_ms: "typing.Union[int, None]" = None
     service_tier: "typing.Union[str, None]" = None
     responses_lite_override: "typing.Union[bool, None]" = None
+    fallback_models: "typing.Tuple[str, ...]" = ()
+    fallback_cooldown_seconds: "int" = 900
     stream_first_data_timeout_ms: "typing.Union[int, None]" = None
 
     def __post_init__(self):
+        cooldown = self.fallback_cooldown_seconds
+        if isinstance(cooldown, bool) or not isinstance(cooldown, int) or cooldown < 0:
+            raise ValueError("fallback_cooldown_seconds must be a non-negative integer")
         value = self.stream_first_data_timeout_ms
         if value is not None and (
             isinstance(value, bool) or not isinstance(value, int) or value <= 0
@@ -153,6 +159,12 @@ class ResponsesProviderConfig:
             use_chat_completion = _optional_bool(provider.get("use_chat_completion"))
         if use_chat_completion is None:
             use_chat_completion = False
+        fallback_models = provider.get("fallback_models", [])
+        if not isinstance(fallback_models, list) or any(
+            not isinstance(model, str) or not model or any(c.isspace() for c in model)
+            for model in fallback_models
+        ):
+            raise ValueError("fallback_models must be an array of non-empty model IDs")
         return cls(
             model=selected["model"],
             provider_name=provider_name,
@@ -171,6 +183,8 @@ class ResponsesProviderConfig:
             stream_idle_timeout_ms=_optional_int(
                 provider.get("stream_idle_timeout_ms")
             ),
+            fallback_models=tuple(dict.fromkeys(fallback_models)),
+            fallback_cooldown_seconds=provider.get("fallback_cooldown_seconds", 900),
             stream_first_data_timeout_ms=provider.get("stream_first_data_timeout_ms"),
         )
 
@@ -373,6 +387,10 @@ class ResponsesRetryableError(ResponsesApiError):
         self.retry_delay_seconds = retry_delay_seconds
 
 
+class ResponsesModelUnavailableError(ResponsesApiError):
+    """The selected model cannot serve this request; another model may work."""
+
+
 class ResponsesFirstDataTimeout(ResponsesRetryableError):
     """The configured wait for initial response data has expired."""
 
@@ -412,6 +430,7 @@ class ResponsesModelClient:
         self._originator = originator
         self._user_agent = user_agent or build_user_agent(originator)
         self._openai_subagent = openai_subagent
+        self._model_cooldowns: "typing.Dict[str, float]" = {}
 
     @property
     def model(self) -> "str":
@@ -420,6 +439,7 @@ class ResponsesModelClient:
     @model.setter
     def model(self, model: "str") -> "None":
         self._config = replace(self._config, model=model)
+        self._model_cooldowns.clear()
 
     @property
     def reasoning_effort(self) -> "typing.Union[str, None]":
@@ -504,6 +524,28 @@ class ResponsesModelClient:
     ) -> "ModelResponse":
         retries = 0
         max_retries = self._config.effective_stream_max_retries()
+        models = tuple(dict.fromkeys((self.model,) + self._config.fallback_models))
+        now = monotonic()
+        self._model_cooldowns = {
+            model: deadline
+            for model, deadline in self._model_cooldowns.items()
+            if model in models and deadline > now
+        }
+        available_models = [
+            model for model in models if model not in self._model_cooldowns
+        ]
+        cooldown_reset = False
+        if not available_models:
+            self._model_cooldowns.clear()
+            available_models = list(models)
+            cooldown_reset = True
+        fallback_models = iter(available_models)
+        first_model = next(fallback_models)
+        request_client = (
+            self
+            if first_model == self.model
+            else self.with_overrides(model=first_model)
+        )
         loop = asyncio.get_running_loop()
         active = True
         callback_lock = threading.Lock()
@@ -517,17 +559,68 @@ class ResponsesModelClient:
                 if active:
                     loop.call_soon_threadsafe(deliver, event)
 
+        def notify_model(
+            previous_model=None,
+            fallback_reason=None,
+            failed_after_seconds=None,
+        ):
+            if not self._config.fallback_models:
+                return
+            primary_retry_at = self._model_cooldowns.get(self.model)
+            cooldown_until = None
+            if request_client.model != self.model and primary_retry_at is not None:
+                cooldown_until = time() + max(0.0, primary_retry_at - monotonic())
+            event_handler(
+                ModelRequestStartedEvent(
+                    request_client.model,
+                    self.model,
+                    previous_model,
+                    fallback_cooldown_until=cooldown_until,
+                    fallback_reason=fallback_reason,
+                    failed_after_seconds=failed_after_seconds,
+                    cooldown_reset=cooldown_reset and previous_model is None,
+                )
+            )
+
         try:
+            notify_model()
             while True:
                 try:
-                    return await asyncio.to_thread(
-                        self._complete_sync,
-                        prompt,
-                        receive,
-                    )
-                except ResponsesRetryableError as exc:
-                    if retries >= max_retries:
-                        raise
+                    response = await asyncio.to_thread(request_client._complete_sync, prompt, receive)
+                    self._model_cooldowns.pop(request_client.model, None)
+                    return response
+                except (ResponsesRetryableError, ResponsesModelUnavailableError) as exc:
+                    if (
+                        isinstance(exc, ResponsesModelUnavailableError)
+                        or (isinstance(exc, ResponsesFirstDataTimeout) and len(models) > 1)
+                        or retries >= max_retries
+                    ):
+                        cooldown = self._config.fallback_cooldown_seconds
+                        if len(models) > 1 and cooldown > 0:
+                            self._model_cooldowns[request_client.model] = (
+                                monotonic() + cooldown
+                            )
+                        fallback_model = next(fallback_models, None)
+                        if fallback_model is None:
+                            raise
+                        event_handler(
+                            StreamErrorEvent(
+                                f"Falling back: {request_client.model} -> {fallback_model}",
+                                0,
+                                max_retries,
+                                0.0,
+                                str(exc),
+                            )
+                        )
+                        previous_model = request_client.model
+                        request_client = self.with_overrides(model=fallback_model)
+                        notify_model(
+                            previous_model,
+                            _summarize_model_error(exc),
+                            getattr(exc, "elapsed_seconds", None),
+                        )
+                        retries = 0
+                        continue
                     retries += 1
                     delay_seconds = exc.retry_delay_seconds
                     if delay_seconds is None:
@@ -607,6 +700,8 @@ class ResponsesModelClient:
                                     error_body,
                                 ),
                             )
+                        if response.status_code in (403, 404):
+                            raise ResponsesModelUnavailableError(message)
                         raise ResponsesApiError(message)
                     if first_timeout is not None:
                         remaining = first_timeout - (monotonic() - diagnostics.started_at)
@@ -1183,6 +1278,8 @@ class ResponsesModelClient:
             raise ContextLengthExceeded(
                 self._format_response_failed_error(message, code)
             )
+        if code in {"model_not_found", "model_not_available", "permission_denied"}:
+            raise ResponsesModelUnavailableError(self._format_response_failed_error(message, code))
         if code in {
             "insufficient_quota",
             "invalid_prompt",
@@ -1282,6 +1379,32 @@ class ResponsesModelClient:
         if unit == "ms":
             return value / 1000.0
         return value
+
+
+def _summarize_model_error(exc):
+    text = str(exc)
+    lower = text.lower()
+    if isinstance(exc, ResponsesFirstDataTimeout) or (
+        "readtimeout" in lower and "first_data_seconds: none" in lower
+    ):
+        return "no response data before timeout"
+    if "rate_limit_exceeded" in lower or "capacity limit" in lower:
+        retry = re.search(r"retry after\s+([0-9.]+\s*seconds?)", text, re.IGNORECASE)
+        quota = re.search(
+            r"reached:\s*([0-9,]+\s+tokens per\s+[0-9]+\s+seconds?)",
+            text,
+            re.IGNORECASE,
+        )
+        details = []
+        if quota:
+            details.append(quota.group(1))
+        if retry:
+            details.append("retry after " + retry.group(1))
+        return "rate limited" + (": " + "; ".join(details) if details else "")
+    status = re.search(r"status\s+(\d+)", text, re.IGNORECASE)
+    if status:
+        return "HTTP " + status.group(1)
+    return type(exc).__name__
 
 
 def _set_response_read_timeout(response, seconds):

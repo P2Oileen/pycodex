@@ -430,6 +430,13 @@ class WorkspaceSessionManager:
                         final_id and final_id != self._read_final_ids.get(session_id)
                     ),
                     "spinner": summary.get("spinner") or "",
+                    "model": summary.get("model") or "",
+                    "selected_model": summary.get("selected_model") or "",
+                    "active_model": summary.get("active_model") or "",
+                    "fallback_from_model": summary.get("fallback_from_model"),
+                    "fallback_cooldown_until": summary.get("fallback_cooldown_until"),
+                    "fallback_reason": summary.get("fallback_reason"),
+
                     "turn_count": summary.get("turn_count") or 0,
                     "last_assistant": summary.get("last_assistant") or "",
                     "context_remaining_percent": summary.get(
@@ -601,6 +608,13 @@ def session_summary(session) -> "typing.Dict[str, object]":
     snapshot = session_snapshot(session)
     return {
         "title": snapshot.get("title") or "",
+        "model": snapshot.get("model") or "",
+        "selected_model": snapshot.get("selected_model") or "",
+        "active_model": snapshot.get("active_model") or "",
+        "fallback_from_model": snapshot.get("fallback_from_model"),
+        "fallback_cooldown_until": snapshot.get("fallback_cooldown_until"),
+        "fallback_reason": snapshot.get("fallback_reason"),
+
         "running": bool(snapshot.get("running")),
         "last_final_id": snapshot.get("last_final_id") or "",
         "spinner": snapshot.get("spinner") or "",

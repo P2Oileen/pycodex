@@ -14,6 +14,7 @@ from .events import (
     InputQueuedEvent,
     InputRequestedEvent,
     InputResolvedEvent,
+    ModelRequestStartedEvent,
     SessionClosedEvent,
     SessionStateEvent,
     StreamErrorEvent,
@@ -92,6 +93,10 @@ class AgentRuntime:
         self._input_request = None
         self._background_work_count = 0
         self._active_turn = None
+        self._active_model = agent.model_name
+        self._fallback_from_model = None
+        self._fallback_cooldown_until = None
+        self._fallback_reason = None
         self._recorded_rollout_path = agent.recorded_session_file_path
         environment = agent.tool_registry.runtime_environment
         environment.request_user_input_manager.set_handler(self._request_user_input)
@@ -150,6 +155,11 @@ class AgentRuntime:
                 getattr(self.agent.model_client, "reasoning_effort", None) or "default",
             ),
             "title": self.title,
+            "selected_model": self.agent.model_name,
+            "active_model": self._active_model,
+            "fallback_from_model": self._fallback_from_model,
+            "fallback_cooldown_until": self._fallback_cooldown_until,
+            "fallback_reason": self._fallback_reason,
             "history": conversation_history_to_turns(self.agent.history),
             "busy": self.is_busy,
             "closed": self.agent.is_shutdown,
@@ -187,6 +197,10 @@ class AgentRuntime:
     def set_model(self, model):
         self.require_idle("change model")
         self.agent.set_model(model)
+        self._active_model = self.agent.model_name
+        self._fallback_from_model = None
+        self._fallback_cooldown_until = None
+        self._fallback_reason = None
         self.publish_state("model")
 
     def set_cwd(self, cwd):
@@ -199,6 +213,10 @@ class AgentRuntime:
         resumed = self.agent.resume(path)
         if resumed is not None:
             self.title = title or str(resumed["title"])
+            self._active_model = self.agent.model_name
+            self._fallback_from_model = None
+            self._fallback_cooldown_until = None
+            self._fallback_reason = None
         self.publish_state("history" if path is not None else "admission")
         return resumed
 
@@ -605,6 +623,7 @@ class AgentRuntime:
                 "assistant_text": "",
                 "completed_history": conversation_history_to_turns(self.agent.history),
                 "model_errors": [],
+                "model_fallbacks": [],
             }
         elif self._active_turn is not None:
             if isinstance(event, AssistantDeltaEvent):
@@ -622,6 +641,18 @@ class AgentRuntime:
                 event, (TurnCompletedEvent, TurnFailedEvent, TurnInterruptedEvent)
             ):
                 self._active_turn = None
+        if isinstance(event, ModelRequestStartedEvent):
+            same_model = self._active_model == event.model
+            self._active_model = event.model
+            self._fallback_from_model = event.previous_model or (
+                event.selected_model if event.model != event.selected_model else None
+            )
+            self._fallback_cooldown_until = event.fallback_cooldown_until
+            self._fallback_reason = event.fallback_reason or (
+                self._fallback_reason if same_model and event.model != event.selected_model else None
+            )
+            if self._active_turn is not None and event.previous_model is not None:
+                self._active_turn["model_fallbacks"].append(event.visualize())
         if isinstance(event, TurnStartedEvent) and not self.title:
             prompt = "\n".join(event.user_texts)
             if prompt:

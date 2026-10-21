@@ -52,6 +52,7 @@ from pycodex.events import (
     InputQueuedEvent,
     InputRequestedEvent,
     InputResolvedEvent,
+    ModelRequestStartedEvent,
     SessionClosedEvent,
     SessionStateEvent,
     StreamErrorEvent,
@@ -209,6 +210,11 @@ class WebSessionView:
         self._title = ""
         self._last_final_id = ""
         self._model = "pycodex"
+        self._selected_model = ""
+        self._active_model = ""
+        self._fallback_from_model = None
+        self._fallback_cooldown_until = None
+        self._fallback_reason = None
         self._cwd = ""
         self._rollout_path = ""
         self._recorded_rollout_path = ""
@@ -335,6 +341,11 @@ class WebSessionView:
                 "status_kind": "spinner" if self._spinner_status else "idle",
                 "spinner": self._spinner_status,
                 "model": self._model,
+                "selected_model": self._selected_model,
+                "active_model": self._active_model,
+                "fallback_from_model": self._fallback_from_model,
+                "fallback_cooldown_until": self._fallback_cooldown_until,
+                "fallback_reason": self._fallback_reason,
                 "cwd": self._cwd,
                 "rollout_path": self._rollout_path,
                 "recorded_rollout_path": self._recorded_rollout_path,
@@ -354,6 +365,11 @@ class WebSessionView:
         with self._lock:
             return {
                 "model": self._model,
+                "selected_model": self._selected_model,
+                "active_model": self._active_model,
+                "fallback_from_model": self._fallback_from_model,
+                "fallback_cooldown_until": self._fallback_cooldown_until,
+                "fallback_reason": self._fallback_reason,
                 "cwd": self._cwd,
                 "running": bool(self._spinner_status),
                 "last_final_id": self._last_final_id,
@@ -400,10 +416,18 @@ class WebSessionView:
                     self._turns_by_turn_id[active["turn_id"]]["model_errors"] = list(
                         active.get("model_errors", [])
                     )
+                    self._turns_by_turn_id[active["turn_id"]]["model_fallbacks"] = list(
+                        active.get("model_fallbacks", [])
+                    )
             elif event.reason == "title":
                 self.set_session_title(state["title"])
             else:
                 self._set_title(state["title"])
+            self._selected_model = state.get("selected_model", state["model"])
+            self._active_model = state.get("active_model", self._selected_model)
+            self._fallback_from_model = state.get("fallback_from_model")
+            self._fallback_cooldown_until = state.get("fallback_cooldown_until")
+            self._fallback_reason = state.get("fallback_reason")
             return
         if isinstance(event, CommandCompletedEvent):
             if event.result["kind"] in {"title_changed", "resumed", "compacted"}:
@@ -433,6 +457,21 @@ class WebSessionView:
             return
         if isinstance(event, TokenCountEvent):
             self._usage_tokens = int(event.usage["total_tokens"])
+            return
+        if isinstance(event, ModelRequestStartedEvent):
+            same_model = self._active_model == event.model
+            self._selected_model = event.selected_model
+            self._active_model = event.model
+            self._fallback_from_model = event.previous_model or (
+                event.selected_model if event.model != event.selected_model else None
+            )
+            self._fallback_cooldown_until = event.fallback_cooldown_until
+            self._fallback_reason = event.fallback_reason or (
+                self._fallback_reason if same_model and event.model != event.selected_model else None
+            )
+            turn = self._turns_by_submission_id.get(event.submission_id or event.turn_id)
+            if turn is not None and event.previous_model is not None:
+                turn.setdefault("model_fallbacks", []).append(event.visualize())
             return
         if isinstance(event, (AutoCompactCompletedEvent, CompactCompletedEvent)):
             self._usage_tokens = None
@@ -1823,6 +1862,7 @@ def _public_turn(turn: "typing.Dict[str, object]") -> "typing.Dict[str, object]"
                 "sender": turn.get("sender", ""),
                 "kind": turn.get("kind", "assistant"),
                 "model_errors": turn.get("model_errors", []),
+                "model_fallbacks": turn.get("model_fallbacks", []),
             }
         ),
     )

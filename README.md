@@ -1,5 +1,36 @@
 # pycodex
 
+Configure an ordered `fallback_models` array in the selected provider table to
+enable automatic failover at the same endpoint:
+
+```toml
+[model_providers.example]
+base_url = "https://your-provider.example/v1"
+env_key = "PROVIDER_API_KEY"
+fallback_models = ["backup-one", "backup-two"]
+stream_max_retries = 1
+fallback_cooldown_seconds = 900
+```
+
+Transient errors exhaust the retry budget for each model before advancing.
+Unavailable-model errors and configured first-data timeouts advance immediately.
+Failed models enter a session-local cooldown; subsequent completions skip them
+until expiry. Zero disables cooldown, explicit model selection clears it, and
+if all models are cooling the next completion retries the full chain.
+Sessions and subagents have separate cooldowns. An absent or empty list disables
+failover; terminal input, context-length and incomplete errors are not masked.
+
+Failover retains the selected primary and conversation, while rebuilding
+model-dependent request settings for each target. The workspace displays the
+actual model, switch reason, elapsed time and primary retry time, and keeps
+per-turn switch notes across browser refresh. Routing notes remain in memory
+and are not restored after a service restart.
+
+Fallbacks should support the same tools and active context size as the primary.
+Automatic compaction continues to use the selected model's context policy;
+a fallback context-length error propagates through the existing context-error
+handling rather than silently choosing another model.
+
 Responses HTTP 408/429 and server errors use the provider retry budget.
 Rate-limit messages containing `try again in` or `retry after` supply the retry
 delay. CLI and workspace retry notices include the underlying error details;
