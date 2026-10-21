@@ -82,6 +82,11 @@ pycodex --json "Reply with exactly OK."
 | `/queue <message>` | Wait for the active turn to finish before submitting |
 
 Ordinary input during a turn steers at the next safe sampling boundary.
+Slash input uses Codex's command rules: `/data/project` and `/tmp/` are
+ordinary messages, while an unknown single-component name such as `/modle`
+or `/tmp` reports a command error. Start the input with a space to send any
+slash-prefixed text literally, including known commands such as ` /model`.
+These rules also apply to the browser workspace and Feishu.
 Sessions are saved under `CODEX_HOME/sessions`. Set
 `model_auto_compact_token_limit` in the configuration to compact automatically.
 
@@ -179,3 +184,10 @@ Rate-limit messages containing `try again in` or `retry after` supply the retry
 delay. CLI and workspace retry notices include the underlying error details;
 workspace notices survive browser refresh and active-turn reattachment, and
 remain separate from the assistant reply. They are not persisted in rollouts.
+
+## Workspace input history
+
+The workspace message box supports Up/Down input history. Up recalls earlier
+human inputs in the current conversation; Down returns to the unsent draft.
+Automatic wake-up messages are excluded, and arrows retain normal cursor
+movement inside multiline drafts.

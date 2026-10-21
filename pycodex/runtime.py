@@ -240,8 +240,18 @@ class AgentRuntime:
     async def submit_input(self, text, sender="user"):
         if not self.agent.accepts_input:
             raise RuntimeError("agent is shutting down")
+        input_starts_with_space = text.startswith(" ")
         text = text.strip()
-        if self._input_request is not None and not text.startswith("/"):
+        command = text.split(None, 1)[0] if text else ""
+        # Codex treats another slash in the name as a path and a leading
+        # ASCII space as an escape, even for a registered command.
+        is_command = (
+            command.startswith("/")
+            and not input_starts_with_space
+            and "/" not in command[1:]
+            and len(command) > 1
+        )
+        if self._input_request is not None and not is_command:
             self._answer_input(text)
             future = asyncio.get_running_loop().create_future()
             future.set_result(None)
@@ -251,14 +261,13 @@ class AgentRuntime:
             future.set_result(None)
             return SubmittedInput(uuid7_string(), "empty", future)
         parts = text.split(None, 1)
-        command = parts[0]
         argument = parts[1] if len(parts) == 2 else ""
+        if not is_command:
+            return await self._submit_message(text, "steer", sender, False)
         if command == "/queue":
             if not argument.strip():
                 raise ValueError("Usage: /queue <message>")
             return await self._submit_message(argument.strip(), "enqueue", sender, True)
-        if not command.startswith("/"):
-            return await self._submit_message(text, "steer", sender, False)
         submission_id = uuid7_string()
         future = asyncio.get_running_loop().create_future()
         try:
