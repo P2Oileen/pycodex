@@ -686,12 +686,6 @@
       color: var(--muted);
       font-size: 12px;
     }
-    .entry.model-fallback {
-      border-left: 2px solid #c98100;
-      padding: 2px 0 2px 10px;
-      color: #8a4e00;
-      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }
     .entry.model-error {
       border-left: 2px solid #c98100;
       padding: 8px 10px;
@@ -869,21 +863,6 @@
       display: flex;
       align-items: center;
       gap: 10px;
-    }
-    .model-indicator {
-      margin: 8px 10px 4px;
-      color: var(--muted);
-      font-size: 11px;
-      line-height: 1.4;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .model-indicator:empty { display: none; }
-    .model-indicator.fallback {
-      color: #a15c00;
-      white-space: normal;
-      overflow-wrap: anywhere;
     }
     .queue-hint {
       display: flex;
@@ -1312,7 +1291,6 @@
           <a>Re-enable customizations</a>
         </p>
         <div class="composer-surface">
-          <div id="modelIndicator" class="model-indicator" aria-live="polite"></div>
           <div class="spinner-wrap">
             <div id="toast" class="toast" role="status" aria-live="polite"></div>
             <div id="queueHint" class="queue-hint" role="status" aria-live="polite" hidden>
@@ -1454,7 +1432,6 @@
     const enqueueHint = document.getElementById("enqueueHint");
     const toast = document.getElementById("toast");
     const prompt = document.getElementById("prompt");
-    const modelIndicator = document.getElementById("modelIndicator");
     const form = document.getElementById("composer");
     const contextBlockDetail = document.getElementById("contextBlockDetail");
     const contextBlockLabel = document.getElementById("contextBlockLabel");
@@ -2311,36 +2288,6 @@
       const label = session && session.model ? `Message to ${session.model}` : "Message";
       prompt.dataset.placeholder = `${label}…`;
       prompt.setAttribute("aria-label", label);
-      const selected = session && session.selected_model;
-      const active = session && session.active_model;
-      const fallbackFrom = session && session.fallback_from_model;
-      const cooldownUntil = session && session.fallback_cooldown_until;
-      const fallbackReason = session && session.fallback_reason;
-      if (!active) {
-        modelIndicator.textContent = "";
-        modelIndicator.title = "";
-        modelIndicator.classList.remove("fallback");
-      } else if (fallbackFrom) {
-        modelIndicator.textContent = `Model ${active} · Fallback from ${fallbackFrom}`;
-        if (fallbackReason) modelIndicator.textContent += ` · ${fallbackReason}`;
-        if (cooldownUntil) {
-          const retryAt = new Date(cooldownUntil * 1000);
-          const retryTime = retryAt.toLocaleTimeString([], {
-            hour: "2-digit", minute: "2-digit", second: "2-digit",
-          });
-          modelIndicator.textContent += retryAt.getTime() > Date.now()
-            ? ` · Primary cooling down until ${retryTime}`
-            : " · Primary retry on next request";
-        }
-        modelIndicator.title = modelIndicator.textContent;
-        modelIndicator.classList.add("fallback");
-      } else {
-        modelIndicator.textContent = `Model ${active}`;
-        modelIndicator.title = selected && active !== selected
-          ? `Last request used ${active}; selected model is ${selected}`
-          : modelIndicator.textContent;
-        modelIndicator.classList.remove("fallback");
-      }
     }
 
     function updateSessionDirectory(snapshot = null) {
@@ -2434,7 +2381,6 @@
           item.error || "",
           item.kind || "",
           item.model_errors || [],
-          item.model_fallbacks || [],
         ]),
         snapshot.input_request || null,
       ]);
@@ -2665,11 +2611,6 @@
       if (Array.isArray(turn.model_errors)) {
         turn.model_errors.forEach((message, index) => {
           renderEntry(`${key}:model-error:${index}`, message, "model-error");
-        });
-      }
-      if (Array.isArray(turn.model_fallbacks)) {
-        turn.model_fallbacks.forEach((message, index) => {
-          renderEntry(`${key}:fallback:${index}`, message, "model-fallback");
         });
       }
       if (turn.error) {
