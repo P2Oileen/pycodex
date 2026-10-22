@@ -96,6 +96,7 @@ class AgentRuntime:
         self._command_lock = None
         self._input_request = None
         self._background_work_count = 0
+        self._published_tool_states = agent.tool_states()
         self._active_turn = None
         self._recorded_rollout_path = agent.recorded_session_file_path
         environment = agent.tool_registry.runtime_environment
@@ -760,7 +761,10 @@ class AgentRuntime:
         if isinstance(event, TerminalEvent) and event.background_work_count is not None:
             self._background_work_count = event.background_work_count
         if isinstance(event, TerminalEvent):
-            self.publish_state("tools")
+            states = self.agent.tool_states()
+            if states != self._published_tool_states:
+                self._published_tool_states = states
+                self.publish_state("tools")
         if self.agent.recorded_session_file_path != self._recorded_rollout_path:
             self.publish_state("recording")
         self._publish(event)
