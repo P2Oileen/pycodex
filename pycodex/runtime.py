@@ -165,6 +165,7 @@ class AgentRuntime:
             ),
             "title": self.title,
             "history": conversation_history_to_turns(self.agent.history),
+            "tool_states": self.agent.tool_states(),
             "busy": self.is_busy,
             "closed": self.agent.is_shutdown,
             "accepts_input": self.agent.accepts_input,
@@ -276,6 +277,10 @@ class AgentRuntime:
         self.require_idle("resume")
         resumed = self.agent.resume(path)
         if resumed is not None:
+            self._background_work_count = sum(
+                tool.background_work_count(True)
+                for tool in self.agent.tool_registry.tools()
+            )
             self.title = title or str(resumed["title"])
         self.publish_state("history" if path is not None else "admission")
         return resumed
@@ -293,6 +298,8 @@ class AgentRuntime:
                 raise RuntimeError("resume the agent before restarting its runtime")
             self.agent.accepts_input = True
             self._worker = asyncio.create_task(self._run_forever())
+            for tool in self.agent.tool_registry.tools():
+                tool.start_background_work()
         return self
 
     def _get_command_lock(self):
@@ -752,6 +759,8 @@ class AgentRuntime:
                 self.publish_state("auto_title")
         if isinstance(event, TerminalEvent) and event.background_work_count is not None:
             self._background_work_count = event.background_work_count
+        if isinstance(event, TerminalEvent):
+            self.publish_state("tools")
         if self.agent.recorded_session_file_path != self._recorded_rollout_path:
             self.publish_state("recording")
         self._publish(event)
