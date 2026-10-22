@@ -4,6 +4,10 @@
 
 ## 按包运行
 
+测试客户端 `ScriptedModelClient` 只放在 `tests/fakes.py`，不进入运行时包。
+core 及测试收集/import 时执行的共享辅助代码必须能由 Python 3.6.2 解析；
+运行时不会进入的分支也不能含 walrus、`match` 等新语法。
+
 - `tests/` 覆盖 core：Agent、Runtime、CLI、工具、Responses compat 和整套
   portable，支持 Python 3.6.2+。
 - `packages/pycodex-ws/tests/` 覆盖 Web、飞书及跨前端集成，
@@ -33,6 +37,13 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
 依赖组中，不是 core 的运行时依赖。`dev` 包含 `test`、workspace 和开发工具，
 保留 `uv sync --dev` 一次安装两包的方式。pytest 默认收集这两个测试目录。
 两组都不自动安装可选的 `lark-oapi`，飞书 SDK 行为通过 fake 验证。
+
+飞书卡片生产路径会读取 `~/.codex/.feishu_refresh_token`。上述 workspace
+fixture 会隔离 HOME；脱离这组 fixture 的测试必须自行隔离 HOME。相关回归：
+
+```bash
+env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests/test_feishu_card.py packages/pycodex-ws/tests/test_feishu_link.py
+```
 
 ## CI 环境
 
@@ -105,6 +116,9 @@ env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=.tmp/core-tests uv run --group test py
 
 ### Provider 配置
 
+- `ResponsesModelClient` 默认 `stream_max_retries = 5`。CLI/REPL 测试若要求
+  “先报错，再由下一句 `go on` 继续”，fixture 的 provider 配置必须设
+  `stream_max_retries = 0`，否则自动重试会延后预期错误并使交互测试等待。
 - `test_model.py` 覆盖省略 `model_provider` / provider 表时默认使用内置
   `openai`、显式选择内置 provider、profile 选择及 `openai_base_url` 覆盖、
   保留显式 provider 表语义，以及未知 provider 的明确错误。

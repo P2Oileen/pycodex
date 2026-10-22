@@ -160,9 +160,11 @@ uv run --dev pytest
 ```
 
 - [测试环境与覆盖范围](tests/TESTS.md)
+- [仓库开发约定与阅读导航](AGENTS.md)
 - [架构、包布局与运行时契约](docs/RUNTIME.md)
 - [提示、配置与上下文](docs/CONTEXT.md)
 - [上游对齐](docs/ALIGNMENT.md)
 - [Responses 兼容服务](docs/responses_server/README.md)
+- [Portable 配置契约](docs/PORTABLE.md)
 
 发布记录和实现细节放在 `docs/`。

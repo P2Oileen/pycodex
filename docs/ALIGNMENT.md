@@ -727,7 +727,11 @@ The remaining explicit alignment work is:
 
 ## Steer semantics
 
-当前 upstream Codex 的 steer 行为需要和显式 queue 区分开看：
+以下上游源码定位保留历史审计记录，本节已记录的 fake/proxy 实测版本为
+`codex-cli 0.115.0`。后续本地架构调整与历史抓包分别说明；文档整理不构成
+对当前上游版本的重新验证。
+
+该基线中的 upstream Codex steer 行为需要和显式 queue 区分开看：
 
 - TUI 层语义：
   - 开启 steer 后，`Enter` 是 `Submitted`，`Tab` 才是 `Queued`

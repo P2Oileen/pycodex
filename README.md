@@ -170,10 +170,12 @@ uv run --dev pytest
 ```
 
 - [Test environments and coverage](tests/TESTS.md)
+- [Repository development rules and reading guide](AGENTS.md)
 - [Architecture, package layout and runtime contracts](docs/RUNTIME.md)
 - [Prompts, configuration and context](docs/CONTEXT.md)
 - [Upstream alignment](docs/ALIGNMENT.md)
 - [Responses compatibility server](docs/responses_server/README.md)
+- [Portable configuration contracts](docs/PORTABLE.md)
 
 Release notes and implementation details live in `docs/`.
 

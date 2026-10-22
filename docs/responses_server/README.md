@@ -5,6 +5,11 @@
 它和现有 `pycodex/` runtime 保持隔离，目标是建模一个面向 Codex 的本地
 `/v1/responses` 服务，再把请求翻译到 outcomming backend。
 
+请求中的 `model` 必须透传到下游；不能读取 `/models` 的第一个 ID
+并覆盖调用方选择。Provider 差异只在真正发送下游请求及读取 SSE 的边界适配，
+`StreamRouter` 内始终保留 canonical payload，避免污染 tool hydration
+和 mock `web_search` follow-up。
+
 当前 HTTP backend 直接使用 Starlette 与 Uvicorn，不依赖 FastAPI、
 Pydantic 或 `pydantic-core`。独立测试里的 fake outcomming chat backend
 也使用 Starlette。Python 3.6 使用 Starlette 0.19.x。
@@ -118,6 +123,9 @@ API key 不会写入 dump。对多轮 tool-call，可以逐条比较
 `finish_reason` 保留实际下游终止原因（如 `stop`、`tool_calls`、`length`）；
 usage-only chunk 不会覆盖它，未收到终止 chunk 时为 `null`。
 长度截断不会补写 EOS，消费者必须同时校验 usage 和原始 token IDs 的完整性。
+vLLM chat-completions 的 `return_token_ids=true` 流中，`prompt_token_ids`
+只在首个 chunk 出现，后续 `choices[*].token_ids` 都是 decode delta。
+重建 trajectory 时保留首个 prompt，再按顺序拼接所有 decode delta。
 
 如果下游 provider 需要对 chat payload 做定制化改写，可以在
 `responses_server/payload_processors.py` 里注册对应 `model_provider -> proc_fn`

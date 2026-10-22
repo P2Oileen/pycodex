@@ -1,87 +1,72 @@
-# pycodex AGENTS
+# pycodex 开发约定
 
-## Repo Priors
+## 目标与包边界
 
-- 这个仓库的目标是尽可能准确地复现上游 Codex（`https://github.com/openai/codex`），不是发明一个“类似 Codex”的简化替代品；凡是行为差异都应优先朝原版 Codex 收敛。
-- PyPI 主 distribution name 用 `python-codex`；代码包目录、`import` 路径和 CLI 命令仍保持 `pycodex`。
-- `python-codex` 打包 `pycodex/` 和 `responses_server/`，提供核心 CLI，整套 portable 暂时保留在 core。`pycodex-ws` 是独立扩展包，源码位于 `packages/pycodex-ws/`，打包 `workspace_server/`、`pycodex_ws/` 及 viewer 资源，提供 `pycodex-ws` 命令，精确依赖同版本 core。飞书 SDK `lark-oapi` 不自动安装；`/link` 调用时先尝试导入 `lark_oapi`，成功才创建连接，导入失败只提示不可用及手动安装命令，不读取凭据或发卡。只保持这两个普通包，不添加 extras 或插件发现机制，不在两个 wheel 中重复安装模块或命令。core 保持 Python 3.6.2+；ws 保持 Python 3.7+。
-- 双包发布时先发布 `python-codex`，成功后再发布 `pycodex-ws`，避免扩展包短暂指向尚不存在的核心版本。两个包通过 uv workspace 在同一仓库开发，`uv sync --dev` 安装两包。
-- VS Code 扩展源码放在 `packages/pycodex-ws/extensions/vscode/`，共享 workspace 前端的 composer；扩展独立构建和发布 VSIX，不进入两个 Python wheel/sdist。Node 测试手动运行，不加入 CI。
-- 包结构直接放在 repo 根目录下的 `pycodex/`，不使用 `src/` layout。
-- Rust 到 Python 的主映射：`submission_loop` -> `pycodex/runtime.py`，`run_turn` / `run_sampling_request` -> `pycodex/agent.py`，`ToolRouter` -> `pycodex/tools/base_tool.py` + `pycodex/tools/`.
-- 会话协议先收敛到 4 类 item：`UserMessage`、`AssistantMessage`、`ToolCall`、`ToolResult`；只有这层稳定后再扩 richer event model。
-- 优先保持主循环可测试、可替换：模型侧通过 `ModelClient` 协议接入；测试专用的 `ScriptedModelClient` 放在 `tests/fakes.py`，不要放进运行时包。
-- `ModelClient` 的基础契约包括只读 `model: str` 和 async `complete`；`Agent.model_name` 直接读取 client.model，不用 getattr 为缺字段兜底，测试 client 也要提供模型标识。
-- `Agent(model_client, tool_registry, context_config)` 三项必传；上下文构造选项统一放在 `ContextConfig`，由 Agent 按 client.model 创建独占的 `ContextManager`，不保留 manager 注入/缺省构造双路径。依赖引用与事件回调用普通属性，不恢复机械 getter/setter；runtime services 直接从 `agent.tool_registry.runtime_environment` 访问，外层 `AgentRuntime` 继续可选。
-- Rollout recorder 由 Agent 内部创建和维护，不接受外部对象注入。`session_file_path=None`（默认值）表示仅在内存中保存历史，不创建 recorder 或 rollout；传入路径才启用记录。CLI/Web/飞书的 `build_agent` 显式分配默认路径及对应 uuidv7 session id；托管子 Agent 只传其 id、保持路径为 None。不要新增独立记录开关，也不要依赖 client 的 `_openai_subagent` 标记决定是否记录。session id 与记录开关独立，未传时仍分配 uuidv7。记录会话的构造仅准备路径和 metadata，首次非空 history append 或成功 compact 才创建文件及父目录，先写 metadata 和 Agent 当时的 history，再写新记录；recorder 不另存 initial_history 副本，Agent 不提供 replace_history 接口。fork 保留原来的记录状态；子 Agent 的 turn、compact、fork 和无参 resume 仅更新内存，不能靠列表过滤代替禁止落盘。构造、fork 和有参 resume 复用一个私有 recorder 装配方法，显式选择 create/resume，装配完成后再同步 Agent/provider identity；history、usage 和接纳状态仍由各操作维护。显式构造路径只用于新建，已有文件必须报错；首次写仍以 exclusive create 防止竞争覆盖，写失败不能静默恢复。CLI/Web 经 `runtime.resume(path)` 调用 `agent.resume(path)` 加载历史、接上指定文件的 recorder、同步 session id、清空 usage 并恢复接纳；默认不记录的 Agent 也可通过有参 resume 开始记录到现有文件。无参 `agent.resume()` 仅重开原内存会话并重绑工具回调，不读写文件、不改变 history/identity/recorder/usage，供子 Agent 服务使用，返回 None。Agent 只检查自身 active，Runtime 负责拒绝 active/queued/closing 下的恢复与会话变更；显式路径读失败保持原状态，不按文件存在性兜底；不保留 reopen 方法。测试通过隔离 CODEX_HOME 避免写真实会话。
-- Agent 按用户明确约定串行执行：`run_turn` 是普通 async def，`ask` 是同步桥接；不创建或持有 turn Task，不提供 `cancel` / `cancel_current`，不恢复 Task 监听器。`maybe_invoke` 仅在 idle 时直接 await 同一条 run_turn 路径，异常正常传播。关闭仅停止接纳新输入，并等待当前 turn、已接收队列及子 Agent 自然结束；不要用超时强制取消来“修复”关闭等待。这一取消策略刻意不同于 upstream；计时器、I/O 清理和显式并行工具的 asyncio 实现不属于 turn 生命周期管理。
-- 后端只保留 `AgentRuntime -> Agent` 两层，不增加 Session 包装或保留 SubmissionQueue 别名。Agent 不持有 Runtime/Queue 引用，不通过 input-source 回调取输入或结算回执。steer 由 Runtime 调用 `agent.stop_asap()`，Agent 完成当前请求与已发出的工具并记录结果，在安全边界发 `TurnInterruptedEvent`、抛 `TurnInterrupted`；Runtime 自己捕获、结算旧提交并启动下一批 `run_turn`。这不是 Task 取消；Runtime 内部沿用 steer 的逻辑 turn id，但新的执行重新计数。裸 Agent 不消费外部队列，Runtime 没有 worker 时 pending 输入保持等待。
-- `ResponsesModelClient` 直接复用 `~/.codex/config.toml` 的 provider 配置；当前已验证这里的 responses provider 需要 `stream = true`，否则会返回 `400` 和 `Stream must be set to true`。
-- 现在 `ResponsesModelClient` 默认会对流式断连做 provider 级自动重试（`stream_max_retries` 默认 5）；写 CLI/REPL 测试时如果断言“先向用户报错，再靠下一句 `go on` 继续”，必须在测试 provider 配置里显式设 `stream_max_retries = 0`，否则测试可能一直等不到预期错误而卡住。
-- `responses_server` compat 层应透传请求里的 `model`；不要再做 “取 downstream /models 第一个 id 并强制覆盖请求模型” 这种兜底兼容。
-- 对 `model_provider = "vllm"`，`responses_server` 仍然走 `/v1/chat/completions` compat 路径，但要保留 reasoning：把 chat chunk 里的 `reasoning` / `reasoning_content` 翻回 Responses `reasoning` item，并把历史里的 Responses `reasoning` item 回放成下游 assistant message 的 `reasoning` 字段。
-- `responses_server` 不能把 terminal reasoning-only chat output 当成成功回复：如果 downstream 一轮结束时只返回 `reasoning` / `reasoning_content`，没有 assistant `content` 且没有 tool call，先丢弃本次 partial reasoning 并用原样 downstream request 静默重试一次；若仍然 reasoning-only，再发 `response.failed(type=model_output_invalid)`，避免把 partial reasoning 写进 rollout 后在下一轮变成 chat 后端拒绝的裸 assistant message。
-- `responses_server` 的 provider-specific chat payload 定制统一放在 `responses_server/payload_processors.py`：使用 `CompatServerConfig.model_provider` 选择 `provider_name -> proc_fn(outcomming_request)` 映射，并且只在真正发出 downstream `/v1/chat/completions` 前 post-process；`StreamRouter` 内部继续保留 canonical payload，避免 tool hydration / mock web_search follow-up 被 provider 改写污染。
-- `responses_server` 如果要兼容下游 `/v1/messages`，也优先保持这条边界：内部继续用 canonical chat request / chat-like chunk 流，只有真正发请求和读取 SSE 时才做 messages 适配，这样 tool hydration、mock `web_search` follow-up、provider payload post-process 都能复用。
-- 真实 vLLM `0.19.0` 的 `/v1/messages` 会对缺失 `max_tokens` 直接返回 `400`；messages 适配层必须总是补这个字段。当前约定是优先透传请求里的 `max_output_tokens`/`max_tokens`，否则回退到默认 `32000`。
-- 对 vLLM chat-completions 打开 `return_token_ids=true` 时，streaming `prompt_token_ids` 只出现在首个 chunk，后续每个 chunk 的 `choices[*].token_ids` 都是 decode delta；要在 `responses_server` 侧导出 trajectory 时，按“首个 `prompt_token_ids` + 按序拼接所有 chunk 的 `token_ids`”重建即可。
-- `pycodex` 默认是最小交互 CLI；无 prompt 时进入 REPL，并通过 `AgentRuntime` 跑外层提交循环。当前会显示最小事件流、assistant 流式输出、简单 title/history（`/title`, `/history`），并默认注册上游对齐工具子集和明确标记的本地扩展。
-- CLI/Web/飞书必须通过统一的 `AgentRuntime.submit_input` 接入 Agent：会话命令、steer/queue、状态广播、交互问答/权限、worker 和关闭语义属于后端；前端只做输入/展示/连接适配。`pycodex.bootstrap.build_runtime` 负责核心装配；`pycodex_ws.build_runtime` 直接复用它并注入 `/link`、`/unlink` 和连接清理，不让 core 依赖飞书 SDK。Web 源码在 `packages/pycodex-ws/workspace_server/`，使用 `pycodex-ws` 启动，不导入/运行 CLI shell，也不保留第二条 prompt queue。`attach/detach` 是独立订阅，detach 不关闭后端；模型/恢复/标题变更必须广播给所有前端。
-- 保持文件结构简洁：会话命令放在 `runtime.py`，CLI 启动、终端 I/O 和输入循环统一放在 `cli.py`；事件、纯文本 `visualize()`、有状态 `render(display)` 及展示状态/提示规则放在 `events.py`，通用无状态文本/颜色/摘要 helpers 放在 `utils/event_helpers.py`，helpers 不反向依赖事件或前端，不维护展示 handler mapping。每个前端实例独占 `EventDisplay`，事件本身保持冻结且不持有展示状态；CLI 只执行 log/status/prompt 回调，飞书卡片复用同一套无色 render，仅保留会话快照和卡片布局适配。飞书灰框按排队/开始/完成边界保留最近完成的回复，新一轮标记 `(*last turn)`、完成后替换；临时活动/问题单独展示，不把事件日志累积进回复正文，不恢复工具/流式/重试等逐事件展示分支。Web/飞书不接收 ANSI 文本。测试按行为归属维护，展示规则在事件层验证，前端只留必要的输入/展示/传输集成回归。
-- Runtime 统一通过 `start()` / `close()` 启停，不恢复公开 `shutdown()` / `run_forever()` 双入口或独立关闭 Future。`Agent.accepts_input` 是本地接纳开关，`runtime.accepts_input` 只读取它；Runtime 关闭时把该开关置为 false，后台唤醒因此停止，已接收请求继续排空。关闭不入队特殊请求，不引入 `begin_shutdown` / `draining`。worker 排空后在命令锁内清理子 Agent 和连接，最后由 `Agent.shutdown()` 一次性清理工具。取消关闭调用方不能取消 worker/turn，Web 线程清理异常也必须 stop/join，不重复关闭底层会话。
-- 交互 CLI 的 Ctrl+C 在 prompt_toolkit 输入边界通过 `c-c` / `<sigint>` 按键绑定以 `EOFError` 正常退出，兼容不支持 `interrupt_exception` 构造参数的 3.0.36，和 Ctrl+D 共用 `runtime.close()`；不提供退出会话的 slash 命令。不要让输入子 Task 抛出的 `KeyboardInterrupt` 逃到 asyncio runner 后触发全体 Task 清理。单次 Ctrl+C 发起正常退出，接纳关闭事件展示 `[closing]` 等待提示，已有模型/工具/队列继续自然结束，不借此恢复 turn cancellation。关闭等待期间再次 Ctrl+C 是显式强退：CLI 的进程级 SIGINT handler 以状态 130 立即退出，不再进入 asyncio 清理等待；这不改变 Runtime 的正常排空语义，也不保证外部工具进程停止。旧版 prompt_toolkit 会在输入结束时重置 SIGINT，因此关闭边界要重新安装 handler；正常结束或清理报错后恢复原 SIGINT handler。
-- Relative images in board HTML resolve to HTTP siblings such as `/w/<workspace-id>/<image>` (or `/<image>` in single-workspace mode), not to `/board/...`. Keep the image fallback routes after concrete workspace/API routes, resolve files from the board's directory, and reject non-`image/*` files or paths that escape that directory. Canvas and HTML file previews use ordinary same-origin iframes with the same script permissions; the browser sends login cookies when loading resources. Do not copy cookies into HTML or add image-fetch/data-URL preprocessing.
-- 交互 CLI 的事件流展示优先表达用户可感知的阶段（例如工具开始/完成、模型回看工具结果），不要直接把内部 `iteration` 计数暴露成主要状态文案；`iterations` 应继续保留在 `TurnResult` 等程序化结果里。
-- 在交互 CLI 里，`stream_error` 表示当前 Responses stream attempt 失败且模型客户端可能马上自动重试；不要在这个事件上 `finish_stream()` 输出当前 assistant delta buffer，否则第一次失败 attempt 的文本和重试成功后的最终回复会重复显示。真正 fatal 的失败仍由 `turn_failed` 走通用 flush，保留 partial 输出。
-- prompt/context 相关逻辑统一放在 `pycodex/context.py`：`AgentLoop` 只维护真实会话历史；每轮请求前由 `ContextManager` 注入 base instructions、developer message、`AGENTS.md` 指令和 `<environment_context>`，且这些注入项不写回 history。
-- 对需要 model-specific prompt 的本地 model slug，直接在 vendored `pycodex/prompts/models.json` 补条目；当前 `step-3.5-flash` / `step-3.5-flash-2603` / `step-3.6` 已按这个方式接入。
-- 交互 REPL 的 context 用量提示也应尽量贴近上游语义：展示“剩余 context 百分比”而不是原始 token 数；计算时按上游同款 `BASELINE_TOKENS=12000` 做归一化，并在模型元数据只有 `context_window` 时默认按 `95%` effective window 处理。只要当前模型能解析出 context window，初始 prompt 就先显示 `100%`，等首个 usage 回来后再刷新成真实值。
-- 对交互 REPL 的 context 指示器，`model_context_window` 的取值优先级也要贴近上游：先吃 `config.toml` / profile 里的 `model_context_window` override，再回退到 vendored `models.json` 的 `context_window`；effective percent 继续沿用模型元数据，没有时默认 `95%`。
-- `pyco(<percent>)` 正常只来自模型流里最近一次 `response.completed.response.usage.total_tokens`；如果大 tool output 之后的下一次请求被下游 `context_length_exceeded` 拒绝，rollout 不会单独记录 usage。遇到这类错误时应从错误文案的 `requested ... tokens (... in the messages, ... in the completion)` 提取真实请求 token，作为失败请求的 `token_count` 事件回灌，并立即触发 compact 后重试一次。若服务端只返回 `Your input exceeds the context window...` 这类无 token 数的 `response.failed`，仍应触发 compact+retry，只是不要伪造 `token_count`。若 compact 请求本身也超长，先循环删除最旧的 `ToolResult` 及其配对 `ToolCall` 再重试 compact。
-- `AgentLoop` 的 turn-loop 语义要跟上游 `codex-rs/core/src/codex.rs` 一致：按 follow-up / tool handoff 自然收敛，不要加固定 12 轮之类的 hard cap，也不要保留本地专用的 iteration-limit 参数。
-- `README.md` 和 `docs/` 属于对齐工作的一部分：只要实现状态、对齐结论或使用方式发生实质变化，就应及时更新，不要让文档滞后于当前代码。
-- 新工具必须继承 `BaseTool`，然后通过 `ToolRegistry.register(tool_instance)` 接入；不要再给 registry 传散装 name/description/handler 参数。
-- request/tool schema 对齐应落在实际建模层（`ToolSpec` / `BaseTool` / request builder）本身，不要再引入 prompt 级别的 `serialized_tools` 旁路覆盖。
-- 当前已接入的默认工具集：`shell`、`shell_command`、`exec_command`、`write_stdin`、`clock`、`exec`、`wait`、`web_search`、`update_plan`、`request_user_input`、`request_permissions`、`spawn_agent`、`send_input`、`resume_agent`、`wait_agent`、`close_agent`、`apply_patch`、`grep_files`、`read_file`、`list_dir`、`view_image`。其中 `clock` 是明确的 pycodex 扩展；其余新增工具仍优先逐个对齐原版 Codex。
-- `exec_command` / `write_stdin` 的 unified-exec 对齐要注意两层默认截断语义：省略 `max_output_tokens` 时也要按 upstream 默认 `10_000` token 预算裁剪 tool response；同时长时间未轮询的未读输出缓冲不能无限累积，需保留 upstream 同款 `1 MiB` head/tail。
-- 当前协议层已经支持两类原版工具载荷：普通 function tools，以及 `apply_patch` 这类 freeform/custom tools；工具结果也支持结构化 `input_image` content items，用于 `view_image` 这类会把图片喂回模型的工具。
-- 当前本地 runtime 已支持一个最小的 in-process sub-agent 管理层：`spawn_agent` / `send_input` / `resume_agent` / `wait_agent` / `close_agent` 通过共享的 `SubAgentManager` 驱动新的 `AgentRuntime` 实例，不依赖 CLI harness 自带的多 agent 基础设施。
-- `request_user_input` / `request_permissions` handler 由 `AgentRuntime` 绑定，通过 `input_requested/input_resolved` 事件收集各前端输入；不要让工具直接抢终端 stdin，也不要由前端覆盖 manager handler。有请求时普通输入回答当前问题，slash 输入仍执行命令；支持多题、Other、取消、超时和结构化 `answer_input`。没有前端或正在关闭时返回取消，最后一个前端 detach 会解除等待。
-- Collaboration mode 已按用户要求彻底移除：不保留模式枚举、ContextConfig/ToolContext 模式字段、协作提示模板、`build_agent` 的 `session_mode` 参数或模式门控；不要为了 upstream 对齐重新引入。移除模式不代表启用 `request_user_input`，它的默认不可用返回单独保留。普通 CLI/Web 交互、`update_plan` 和 subagent 与该模式无关，继续保留。
-- `request_user_input` 保留默认工具注册及参数声明，但调用固定返回 `request_user_input is unavailable in Default mode`，不收集答案、不触发 `input_requested`，有交互 handler 也不启用。工具本身无状态，不注入 request manager，不为此恢复模式系统或增加启用开关。通用 runtime 问答/权限服务继续保留。`ToolResult.success` 仅是本地执行状态，不能序列化到 Responses input；恢复旧 rollout 读到 `success` 时也不得重新发送该字段。
-- 当前 `exec` / `wait` 已有一个最小 code-mode 实现：底层通过 Node 子进程运行 JavaScript，自带 `text` / `image` / `store` / `load` / `exit` / `notify` / `yield_control` helper，并允许通过 `tools.<name>(...)` 调回本地已注册工具；`web_search` 当前作为 Responses API provider-native tool declaration 暴露给模型，不经过本地 ToolRegistry 执行。
-- 除明确记录的 pycodex 扩展 `clock` 外，我们支持的 tools 必须和原版 Codex 内置 tools 一一对应：名称、定位、参数形状、交互模型、输出语义都应尽量对齐；不要混合多个原版工具的语义做一个“折中工具”。
-- Workspace 配置统一用 `state_path` 文件名前缀和默认 true 的 `enable_board`；分别追加 `.pycodex-ws.json`、`.pycodex-views.json`、`.html`，不替换前缀中的已有后缀。规范化后的 `state_path` 是 workspace 身份，不随 Canvas 开关变化。SessionManager 只接收前缀，两个 Store 只接收派生后的实际 JSON 路径；`board_path` 仅为派生属性，不维护第二条输入路径。关闭 Canvas 时停止其标签、路由、轮询和上下文注入，会话及文件视图继续持久化。旧 `board: "<prefix>.html"` / `board: false` 只在配置读取边界归一化，后者沿用 `<config-stem>.<workspace-id>` 前缀；保持原文件及 rollout 引用，保存仅写新格式，拒绝混合字段。
-- Workspace 文件/diff 由用户点击 Markdown 链接打开，不再注册 `workspace_display`。普通绝对/相对文件路径兼容 `:行号` / `#L行号`，相对路径基于 workspace cwd；Git 文件用 `git:REV:path`，比较用 `diff:REV:path`、`diff:BASE..HEAD:path`、`diff:REV:path..REV:path` 或 `diff:left..right`，diff 行号用 `#L` / `#R`。Git 路径沿用仓库根目录语义，显式 `./` / `../` 基于 workspace cwd；路径特殊字符编码，比较端点文件名中的字面 `..` 编码成 `%2E%2E`。点击经 `POST api/views/open`，独立于 Agent/Runtime，不产生模型消息或工具结果，空 `--toolset` 仍可使用。同一来源或有序比较复用标签的 id、顺序和阅读状态；身份按规范化路径或 Git 仓库/解析后版本/路径判定，标题保留完整路径和版本。本地文件跟随磁盘，Git 内容固定；来源、最新内容、打开列表及 reveal counter 原子保存在 `<state_path>.pycodex-views.json`。旧记录无来源时保持固定快照。只有发起点击的页面消费返回的 selection/reveal 并切换焦点，轮询只更新列表与内容，不跟随其他页面打开；关闭不修改源文件或会话。
-- Workspace 代码与 diff 查看器使用只读 Monaco；源码和固定依赖在 `packages/pycodex-ws/workspace_server/frontend/`，修改后用该目录的 `npm ci` / `npm run build` 更新生成的 JS/CSS 和许可证，不手改构建产物。首屏 `content_views.mjs` / CSS 只含轻量控制层，首次打开源码/diff 才并行加载独立的同源 `editor.mjs` / CSS，等待两者完成后创建编辑器；Canvas/Markdown/HTML/图片预览不加载 Monaco。编辑器保留全部语言高亮及查看器需要的功能，JSON 直接注册 tokenizer 和语言配置，避免语言服务入口间接带回全量功能。diff worker 从内嵌 Blob URL 启动，字体内嵌编辑器 CSS，随 wheel 分发，Python 启动不依赖 Node。静态资源按 Accept-Encoding 协商 gzip，压缩结果按应用实例缓存并随文件变化失效，使用 Vary/ETag/304；不对会话流加压缩，不在 wheel 重复保存压缩副本。`MonacoEnvironment.getWorker` 是库要求的全局 host hook，其余查看器状态按实例维护。只保留活动视图的编辑器和 model，切换时先保存阅读状态再隐藏/销毁；diff 按内容容器宽度调整原实例布局。沿用视图列表的两秒轮询检查已记录路径，按内容 revision 失效缓存；内容更新复用编辑器/model 并保留阅读状态，不切换标签或手机面板。标签按 VS Code 的文件名/次要说明方式展示：优先显示 basename，同名不同路径才补最短可区分目录，Git 版本用 7 位 commit ID 作为次要说明，同一路径比较只显示一次文件名。宽度上限复用会话标签规则，次要说明先截断，完整标题继续用于悬停、存储及 API 回复。内容/会话标签栏将普通竖向鼠标滚轮转换成横向滚动，保留原生横向、Shift/Ctrl 手势。
-- Workspace 整个左侧展示区称为看板，实时 HTML 首标签称为 Canvas；内部 `board` id 及路由名保持不变。装配提示沿用自然语言介绍 Canvas 文件的位置、修改实时可见及可随时创建/修改，再简要说明回复和 Canvas 中可用的扩展链接、行号后缀和返回 Canvas 的链接；不规定展示策略，也不加入冗长实现细节。`workspace://canvas` 返回现有实时页面，关闭 Canvas 时明确报不可用；Markdown 和 HTML（含 `.htm`）文件链接默认预览，带行号打开源码，再次点击无行号链接在同一标签回到预览。普通刷新和手动切换保留本页所选模式及各自阅读位置，不重放旧定位；行号和模式不参与标签身份/标题，其他页面的打开不改变本页模式。Canvas 是常驻的同源 HTML iframe，普通 HTML 预览沿用同源权限及浏览器原生资源加载；预览的父页面消息只用于滚动位置恢复并校验 frame 和文档代数，无变化时保留当前实例，切换时释放。Canvas 文件链接与聊天使用同一套打开规则，支持绝对/相对路径、行号及 git/diff/Canvas URI；相对路径基于 workspace cwd，外部 URL 和页内锚点保持浏览器原生行为。异步打开/创建/更新/diff 完成时只应用当前请求；Markdown/HTML diff 始终显示代码。窄屏定位 diff 左侧时保留双栏，聚焦/定位右侧恢复自动布局。
-- 代码风格上不要使用 `*` 定义 keyword-only 参数；接口默认允许位置参数。
-- runtime 包和会在 import 阶段执行的测试辅助代码需要保持 Python 3.6.2 语法兼容；不要引入 walrus `:=`、`match` 等仅 3.8+/3.10+ 可解析的新语法，哪怕分支在运行时不会走到。
-- 本仓库使用 `uv`；本地默认没有预装测试依赖，开始工作前先跑 `uv sync --dev`，验证用 `uv run pytest`。
-- 上游 Codex 的 `steer` 目前是 TUI 交互层能力：开启后 `Enter` 会立即提交，`Tab` 才是排队。对齐时优先盯“下一次发出去的请求体”而不是内部控制流；当前 `pycodex` 已把 steer/queue 语义下沉到 `AgentRuntime`，并让 `AgentLoop.run_turn(texts)` 一次接收一批 user texts，这样下一次请求的 `input` 可以把多个 steer 文本按顺序并到 history 尾部。`CliSessionView.handle_event()` 把 spinner 再次拉起。要保证输入不被遮挡，需要让 view 知道“当前正在输入”，并在 input-active 期间抑制这些事件对 spinner 的 resume。
-- steer 的最小交互反馈已经约定为两条显式状态文案：入队时打印 `[steer] queued: <prompt>`，该条 queued turn 真正开始执行时打印 `[steer] inserted: <prompt>`。后续如果补更复杂的 queue UI，也应保留这两个核心状态语义。
-- 在当前 `pycodex` CLI 里，普通输入与 `/queue <message>` 只负责选择 runtime queue；真正的 steer/queue 差别由 `AgentRuntime.enqueue_user_turn(..., queue=...)` 决定。runtime 内部也应保持成两个同构 queue，而不是一个普通 queue 再叠一个 steer 专用旁路状态机。
-- 对上游 steer 语义要非常谨慎：正常 active-turn steer 首先走的是 `inject_input(...)` + `pending_input`，不是立刻 `spawn_task(...)` / `TurnAbortReason::Replaced`。更准确的理解是“在最近一次 sampling 边界插入”，而不是“任意时刻硬打断当前模型/工具调用”。
-- 用 `tests/fake_responses_server.py` 做 steer 时序对比时，不要把 proxy capture 文件的生成时刻当成“请求已到达 upstream”的信号；`build_proxy_handler(...)` 会等整条 upstream response 读完后才 `write_capture(...)`。如果要在第一条 request 仍未完成时注入 steer，应该同步等待 fake origin 自己收到第 1 条 POST。
-- `--use-chat-completion` 已废弃为 CLI flag，改为从 `~/.codex/config.toml` 的 provider 段读取持久配置：在对应 `[model_providers.<name>]` 下加 `use_chat_completion = true` 即可对该 provider 默认启用本地 `responses_server` compat 层；CLI 仍可显式传 `--use-chat-completion` 覆盖配置值。
-- 在本机做 steer fake-server 对比时，不要把用户本地 `config.toml` 里的 `service_tier` / fast-mode 设置混进“默认 steer”结论。`tests/compare_steer_request_bodies.py` 现在会给 upstream 和 `pycodex` 都生成临时 config，并去掉顶层 `service_tier` 后再比较 request body。
-- `x-codex-turn-metadata.workspaces` 的时机不是“整个 session 只发第一条请求”。当前对齐结论是：首个 turn 的后续 steer/follow-up request 也继续带 `workspaces`；切到后续新 turn 才省略。
-- 远端 Codex home 存储模式当前仍刻意只挂在 `pycodex/cli.py` 启动前：`--put`/`--call` 只负责上传或落本地 `CODEX_HOME` 并重写 `args.config`，`model/context/runtime` 继续完全按 `config_path.parent` 读取 `.env`、`AGENTS.md`、`skills/`；后续扩展时优先保持这个隔离边界，不要把分支判断散到运行时各模块里。
-- 当前存储服务原型契约固定为 `POST /v1/storage/put` 上传客户端本地加密后的 bundle，并返回/使用 `SECRET-CALLID@<host:port>` 这种 call token；`GET /v1/storage/call/<call_id>` 只下载密文，bundle 的解密和解压都在 client 侧完成。做 smoke 或排障时，优先先验证这两个 endpoint 和 call token 形状。
-- `--put` 的 CLI UX 现在约定为“先打印打包文件清单和上传目标，再打印结果”，并且最后一行保留为可直接执行的 `pycodex --call SECRET-CALLID@<host:port>` 一键启动命令；后续如果再改输出，尽量保留这个末行语义。
-- `--put` 现在不是“只上传就结束”：上传成功后还会立刻跑一次真实的 `--call` 下载/解包 round-trip 测试，只有这个测试也成功才算整个 `--put` 成功。排障时如果上传成功但 CLI 仍退出非零，要继续看 call 路径而不只看 put 端。
-- `--put` 现在会先做 `/healthz` preflight，再开始扫描/压缩目录；如果用户报“卡死”，先看目标 `host:port` 是否真有 storage server 在监听。默认打包策略也已经切到白名单：只带 `config.toml`、`.env`、`AGENTS.md`、`AGENTS.override.md`、`skills/**`，以及 config 里相对引用的 `model_instructions_file`，所以像 `sessions/` 这类运行态目录不会再靠黑名单排除。
-- `--call` / portable storage paths must not rely on the process default text encoding. Always pass `encoding="utf-8"` when reading config, prompts, AGENTS files, skills, dotenv, and session history; for user-authored instructions/history, prefer `errors="replace"` so a Windows GBK locale cannot crash on UTF-8 punctuation such as U+2264 or em dash.
-- 对接真实 `~/.codex/sessions/.../rollout-*.jsonl` 时，不要假设它一定是严格的一行一个 JSON object：本机样本可能包含 pretty-printed 多行对象，且文件尾部偶尔带未完成记录。恢复历史时用 concatenated-JSON 方式读取，并容忍尾部残缺。
-- `pycodex` 前端装配的普通 session 保存按上游思路走：新 session 一开始就分配稳定的 uuidv7 thread/session id，并把历史增量追加到 `CODEX_HOME/sessions/.../rollout-*.jsonl`；裸 Agent 默认和子 Agent 都仅保存在内存中。`/resume` 列表应只展示至少有真实 user message 的 rollout，避免空白新 session 污染恢复列表。
-- auto-compact 对齐上游配置名 `model_auto_compact_token_limit`；为空时关闭，触发依据是最近一次模型上报的 `usage.total_tokens`，pre-turn 压缩上一轮历史，mid-turn 压缩工具 follow-up 前的当前历史，并继续复用现有 compacted rollout 记录。
-- Local compact templates intentionally diverge from upstream: the prompt explicitly preserves the latest real user request/language, and the summary prefix tells the next model to continue instead of merely acknowledging the handoff. Do not mechanically replace these additions with `codex-rs/core/templates/compact/{prompt.md,summary_prefix.md}`. Real `compacted` rollout entries remain append-only checkpoints whose `replacement_history` can be summary-only; the old transcript stays on disk for audit but is not part of the next active prompt.
-- Responses streaming 里的 `response.incomplete` 不是连接断开：不要让 `ResponsesModelClient` 把它当 retryable incomplete stream 反复重连。普通 turn 应明确报 `response.incomplete`；compact 请求如果已经收到 assistant partial summary，可以用这个 partial summary 完成 replacement history，避免 midturn auto-compact 卡在 5 次 retry。
-- 上游 Codex Responses 请求当前不传模型级 `max_output_tokens`，也没有读取 `model_max_output_tokens` 这个 config key；这个名字在上游主要用于工具输出截断，不要为了上游对齐把它加进模型请求。
-- `service_tier = "fast"` 在 config 中是 Fast mode 的持久写法，但 Responses wire 值是 `priority`；只对模型 metadata 的 `service_tiers` 明确包含该 id 的模型发送，`default` 和不支持的 tier 都省略。
-- 普通 turn 遇到 `ResponsesIncompleteError(reason="max_output_tokens")` 时，上游语义是保留异常前已经收到的 `response.output_item.done`；pycodex 因为模型客户端按整轮返回，需要在异常路径把这些 done assistant/reasoning items 写入 history 和 rollout，才能让用户下一句 `continue` 接上。不要把纯 `response.output_text.delta` 合成 history，也不要持久化没有 tool result 的 tool call。
-- Feishu card tests read `~/.codex/.feishu_refresh_token` through production code. `packages/pycodex-ws/tests/conftest.py` isolates HOME for the workspace suite; run `env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests/test_feishu_card.py packages/pycodex-ws/tests/test_feishu_link.py`. Outside that suite, isolate HOME unless the test itself controls it.
-- `lark_oapi.ws.client` creates a module-level asyncio `loop` at import time and `Client.start()` always uses that global. For `/link` long-connection listeners, bind that SDK global to a listener-thread-owned loop before constructing the client, and stop it through private `_disconnect()` plus `loop.stop()` on `/unlink`; otherwise unlink/link can reuse a still-running SDK loop and fail with `RuntimeError: This event loop is already running`.
-- `exec_command` background completion auto-resume is intentionally Agent-idle-only: when a session exits, it may call `Agent.maybe_invoke(...)` and start a synthetic `<exec_command_completed>` turn only if that Agent is not already running a turn. Do not enqueue/cache these events in `AgentRuntime`; direct Agent use should share the same Agent-level hook.
-- `clock` is a per-Agent/session pycodex extension with one global period value. Reuse `Agent.maybe_invoke(...)` for `<clock_tick>` wake-ups and include the timezone-aware ISO 8601 `current_time` captured when the timer expires: cancel the pending countdown when any turn starts, restart it only after a successful reply, and cancel it on `clock(null)` or runtime shutdown. Terminal events expose only aggregate `background_work_count`, which includes running exec sessions and an enabled clock after a successful reply; CLI/workspace idle status should use that single field. Do not add a second submission queue or shell-based sleep loop.
-- The tool description JSON fallbacks (`pycodex/prompts/exec_tools.json` and `pycodex/prompts/subagent_tools.json`) were deleted after moving schemas into class-level `BaseTool` specs. `ToolSpec.serialize()` intentionally skips function-tool `output_schema`, matching upstream `ResponsesApiTool.output_schema #[serde(skip)]`; keep output schemas as local metadata only unless upstream wire format changes.
+- 尽量准确复现 [upstream Codex](https://github.com/openai/codex)；
+  对齐以实际请求和行为为依据，保留下文及文档明确说明的本地差异。
+- 只维护两个普通 Python 包：`python-codex`（core，Python 3.6.2+）和
+  精确依赖同版本 core 的 `pycodex-ws`（Python 3.7+）。
+  core 的目录、导入及 CLI 名仍是 `pycodex`，直接位于仓库根目录。
+  Portable 和 `responses_server` 属于 core；Web、router、飞书适配属于 ws。
+- 飞书 SDK `lark-oapi` 为手动安装的可选依赖；core 不依赖前端或 SDK。
+  VS Code 扩展独立构建 VSIX，不进入 Python wheel/sdist。
+  双包发布必须先成功发布 core，再发布 ws。
+
+## 关键约束
+
+- 后端保持 `AgentRuntime -> Agent` 两层。CLI/Web/飞书通过
+  `AgentRuntime.submit_input` 接入；命令、队列、问答、订阅和关闭由 Runtime
+  负责。前端做输入与展示，Agent 不反向持有 Runtime/队列。
+- `Agent(model_client, tool_registry, context_config)` 三项必传；
+  每个 Agent 独占 context manager、工具环境和历史，外层 Runtime 可选。
+  使用显式协议和普通属性，不为缺字段添加静默兜底或机械 getter/setter。
+- Agent 串行执行普通 async `run_turn`，不持有 turn Task、不提供取消 API。
+  steer 在模型请求和已发工具完成后的安全边界协作式停止；
+  正常关闭停止接纳并排空已接受工作，不用超时取消 turn。
+  Follow-up/tool handoff 自然决定结束，不加固定迭代上限。
+- 上下文装配统一在 `context.py`；固定指令、AGENTS、环境不写回会话历史。
+  Rollout recorder 由 Agent 内部管理：默认仅内存，前端显式传记录路径，
+  子 Agent 保持仅内存。恢复、fork 和压缩遵循文档中的一致性约束。
+- 工具继承 `BaseTool` 并注册实例；schema 由真实建模层序列化。
+  除明确扩展 `clock` 外，逐一对齐上游工具契约。
+  不恢复 collaboration mode；`request_user_input` 固定返回 Default mode
+  下不可用，通用 Runtime 问答/权限服务仍保留。
+
+## 开发与验证
+
+```bash
+env -u VIRTUAL_ENV uv sync --dev
+env -u VIRTUAL_ENV uv run --dev pytest
+```
+
+- 运行与测试依赖使用仓库的 uv 环境。core 及 import 阶段执行的共享测试
+  辅助代码保持 Python 3.6.2 语法兼容。接口不使用 `*` 定义 keyword-only 参数。
+- 修改 workspace 前端源码后，用其 `frontend/` 目录的 `npm ci` /
+  `npm run build` 重建资源，不手改生成的 JS/CSS/许可证文件。
+- 按改动范围验证；测试分层、隔离 HOME/CODEX_HOME、Node 版本和发布检查见
+  [测试文档](tests/TESTS.md)。独立 Node/VS Code 测试手动运行，不加入 CI；
+  Python 测试已有的 Node fixture 继续随原测试运行。
+
+## 按修改范围阅读
+
+修改模块前阅读对应章节；只加载本次任务涉及的内容，跨模块时补读相关章节。
+下列文档中的实现契约与本文件共同约束开发，不因移出根文件而失效。
+
+| 修改范围 | 阅读入口 |
+| --- | --- |
+| Agent、Runtime、队列、关闭 | [Ownership](docs/RUNTIME.md#ownership)、[Frontend boundary](docs/RUNTIME.md#frontend-boundary) |
+| 历史、记录、resume、fork、compact | [Model and history](docs/RUNTIME.md#model-and-history-contracts)、[Compaction](docs/RUNTIME.md#compaction) |
+| CLI、事件展示、飞书 | [Observation](docs/RUNTIME.md#observation)、[Feishu lifecycle](docs/RUNTIME.md#feishu-connection-lifecycle) |
+| Prompt、模型配置、token 用量、重试 | [Context](docs/CONTEXT.md)、[Responses reliability](docs/RUNTIME.md#responses-reliability) |
+| 工具、子 Agent、exec、clock | [Tools](docs/RUNTIME.md#tools) |
+| Workspace 状态、API、Canvas、查看器、定制 | [Session API](docs/RUNTIME.md#workspace-session-api)、[Frontend customization](docs/RUNTIME.md#frontend-customization)、[Content views](docs/RUNTIME.md#workspace-content-views) |
+| Responses compat、下游适配 | [Responses Server](docs/responses_server/README.md) |
+| Portable 上传、下载、配置恢复 | [Portable](docs/PORTABLE.md) |
+| 测试、打包、发布、上游比较 | [Package layout](docs/RUNTIME.md#package-layout)、[Tests](tests/TESTS.md)、[Alignment](docs/ALIGNMENT.md) |
+
+## 文档维护
+
+- 根文件只放跨模块关键约束、开发命令和阅读入口；模块契约维护在对应文档，
+  一次性排障和验证经过留在 worklog，避免不断追加长段落。
+- 实现、使用方式或对齐结论变化时，同步更新 README 和对应文档；
+  历史验证结论注明适用版本，不将旧抓包等同于当前整包一致。

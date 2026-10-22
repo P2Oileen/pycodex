@@ -6,6 +6,15 @@ wire parity.
 
 ## Package layout
 
+`python-codex` is the core distribution name; its package directory, imports
+and CLI remain `pycodex`, directly under the repository root (no `src/` layout).
+Keep two ordinary Python distributions: core and the exactly version-matched
+`pycodex-ws` extension. Do not add extras or plugin discovery, or install a
+module or command from both wheels. Publish core before workspace.
+The VS Code extension remains a separate VSIX in
+`packages/pycodex-ws/extensions/vscode/`, sharing the workspace composer but
+excluded from both Python wheels and sdists.
+
 The top level of `pycodex/` contains eight core modules: `agent`, `runtime`,
 `model`, `context`, `protocol`, `events`, `bootstrap` and `cli`, plus
 `__init__.py` and `__main__.py`. Supporting code uses these import paths:
@@ -35,8 +44,15 @@ from the `pycodex.utils` package entry point.
 Portable remains entirely in core. Start its server with
 `python -m pycodex.portable.server`; `pycodex --put`, `pycodex --call` and
 `pycodex doctor` keep their existing command syntax.
+The startup-only storage boundary, wire contract and smoke procedure are in
+[Portable configuration](PORTABLE.md).
 
 ## Ownership
+
+The main upstream mappings are `submission_loop` → `pycodex/runtime.py`,
+`run_turn` / `run_sampling_request` → `pycodex/agent.py`, and `ToolRouter` →
+`pycodex/tools/base_tool.py` plus the individual tools. Preserve these ownership
+boundaries instead of adding another Session wrapper or `SubmissionQueue` alias.
 
 | Component | Owns |
 | --- | --- |
@@ -82,6 +98,8 @@ always returns `request_user_input is unavailable in Default mode`; registered
 input handlers do not enable it. The tool has no request-manager dependency.
 The generic runtime input service, sub-agents, `update_plan` and ordinary
 interactive sessions remain available.
+Do not restore a mode enum, mode fields in `ContextConfig` / `ToolContext`, or
+`build_agent`'s removed `session_mode` parameter.
 
 `model_client`, `tool_registry`, `context_manager` and `event_handler` are ordinary
 attributes. `AgentRuntime` holds its Agent and subscribes to events, but the Agent
@@ -103,13 +121,15 @@ core commands. `pycodex_ws.build_runtime(agent)` adds `/link`, `/unlink` and
 connection cleanup for workspace sessions; the Feishu adapter is imported only
 when linking. `/link` first attempts to import the optional `lark_oapi` SDK.
 An import failure reports that the command is unavailable and gives a manual
-installation command, before creating a card or connection. Both return the same
+installation command, before reading credentials or creating a card or connection.
+Both return the same
 `AgentRuntime`, which can register
 application-specific async handlers with `register_command`.
 
 The `python-codex` distribution owns `pycodex`, `responses_server` and the
 `pycodex` CLI, including all portable functionality. `pycodex-ws` owns
-`workspace_server`, `pycodex_ws`, viewer resources and the `pycodex-ws` command.
+`workspace_server`, `pycodex_ws`, `pycodex_router`, viewer resources and the
+`pycodex-ws` / `pycodex-router` commands.
 Its source lives in `packages/pycodex-ws/` and it depends on the exact matching
 core version. The Feishu SDK is installed manually with
 `python -m pip install lark-oapi`; it is not a package dependency.
@@ -159,6 +179,9 @@ per invocation.
 `/resume` lists recent sessions; `/resume <number>` selects from that list,
 while `/resume <session_id>` resolves a full UUID independently of the list
 limit, including archived sessions. Both use the same idle-only restore path.
+The list includes only recordings with a real user message, excluding
+metadata-only empty sessions. Ordinary recorded sessions use UUIDv7 identities
+and append to `CODEX_HOME/sessions/.../rollout-*.jsonl`.
 Each queued request is one private record of submission id, turn id, texts and
 futures. The unused public `Submission` / `UserTurnOp` wrappers are removed;
 callers submit text through `submit_input` or `enqueue_user_turn`.
@@ -404,6 +427,7 @@ The workspace manager keeps its persistence subscriber attached while sessions
 drain during close, then waits for the final events before releasing its state.
 
 The queue has no separate public `shutdown()` or worker-start entry point.
+Do not restore `run_forever()`, `begin_shutdown` or a separate `draining` state.
 `close()` switches off `accepts_input` and wakes the worker. The worker exits when
 the queues are empty; there is no special shutdown submission. Its result carries
 cleanup errors for concurrent and repeated close callers. Closing also works
@@ -441,6 +465,8 @@ This does not make arbitrary dependency replacement a supported mid-turn
 operation. `history` remains an immutable snapshot; model-name and admission
 properties still derive their values from the owning component.
 
+### Recording lifecycle
+
 `session_file_path=None` is the default and means no recorder: history stays in
 memory. Passing a path creates an internal recorder. Session identity is
 independent of recording; the Agent allocates a UUIDv7 id unless one is supplied.
@@ -470,6 +496,8 @@ The outer queue remains optional: direct `ask` / `run_turn` calls need no worker
 Empty initial history and the no-op observer remain valid defaults. Tests isolate
 `CODEX_HOME` per test so recording tests do not write to the real session store.
 
+### Turn execution and shutdown
+
 Turn execution has two public interfaces: synchronous `ask` and ordinary async
 `run_turn`, both returning `TurnResult` once execution completes. `ask` runs the
 same coroutine through the existing synchronous bridge. There is no separate
@@ -494,7 +522,9 @@ execution result. Overlapping execution is rejected; there is no pre-sampling
 Task reservation or cancellation policy.
 
 The toolcall loop reads in order: auto-compact if needed, sample the model, commit
-its output, then execute tools or finish. Threshold-triggered compaction has one
+its output, then execute tools or finish. Follow-ups and tool handoffs determine
+when a turn ends; do not add a fixed iteration cap or a local iteration-limit
+parameter. Threshold-triggered compaction has one
 call site at the top of the loop: before the first sample it compresses previous
 history and then appends the new user input (`pre_turn`); on tool follow-ups it
 compresses the current history (`mid_turn`). Its `_TurnState` holds only the
@@ -566,6 +596,18 @@ Sub-agent services observe ordinary Agent lifecycle events. They retain the last
 completed/failed status, but active execution and pending inputs take precedence
 when reporting busy. Direct calls and background invokes produce the same events;
 status observers no longer inspect raw Task results.
+
+### Feishu connection lifecycle
+
+`lark_oapi.ws.client` creates a module-level asyncio `loop` during import,
+and `Client.start()` always uses it. A `/link` listener owns a thread and loop;
+bind the SDK global to that loop before constructing its client. `/unlink`
+disconnects through `_disconnect()` and stops that loop with `loop.stop()`.
+Reusing a running SDK loop across unlink/link can raise
+`RuntimeError: This event loop is already running`.
+Keep this SDK-specific handling inside the connection adapter. Shared rendering
+and card reply boundaries are described under [Observation](#observation);
+credential isolation belongs in the [workspace tests](../tests/TESTS.md#按包运行).
 
 ## Workspace session API
 
@@ -676,7 +718,9 @@ displayed, so a delayed confirmation cannot clear a newer reply or error.
 A workspace has one `state_path` filename prefix and an `enable_board` boolean
 that defaults to true. The prefix identifies the workspace and appends
 `.pycodex-ws.json`, `.pycodex-views.json` and `.html` for session state, file views
-and Canvas respectively. The session manager receives only the prefix; each
+and Canvas respectively, preserving any suffix already in the prefix.
+`board_path` is derived from that prefix, not a second configurable input.
+The session manager receives only the prefix; each
 store receives its derived JSON file path. Disabling Canvas hides its tab,
 stops its polling, omits its context injection and returns 404 for its HTML,
 status and image routes. File views and conversations keep the same persistence
@@ -701,6 +745,13 @@ horizontal scroll area with no visible scrollbar. It uses the same wheel
 behavior as the tab strips; the action buttons stay outside the scrolling area.
 Canvas keeps its existing live HTML and image routes. Automatic refreshes replace
 the iframe's current history entry, so they do not add browser Back steps.
+Relative images resolve to HTTP siblings such as `/w/<workspace-id>/<image>`
+(or `/<image>` in single-workspace mode), not `/board/...`. Keep image fallback
+routes after concrete workspace/API routes, resolve paths relative to the Canvas
+file's directory, and reject non-`image/*` content or paths escaping that directory.
+Canvas and ordinary HTML previews use the same-origin browser iframe and native
+resource loading, including browser-managed login cookies; do not copy cookies
+into HTML or add image-fetch/data-URL preprocessing.
 Clicking a Markdown file
 or diff link selects the existing tab for that target, or appends a new read-only
 tab when the target is not already open. Rendering a link does not open a view.
@@ -739,6 +790,8 @@ in real time and that the model can create or modify it anytime. It then describ
 the extended file/diff links supported in replies and Canvas HTML, including
 optional line anchors and the link back to the live Canvas.
 Detailed syntax and viewer behavior are documented below. There is no `workspace_display` tool.
+The assembly prompt describes available paths and links without prescribing
+when the model should use Canvas or adding viewer implementation details.
 Link clicks use the browser's view API, independently of Agent/Runtime, and add
 no messages or tool results to the conversation. They also work with an empty
 `--toolset`. Internal `board` IDs and HTTP routes keep their
@@ -1014,6 +1067,10 @@ or the build toolchain.
 
 Runtime events are frozen dataclasses defined together in `pycodex/events.py`,
 separate from the conversation and model data in `pycodex/protocol.py`.
+Session commands belong in `runtime.py`; terminal startup, I/O and the input
+loop belong in `cli.py`. Presentation should describe user-visible phases such
+as tools starting/completing and the model reviewing results; retain `iterations`
+in programmatic results instead of making it the main status label.
 `Event` is the common base; each concrete class declares its fields and a
 class-level wire `kind`. There is no event registry, parallel enum, or generic
 `AgentEvent(kind, payload)` / `ModelStreamEvent(kind, payload)` constructor.
@@ -1065,7 +1122,12 @@ Web JSON or generated Feishu presentation. The module does not import terminal,
 Web or Feishu implementations.
 
 Retry events discard the failed attempt's buffered text, whereas fatal turn
-errors flush it. Manual compact completion/failure events only update idle
+errors flush it. In particular, `stream_error` must not call `finish_stream()`
+and print a failed attempt's partial reply before a successful retry.
+While the CLI is accepting input, phase events must not resume its spinner
+over that input. Preserve `[steer] queued: <prompt>` on admission and
+`[steer] inserted: <prompt>` when the queued input actually starts.
+Manual compact completion/failure events only update idle
 status; the command event emits their result once. Auto-compact remains inside
 the active turn. Attach/history snapshots restore display state without sharing
 buffers between subscribers.
@@ -1118,6 +1180,40 @@ constitute an Agent cancellation API. It does not physically stop a blocking
 
 ## Tools
 
+Register `BaseTool` instances through `ToolRegistry.register(tool_instance)`.
+Keep declarations in the tool classes and serialize through
+`ToolSpec.serialize()`; do not
+restore loose name/description/handler registration, prompt-level
+`serialized_tools` overrides, or the removed
+`pycodex/prompts/exec_tools.json` / `pycodex/prompts/subagent_tools.json` fallbacks.
+Function-tool `output_schema` remains local metadata and is omitted on the wire,
+matching upstream's skipped field.
+
+`get_tools()` exposes the following available tools; the interactive exec-mode
+toolset selects a subset:
+
+```text
+shell shell_command exec_command write_stdin clock exec wait web_search
+update_plan request_user_input request_permissions spawn_agent send_input
+resume_agent wait_agent close_agent apply_patch grep_files read_file list_dir
+view_image
+```
+
+Except for the documented `clock` extension, each supported tool corresponds
+to one upstream built-in: preserve its name, parameters, interaction and output
+semantics rather than combining different tools' contracts.
+Ordinary function tools and freeform/custom tools such as `apply_patch` share
+the protocol; tool results can carry structured `input_image` content items.
+`web_search` is a provider-native Responses declaration, not a local registry
+execution. `exec` / `wait` run JavaScript in a Node subprocess with `text`,
+`image`, `store`, `load`, `exit`, `notify`, `yield_control` and `tools.<name>(...)`.
+Sub-agent tools share an in-process `SubAgentManager` that drives child
+`AgentRuntime` instances, independently of the host CLI's multi-agent harness.
+
+Unified exec has two separate output bounds: an omitted `max_output_tokens`
+still applies the default `10_000`-token response limit, and unread process
+output retains a bounded `1 MiB` head/tail buffer between polls.
+
 Tools implement async `BaseTool.run`. The registry converts execution failures
 to `ToolResult` errors. Existing explicitly parallel tool batches remain parallel:
 the Agent waits for every operation in a batch before advancing or propagating
@@ -1153,6 +1249,16 @@ Clock countdowns pause on turn/manual-compact start events and rearm on success,
 including successful manual compaction. Terminal events retain the single
 aggregate `background_work_count`.
 
+An exiting exec session can invoke `<exec_command_completed>` through
+`Agent.maybe_invoke` only while that Agent is idle; Runtime must not queue or
+cache the wake-up. `clock` likewise uses `maybe_invoke`, with one period per
+Agent/session and a timezone-aware ISO 8601 `current_time` captured when the
+timer expires. Starting a turn cancels the pending countdown; a successful
+reply rearms it. `clock(null)` and shutdown cancel it. The aggregate background
+count includes running exec sessions and an enabled clock after a successful
+reply; frontends consume that one field, without another queue or shell sleep
+loop.
+
 Host session workers, notification watchers, timer cancellation and I/O cleanup
 still use asyncio where appropriate. Those resource mechanisms are not per-turn
 Task ownership or user-requested turn cancellation.
@@ -1173,6 +1279,13 @@ Context configuration may be shared as immutable data,
 but child agents receive separate context managers and their own metadata cache.
 
 ## Model and history contracts
+
+Keep `UserMessage`, `AssistantMessage`, `ToolCall` and `ToolResult` as the basic
+conversation contracts when extending the richer item/event model. The
+test-only `ScriptedModelClient` belongs in `tests/fakes.py`, not the runtime
+package; the model boundary must remain replaceable and testable.
+Construction and first-write requirements are in
+[Recording lifecycle](#recording-lifecycle); they also apply to fork and resume.
 
 `ModelClient` requires both a read-only `model: str` identifier and async
 `complete`. `Agent.model_name` reads `client.model` directly; test clients must
@@ -1286,6 +1399,10 @@ allocate a new path, with the file created only on first write; in-memory
 sessions keep `session_file_path=None`.
 The old recorder constructor argument and
 `restore_session`/`set_rollout_recorder`/`replace_history` interfaces are removed.
+Recording is controlled solely by the path argument, never a separate enable
+flag or the provider's `_openai_subagent` marker. In-memory child turns,
+compaction, fork and no-argument resume must never write a rollout; filtering
+records after a write is not a substitute.
 `history` is read-only; `set_model` remains an operation with consistency checks
 rather than a mechanical setter wrapper.
 
@@ -1311,10 +1428,48 @@ events. `Agent.compact()` no longer takes a separate stream callback; observe
 through the Agent's normal event handler. Every compact retry reuses its supplied
 turn id, including the parent turn id for automatic compaction.
 
-The existing compact templates, append-only checkpoint format, truncation limits,
-sampling-boundary steer behavior and Python 3.6 syntax requirement remain in place.
+`model_auto_compact_token_limit` controls threshold compaction using the latest
+provider `usage.total_tokens`; an absent limit disables it. A successful
+`compacted` record is an append-only checkpoint whose `replacement_history`
+may contain only the summary. The old transcript remains on disk for audit,
+not in the next active prompt.
+
+The local templates deliberately preserve concise excerpts of the latest real
+user request in its original language, write the summary in the user's primary
+language, and tell the next model to continue the task rather than merely
+acknowledge the handoff. Preserve these additions
+when comparing with upstream `templates/compact/{prompt.md,summary_prefix.md}`.
+They are intentional differences, not stale copies to replace mechanically.
+
+On `context_length_exceeded`, parse `requested ... tokens (... in the messages,
+... in the completion)` when present and emit that real failed-request usage
+as `token_count`, then compact and retry once. A generic
+`Your input exceeds the context window...` error also triggers recovery but
+does not justify inventing usage. If compact itself overflows, repeatedly remove
+the oldest `ToolResult` and its paired `ToolCall` from the local compact input
+before retrying.
+
+`response.incomplete` is terminal, not a disconnected stream to retry five times.
+Ordinary turns report it; for `reason="max_output_tokens"`, completed
+assistant/reasoning items remain available for continuation as described above.
+A compact request can use an already received partial assistant summary for
+that same reason instead of repeatedly restarting compaction.
 
 ## Responses reliability
+
+The client reads provider configuration from the selected Codex config file
+and sends `stream = true`.
+`stream_max_retries` defaults to 5; tests that need an immediate fatal stream
+error must explicitly set it to 0 (see [test guidance](../tests/TESTS.md#provider-配置)).
+Provider `use_chat_completion = true` persistently enables the local compat
+transport; an explicit CLI `--use-chat-completion` still overrides that setting.
+
+Do not add a model-level `model_max_output_tokens` config or
+`max_output_tokens` request field for upstream parity: upstream does not send
+that model limit. The similarly named tool-output limits are separate.
+`service_tier = "fast"` maps to wire value `priority` only when the model's
+`service_tiers` metadata explicitly advertises that tier. Omit `default` and
+unsupported tiers.
 
 An optional provider `fallback_models` list enables client-local ordered model
 failover. Transient failures use the per-model retry budget; unavailable models

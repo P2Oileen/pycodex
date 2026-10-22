@@ -33,8 +33,35 @@
   `base_instructions`、`model_instructions_file`、模型 prompt、通用默认。
 - 模型专用 prompt 在 `pycodex/prompts/models.json`，不通过字符串补丁或
   另一套 serialized-tools 通道覆盖请求。
+  本地 `step-3.5-flash`、`step-3.5-flash-2603`、`step-3.6` 均通过该表接入；
+  新增模型也应沿用这个入口。
 - 这次对齐不改变 `AgentRuntime → Agent` 两层结构，也不恢复 collaboration
   mode、turn cancellation 或固定 iteration cap。
+
+`x-codex-turn-metadata.workspaces` 按逻辑 turn 区分：首个 turn 的
+steer/follow-up 请求继续携带，后续新 turn 才省略，不是整个 session
+仅第一条请求携带。历史对比及其测试隔离边界见
+[Steer semantics](ALIGNMENT.md#steer-semantics)。
+
+## Context 用量与压缩
+
+修改用量显示时，区分 CLI 与 workspace 的分母：
+
+- CLI 展示剩余 context 百分比。窗口优先采用 config/profile 的
+  `model_context_window`，其次是模型元数据 `context_window`；按模型的
+  `effective_context_window_percent` 缩放，未指定时为 `95%`。
+  显示归一化使用 `BASELINE_TOKENS=12000`：从 effective window 和
+  `usage.total_tokens` 中扣除这个基线，用量最低为零。模型窗口已知时，
+  第一次 usage 到来前显示 `100%`。
+- Workspace 优先以自动压缩阈值为分母，未配置阈值时才使用最大窗口。
+  compact/resume 后 usage 未知，当前界面先显示 `100%`，随后由新的
+  provider usage 更新；该值不表示压缩后的提示为空。
+- 正常统计来自最近一次 `response.completed.response.usage.total_tokens`，
+  不是把各轮 usage 累加。固定指令和工具定义在下一次请求中仍占 context；
+  压缩只替换真实历史，不删除这些注入项。
+
+阈值、溢出重试、摘要保留用户语言、部分摘要及 append-only checkpoint
+的实现约束统一见 [Compaction](RUNTIME.md#compaction)，不在本页维护第二份。
 
 ## 普通 Responses
 
