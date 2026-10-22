@@ -43,6 +43,77 @@ def make_queue(client=None):
     )
 
 
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("/data/project", "/data/project"),
+        ("/tmp/", "/tmp/"),
+        ("/not-created/with spaces/file.txt", "/not-created/with spaces/file.txt"),
+        ("/model/config.toml", "/model/config.toml"),
+        ("//server/share", "//server/share"),
+        ("/", "/"),
+        (" /modle ", "/modle"),
+        (" /tmp", "/tmp"),
+        (" /model changed", "/model changed"),
+        (" /queue literal", "/queue literal"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_slash_paths_and_escaped_commands_are_messages(text, expected):
+    client = ControlClient([ModelResponse([AssistantMessage("done")])])
+    queue = make_queue(client)
+    events = []
+    queue.attach(events.append)
+    await queue.start()
+    try:
+        receipt = await queue.submit_input(text)
+        assert receipt.kind == "turn"
+        await receipt.future
+        assert queue.agent.history == (
+            UserMessage(expected), AssistantMessage("done"),
+        )
+        assert queue.agent.model_name == "scripted"
+        queued = [event for event in events if event.kind == "input_queued"]
+        assert len(queued) == 1
+        assert queued[0].queue == "steer"
+        assert not any(event.kind.startswith("command_") for event in events)
+    finally:
+        await queue.close()
+
+
+@pytest.mark.parametrize("text", ["/modle", "/tmp", "/modle /data/project"])
+@pytest.mark.asyncio
+async def test_unknown_single_component_slash_names_remain_command_errors(text):
+    queue = make_queue()
+    events = []
+    queue.attach(events.append)
+    receipt = await queue.submit_input(text)
+    assert receipt.kind == "command"
+    with pytest.raises(ValueError, match="Unknown command"):
+        await receipt.future
+    assert not queue.agent.history
+    assert events[-1].kind == "command_failed"
+    assert events[-1].command == text.split()[0]
+
+
+@pytest.mark.parametrize("text", ["/tmp/", " /tmp", " /model"])
+@pytest.mark.asyncio
+async def test_slash_text_can_answer_a_pending_question(text):
+    queue = make_queue()
+    observer = queue.attach(lambda event: None)
+    manager = queue.agent.tool_registry.runtime_environment.request_user_input_manager
+    payload = question_payload()
+    payload["questions"] = payload["questions"][:1]
+    request = asyncio.create_task(manager.request(payload))
+    await asyncio.sleep(0)
+    receipt = await queue.submit_input(text)
+    assert receipt.kind == "answer"
+    answer = await request
+    assert answer["answers"]["first"]["answers"] == [text.strip()]
+    assert queue.snapshot()["input_request"] is None
+    queue.detach(observer)
+
+
 @pytest.mark.parametrize("dirname", ["sessions", "archived_sessions"])
 @pytest.mark.asyncio
 async def test_resume_session_id_finds_older_rollouts_and_keeps_state_on_errors(dirname):

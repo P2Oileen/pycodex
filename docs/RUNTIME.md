@@ -1313,3 +1313,22 @@ turn id, including the parent turn id for automatic compaction.
 
 The existing compact templates, append-only checkpoint format, truncation limits,
 sampling-boundary steer behavior and Python 3.6 syntax requirement remain in place.
+
+## Responses reliability
+
+Responses HTTP 408/429 and server errors use the provider retry budget.
+Rate-limit messages containing `try again in` or `retry after` supply the retry
+delay. CLI and workspace retry notices include the underlying error details;
+workspace notices survive browser refresh and active-turn reattachment, and
+remain separate from the assistant reply. They are not persisted in rollouts.
+
+Providers may configure a positive `stream_first_data_timeout_ms` to bound
+the initial wait for response body data, including waiting for headers. After
+body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
+preserves the existing timeout behavior. These are transport timeouts, not a
+total generation deadline.
+
+Each HTTP attempt emits `model_request_timing` with the model, elapsed seconds,
+first-data seconds and completed/failed outcome. Without the first-data option,
+the first-data measurement uses the first streamed line. Timing events are
+available through workspace event records, including compaction requests.

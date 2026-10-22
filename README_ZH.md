@@ -78,7 +78,11 @@ pycodex --json "Reply with exactly OK."
 | `/fork` | 保留当前历史，以新会话 ID 继续 |
 | `/queue <message>` | 等当前 turn 完成后再执行 |
 
-运行中提交普通输入，会在下一个安全采样边界插入。会话保存在
+运行中提交普通输入，会在下一个安全采样边界插入。
+斜杠输入遵循 Codex 的命令规则：`/data/project` 和 `/tmp/` 是普通消息；
+`/modle` 或 `/tmp` 这样的未知单层名称会提示命令错误。
+在输入开头加一个空格即可按文本发送，包括已知命令，例如 ` /model`。
+这些规则同样适用于浏览器工作区和飞书。会话保存在
 `CODEX_HOME/sessions`；配置 `model_auto_compact_token_limit` 可启用自动压缩。
 
 Ctrl+D 或 Ctrl+C 发起退出，等待已接收任务完成；关闭等待期间再次 Ctrl+C

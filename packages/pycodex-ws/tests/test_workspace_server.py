@@ -328,7 +328,11 @@ const log = {
   get clientHeight() { return logVisible ? 100 : 0; },
   children: [], getBoundingClientRect: () => ({top: 0}),
 };
-const prompt = {};
+const prompt = {addEventListener() {}};
+class PromptHistory {
+  reset() {}
+  update() {}
+}
 const contextBlockDetail = {hidden: true};
 const showToast = () => {};
 class Composer {

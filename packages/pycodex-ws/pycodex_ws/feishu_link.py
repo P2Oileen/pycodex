@@ -105,7 +105,7 @@ class PycodexRuntimeLink:
                     "content": "Unsupported action: {0}".format(action.get("action")),
                 }
             }
-        prompt = str(action.get("prompt") or "").strip()
+        prompt = str(action.get("prompt") or "")
         future = asyncio.run_coroutine_threadsafe(
             self.runtime.submit_input(
                 prompt, sender=str(action.get("sender") or "feishu")

@@ -1,6 +1,7 @@
 // Workspace content tabs, live updates and editor lifecycle.
 import {tabLabels} from "./view_labels.mjs";
 export {Composer} from "./composer.mjs";
+export {PromptHistory} from "./prompt_history.mjs";
 
 export function isWorkspaceLink(href, filePaths = true) {
   if (typeof href !== "string" || !href || href !== href.trim() || /[\x00-\x1f\x7f]/.test(href)) {

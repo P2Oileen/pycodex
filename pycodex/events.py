@@ -272,6 +272,17 @@ class TokenCountEvent(ModelEvent):
 
 
 @dataclass(frozen=True)
+class ModelRequestTimingEvent(ModelEvent):
+    model: "str"
+    elapsed_seconds: "float"
+    first_data_seconds: "typing.Union[float, None]"
+    outcome: "str"
+    turn_id: "str" = ""
+    submission_id: "typing.Union[str, None]" = None
+    kind: ClassVar[str] = "model_request_timing"
+
+
+@dataclass(frozen=True)
 class StreamErrorEvent(ModelEvent):
     message: "str"
     attempt: "int"
@@ -285,9 +296,14 @@ class StreamErrorEvent(ModelEvent):
     def visualize(self) -> "str":
         return self.message
 
+    def detail(self) -> "str":
+        if not self.error:
+            return self.message
+        return "{0}\n{1}".format(self.message, self.error)
+
     def render(self, display: "EventDisplay") -> "None":
         display.stream_buffer = ""
-        display.write("[status] " + self.visualize(), "status")
+        display.write("[status] " + self.detail(), "status")
         display.set_status("reconnecting")
 
 

@@ -397,6 +397,9 @@ class WebSessionView:
                             active["submission_id"],
                         )
                     )
+                    self._turns_by_turn_id[active["turn_id"]]["model_errors"] = list(
+                        active.get("model_errors", [])
+                    )
             elif event.reason == "title":
                 self.set_session_title(state["title"])
             else:
@@ -462,6 +465,10 @@ class WebSessionView:
             else:
                 turn["thinking"] = delta
                 turn["_thinking_active"] = True
+            return
+
+        if isinstance(event, StreamErrorEvent):
+            turn.setdefault("model_errors", []).append(event.detail())
             return
 
         if isinstance(event, ToolStartedEvent):
@@ -1815,6 +1822,7 @@ def _public_turn(turn: "typing.Dict[str, object]") -> "typing.Dict[str, object]"
                 "queue": turn.get("queue", ""),
                 "sender": turn.get("sender", ""),
                 "kind": turn.get("kind", "assistant"),
+                "model_errors": turn.get("model_errors", []),
             }
         ),
     )

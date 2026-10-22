@@ -8,9 +8,11 @@ import urllib.parse
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from time import monotonic
 from typing import Callable
 
 import requests
+from urllib3.exceptions import ReadTimeoutError
 
 from .utils.compat import Protocol
 
@@ -22,6 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 path
 from .events import (
     AssistantDeltaEvent,
     ModelEvent,
+    ModelRequestTimingEvent,
     StreamErrorEvent,
     TokenCountEvent,
     ToolCalledEvent,
@@ -48,7 +51,7 @@ DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 INITIAL_RETRY_DELAY_SECONDS = 0.2
 RETRY_BACKOFF_FACTOR = 2.0
 RATE_LIMIT_RETRY_AFTER_RE = re.compile(
-    r"(?i)try again in\s*(\d+(?:\.\d+)?)\s*(s|ms|seconds?)"
+    r"(?i)(?:try again in|retry after)\s*(\d+(?:\.\d+)?)\s*(ms|seconds?|s)"
 )
 
 
@@ -97,6 +100,14 @@ class ResponsesProviderConfig:
     stream_idle_timeout_ms: "typing.Union[int, None]" = None
     service_tier: "typing.Union[str, None]" = None
     responses_lite_override: "typing.Union[bool, None]" = None
+    stream_first_data_timeout_ms: "typing.Union[int, None]" = None
+
+    def __post_init__(self):
+        value = self.stream_first_data_timeout_ms
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        ):
+            raise ValueError("stream_first_data_timeout_ms must be a positive integer")
 
     @classmethod
     def from_codex_config(
@@ -160,6 +171,7 @@ class ResponsesProviderConfig:
             stream_idle_timeout_ms=_optional_int(
                 provider.get("stream_idle_timeout_ms")
             ),
+            stream_first_data_timeout_ms=provider.get("stream_first_data_timeout_ms"),
         )
 
     def api_key(self) -> "typing.Union[str, None]":
@@ -361,6 +373,10 @@ class ResponsesRetryableError(ResponsesApiError):
         self.retry_delay_seconds = retry_delay_seconds
 
 
+class ResponsesFirstDataTimeout(ResponsesRetryableError):
+    """The configured wait for initial response data has expired."""
+
+
 @dataclass
 class _StreamDiagnostics:
     raw_lines_received: "int" = 0
@@ -369,6 +385,8 @@ class _StreamDiagnostics:
     last_sse_event_name: "str" = ""
     last_event_type: "str" = ""
     last_payload_excerpt: "str" = ""
+    started_at: "float" = field(default_factory=monotonic)
+    first_data_seconds: "typing.Union[float, None]" = None
 
 
 class ResponsesModelClient:
@@ -545,6 +563,9 @@ class ResponsesModelClient:
             data=body,
         )
         diagnostics = _StreamDiagnostics()
+        completed = False
+        first_data_ms = self._config.stream_first_data_timeout_ms
+        first_timeout = first_data_ms / 1000.0 if first_data_ms is not None else None
         try:
             with requests.Session() as session:
                 settings = session.merge_environment_settings(
@@ -558,8 +579,10 @@ class ResponsesModelClient:
                 if verify is not None:
                     settings["verify"] = verify
                 timeout = (
-                    max(self._timeout_seconds, 1.0),
-                    self._config.effective_stream_idle_timeout_seconds(),
+                    min(max(self._timeout_seconds, 1.0), first_timeout)
+                    if first_timeout is not None else max(self._timeout_seconds, 1.0),
+                    first_timeout if first_timeout is not None
+                    else self._config.effective_stream_idle_timeout_seconds(),
                 )
                 response = session.send(
                     prepared,
@@ -576,22 +599,60 @@ class ResponsesModelClient:
                         )
                         if _is_context_length_error_message(error_body):
                             raise ContextLengthExceeded(message)
-                        if response.status_code >= 500:
-                            raise ResponsesRetryableError(message)
+                        if response.status_code >= 500 or response.status_code in (408, 429):
+                            raise ResponsesRetryableError(
+                                message,
+                                retry_delay_seconds=self._try_parse_retry_after_seconds(
+                                    "rate_limit_exceeded" if response.status_code == 429 else "",
+                                    error_body,
+                                ),
+                            )
                         raise ResponsesApiError(message)
-                    tracked_lines = self._track_stream_lines(
-                        response.iter_lines(chunk_size=1, decode_unicode=False),
-                        diagnostics,
-                    )
-                    return self._parse_stream(
+                    if first_timeout is not None:
+                        remaining = first_timeout - (monotonic() - diagnostics.started_at)
+                        if remaining <= 0:
+                            raise ResponsesFirstDataTimeout(
+                                "responses first-data timeout after {:.1f}s".format(first_timeout)
+                            )
+                        _set_response_read_timeout(response, remaining)
+                        lines = _stream_lines(self._track_stream_chunks(
+                            response.iter_content(chunk_size=1, decode_unicode=False),
+                            diagnostics, response,
+                        ))
+                    else:
+                        lines = response.iter_lines(chunk_size=1, decode_unicode=False)
+                    tracked_lines = self._track_stream_lines(lines, diagnostics)
+                    result = self._parse_stream(
                         tracked_lines,
                         event_handler,
                         diagnostics=diagnostics,
                     )
+                    completed = True
+                    return result
         except requests.RequestException as exc:
-            raise ResponsesRetryableError(
-                self._format_transport_error(url, exc, diagnostics)
-            ) from exc
+            error_type = ResponsesRetryableError
+            if (
+                first_timeout is not None and diagnostics.first_data_seconds is None
+                and (
+                    isinstance(exc, requests.Timeout)
+                    or isinstance(exc.__context__, ReadTimeoutError)
+                    or any(isinstance(arg, ReadTimeoutError) for arg in exc.args)
+                )
+            ):
+                error_type = ResponsesFirstDataTimeout
+            error = error_type(self._format_transport_error(url, exc, diagnostics))
+            error.elapsed_seconds = monotonic() - diagnostics.started_at
+            error.first_data_seconds = diagnostics.first_data_seconds
+            raise error from exc
+        except ResponsesApiError as exc:
+            exc.elapsed_seconds = monotonic() - diagnostics.started_at
+            exc.first_data_seconds = diagnostics.first_data_seconds
+            raise
+        finally:
+            event_handler(ModelRequestTimingEvent(
+                self.model, monotonic() - diagnostics.started_at,
+                diagnostics.first_data_seconds, "completed" if completed else "failed",
+            ))
 
     def _build_payload(self, prompt: "Prompt") -> "typing.Dict[str, object]":
         use_responses_lite = self._config.use_responses_lite()
@@ -974,8 +1035,19 @@ class ResponsesModelClient:
         diagnostics: "_StreamDiagnostics",
     ):
         for raw_line in response:
+            if diagnostics.first_data_seconds is None:
+                diagnostics.first_data_seconds = monotonic() - diagnostics.started_at
             diagnostics.raw_lines_received += 1
             yield raw_line
+
+    def _track_stream_chunks(self, chunks, diagnostics, response):
+        for chunk in chunks:
+            if chunk and diagnostics.first_data_seconds is None:
+                diagnostics.first_data_seconds = monotonic() - diagnostics.started_at
+                _set_response_read_timeout(
+                    response, self._config.effective_stream_idle_timeout_seconds()
+                )
+            yield chunk
 
     def _base_error_details(
         self,
@@ -1010,6 +1082,8 @@ class ResponsesModelClient:
         details = self._base_error_details(url)
         if diagnostics is not None:
             details.extend(self._transport_diagnostics_details(diagnostics))
+            details.append(("elapsed_seconds", round(monotonic() - diagnostics.started_at, 3)))
+            details.append(("first_data_seconds", diagnostics.first_data_seconds))
         details.append(("exception", type(exc).__name__))
         details.append(("detail", str(exc) or repr(exc)))
         details.append(
@@ -1208,6 +1282,34 @@ class ResponsesModelClient:
         if unit == "ms":
             return value / 1000.0
         return value
+
+
+def _set_response_read_timeout(response, seconds):
+    # Keep-alive responses expose the socket on the urllib3 connection. For
+    # Connection: close, http.client retains it on the response file instead.
+    raw = getattr(response, "raw", None)
+    connection = getattr(raw, "connection", None)
+    sock = getattr(connection, "sock", None)
+    if sock is None:
+        fp = getattr(getattr(raw, "_fp", None), "fp", None)
+        sock = getattr(getattr(fp, "raw", None), "_sock", None)
+    if sock is not None:
+        sock.settimeout(seconds)
+
+
+def _stream_lines(chunks):
+    pending = None
+    for chunk in chunks:
+        if pending is not None:
+            chunk = pending + chunk
+        lines = chunk.splitlines()
+        if lines and lines[-1] and chunk and lines[-1][-1] == chunk[-1]:
+            pending = lines.pop()
+        else:
+            pending = None
+        yield from lines
+    if pending is not None:
+        yield pending
 
 
 def _optional_int(value: "object") -> "typing.Union[int, None]":
