@@ -185,6 +185,22 @@ target.
 
 ## Responses reliability
 
+Providers can opt into ordered failover with `fallback_models = ["backup-one",
+"backup-two"]` in their `[model_providers.<name>]` table. Each target uses the
+same endpoint, credentials, history and tools; request settings are rebuilt for
+that model, while the session's selected model stays unchanged. Transient errors
+exhaust `stream_max_retries` before advancing. Unavailable-model errors and
+first-data timeouts advance immediately. Existing retry notices name both models
+and include the underlying error.
+
+Failed models cool down for 900 seconds within that client. Subsequent requests
+skip them, retry them after expiry, and restart the full chain when every target
+is cooling. `fallback_cooldown_seconds = 0` disables cooldown; explicit model
+selection clears it. New sessions and subagents have independent cooldowns.
+An absent or empty list disables failover. Invalid input, context-length and
+terminal incomplete errors retain their existing handling. Backups must support
+the active tools and context size; compaction keeps the selected model's policy.
+
 Responses HTTP 408/429 and server errors use the provider retry budget.
 Rate-limit messages containing `try again in` or `retry after` supply the retry
 delay. CLI and workspace retry notices include the underlying error details;

@@ -1316,6 +1316,21 @@ sampling-boundary steer behavior and Python 3.6 syntax requirement remain in pla
 
 ## Responses reliability
 
+An optional provider `fallback_models` list enables client-local ordered model
+failover. Transient failures use the per-model retry budget; unavailable models
+and first-data timeouts skip directly to the next target. Fallback preserves the
+selected primary, endpoint, credentials and prompt, and rebuilds model-specific
+request settings. It emits an existing `StreamErrorEvent` naming both targets
+and carrying the failed attempt's diagnostic. No Runtime or frontend state is
+added for routing.
+
+`fallback_cooldown_seconds` is a nonnegative integer, defaults to 900 and can be
+zero. Each client tracks monotonic cooldown deadlines; later requests skip
+cooling targets and retry them in their original order after expiry. If all
+targets are cooling, the next completion clears the deadlines and tries again.
+Explicit model selection clears cooldowns; new clients have independent state.
+Terminal request, context-length and incomplete errors do not cause failover.
+
 Responses HTTP 408/429 and server errors use the provider retry budget.
 Rate-limit messages containing `try again in` or `retry after` supply the retry
 delay. CLI and workspace retry notices include the underlying error details;
