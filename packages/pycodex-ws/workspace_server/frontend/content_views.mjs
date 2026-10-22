@@ -171,6 +171,15 @@ export class ContentTabs {
     await this.load(id);
   }
 
+  setDisplayMode(displayMode) {
+    if (!this.snapshot || this.activeId === null || this.activeId === "board" ||
+        !["source", "preview"].includes(displayMode)) return;
+    this.cancelOpen();
+    this.selection = null;
+    this.displayMode = displayMode;
+    this.onChange(this);
+  }
+
   async load(id) {
     const request = new AbortController();
     this.contentRequest = request;
@@ -297,12 +306,13 @@ class HtmlPreview {
 }
 
 export class SnapshotDisplay {
-  constructor({content, renderMarkdown, loadEditor = null, onInsertContext = null,
+  constructor({content, renderMarkdown, loadEditor = null, onInsertContext = null, onChangeMode = null,
     createHtmlPreview = (parent, position) => new HtmlPreview(parent, position)}) {
     this.content = content;
     this.document = content.ownerDocument;
     this.renderMarkdown = renderMarkdown;
     this.onInsertContext = onInsertContext;
+    this.onChangeMode = onChangeMode;
     this.loadEditor = loadEditor || (() => this.loadEditorAssets());
     this.editorAssets = null;
     this.createHtmlPreview = createHtmlPreview;
@@ -378,6 +388,17 @@ export class SnapshotDisplay {
     }
   }
 
+  addModeToggle(parent, sourceMode, before = null) {
+    if (!this.onChangeMode) return;
+    const button = element(this.document, "button", "content-mode-toggle",
+      sourceMode ? "Show preview" : "Show source");
+    button.type = "button";
+    button.title = sourceMode ? "Show rendered Markdown" : "Show Markdown source";
+    button.setAttribute("aria-label", button.textContent);
+    button.addEventListener("click", () => this.onChangeMode(sourceMode ? "preview" : "source"));
+    parent.insertBefore(button, before);
+  }
+
   async show(id, snapshot, selection = null, displayMode = null) {
     if (selection && snapshot.revision < selection.contentRevision) selection = null;
     this.pendingSelection = selection;
@@ -423,6 +444,13 @@ export class SnapshotDisplay {
           return;
         }
         this.editor = editor;
+        if (this.onChangeMode && this.renderMarkdown && snapshot.kind === "file" &&
+            /\.(md|markdown)$/i.test(source.label)) {
+          const toolbar = parent.querySelector(".editor-toolbar");
+          const actions = toolbar.querySelector(".editor-actions");
+          toolbar.insertBefore(element(this.document, "span", "snapshot-stamp", "Read only"), actions);
+          this.addModeToggle(toolbar, true, actions);
+        }
       } catch (error) {
         if (generation !== this.generation) return;
         this.content.textContent = "";
@@ -445,6 +473,10 @@ export class SnapshotDisplay {
       const heading = element(this.document, "div", "snapshot-heading");
       heading.appendChild(element(this.document, "span", "snapshot-label", source.label));
       heading.appendChild(element(this.document, "span", "snapshot-stamp", "Read only"));
+      if (markdown && this.onChangeMode) {
+        heading.classList.add("markdown-heading");
+        this.addModeToggle(heading, false);
+      }
       root.appendChild(heading);
       if (source.image_url) {
         const image = element(this.document, "img", "snapshot-image");
@@ -485,7 +517,10 @@ export function mountContentViews({
   enableBoard = true,
 }) {
   const document = tabs.ownerDocument;
-  const display = new SnapshotDisplay({content, renderMarkdown, onInsertContext});
+  const display = new SnapshotDisplay({
+    content, renderMarkdown, onInsertContext,
+    onChangeMode: mode => controller.setDisplayMode(mode),
+  });
   let displayedId;
   let displayedSnapshot = null;
   let displayedLoading = false;

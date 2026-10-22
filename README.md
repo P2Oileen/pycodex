@@ -177,6 +177,12 @@ uv run --dev pytest
 
 Release notes and implementation details live in `docs/`.
 
+## Markdown view modes
+
+Markdown file views include a Show source / Show preview button. Switching
+modes preserves each mode's reading position without replaying a previous line
+target.
+
 ## Responses reliability
 
 Responses HTTP 408/429 and server errors use the provider retry budget.
