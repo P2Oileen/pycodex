@@ -251,6 +251,7 @@ class AgentRuntime:
         self._publish(RuntimeUpdatedEvent(reason))
 
     def publish_state(self, reason):
+        self._published_tool_states = self.agent.tool_states()
         self._recorded_rollout_path = self.agent.recorded_session_file_path
         self._publish(SessionStateEvent(reason, self.snapshot()))
 
