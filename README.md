@@ -82,6 +82,11 @@ pycodex --json "Reply with exactly OK."
 | `/queue <message>` | Wait for the active turn to finish before submitting |
 
 Ordinary input during a turn steers at the next safe sampling boundary.
+Slash input uses Codex's command rules: `/data/project` and `/tmp/` are
+ordinary messages, while an unknown single-component name such as `/modle`
+or `/tmp` reports a command error. Start the input with a space to send any
+slash-prefixed text literally, including known commands such as ` /model`.
+These rules also apply to the browser workspace and Feishu.
 Sessions are saved under `CODEX_HOME/sessions`. Set
 `model_auto_compact_token_limit` in the configuration to compact automatically.
 
@@ -174,36 +179,21 @@ Release notes and implementation details live in `docs/`.
 
 ## Responses reliability
 
-Configure an ordered `fallback_models` array in the selected provider table to
-enable automatic failover at the same endpoint:
+Providers can opt into ordered failover with `fallback_models = ["backup-one",
+"backup-two"]` in their `[model_providers.<name>]` table. Each target uses the
+same endpoint, credentials, history and tools; request settings are rebuilt for
+that model, while the session's selected model stays unchanged. Transient errors
+exhaust `stream_max_retries` before advancing. Unavailable-model errors and
+first-data timeouts advance immediately. Existing retry notices name both models
+and include the underlying error.
 
-```toml
-[model_providers.example]
-base_url = "https://your-provider.example/v1"
-env_key = "PROVIDER_API_KEY"
-fallback_models = ["backup-one", "backup-two"]
-stream_max_retries = 1
-fallback_cooldown_seconds = 900
-```
-
-Transient errors exhaust the retry budget for each model before advancing.
-Unavailable-model errors and configured first-data timeouts advance immediately.
-Failed models enter a session-local cooldown; subsequent completions skip them
-until expiry. Zero disables cooldown, explicit model selection clears it, and
-if all models are cooling the next completion retries the full chain.
-Sessions and subagents have separate cooldowns. An absent or empty list disables
-failover; terminal input, context-length and incomplete errors are not masked.
-
-Failover retains the selected primary and conversation, while rebuilding
-model-dependent request settings for each target. The workspace displays the
-actual model, switch reason, elapsed time and primary retry time, and keeps
-per-turn switch notes across browser refresh. Routing notes remain in memory
-and are not restored after a service restart.
-
-Fallbacks should support the same tools and active context size as the primary.
-Automatic compaction continues to use the selected model's context policy;
-a fallback context-length error propagates through the existing context-error
-handling rather than silently choosing another model.
+Failed models cool down for 900 seconds within that client. Subsequent requests
+skip them, retry them after expiry, and restart the full chain when every target
+is cooling. `fallback_cooldown_seconds = 0` disables cooldown; explicit model
+selection clears it. New sessions and subagents have independent cooldowns.
+An absent or empty list disables failover. Invalid input, context-length and
+terminal incomplete errors retain their existing handling. Backups must support
+the active tools and context size; compaction keeps the selected model's policy.
 
 Responses HTTP 408/429 and server errors use the provider retry budget.
 Rate-limit messages containing `try again in` or `retry after` supply the retry
@@ -211,13 +201,9 @@ delay. CLI and workspace retry notices include the underlying error details;
 workspace notices survive browser refresh and active-turn reattachment, and
 remain separate from the assistant reply. They are not persisted in rollouts.
 
-Providers may configure a positive `stream_first_data_timeout_ms` to bound
-the initial wait for response body data, including waiting for headers. After
-body bytes arrive, reads use `stream_idle_timeout_ms`. Omitting the option
-preserves the existing timeout behavior. These are transport timeouts, not a
-total generation deadline.
+## Workspace input history
 
-Each HTTP attempt emits `model_request_timing` with the model, elapsed seconds,
-first-data seconds and completed/failed outcome. Without the first-data option,
-the first-data measurement uses the first streamed line. Timing events are
-available through workspace event records, including compaction requests.
+The workspace message box supports Up/Down input history. Up recalls earlier
+human inputs in the current conversation; Down returns to the unsent draft.
+Automatic wake-up messages are excluded, and arrows retain normal cursor
+movement inside multiline drafts.

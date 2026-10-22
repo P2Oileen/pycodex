@@ -357,9 +357,9 @@ class PycodexCard:
             or getattr(action_payload, "input_value", None)
             or value.get("input_value")
             or ""
-        ).strip()
+        )
         if not prompt and form_values:
-            prompt = str(next(iter(form_values.values()))).strip()
+            prompt = str(next(iter(form_values.values())))
         action = str(
             value.get("action") or getattr(action_payload, "name", None) or "send"
         ).strip()

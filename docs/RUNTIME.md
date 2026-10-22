@@ -1316,36 +1316,20 @@ sampling-boundary steer behavior and Python 3.6 syntax requirement remain in pla
 
 ## Responses reliability
 
-Configure an ordered `fallback_models` array in the selected provider table to
-enable automatic failover at the same endpoint:
+An optional provider `fallback_models` list enables client-local ordered model
+failover. Transient failures use the per-model retry budget; unavailable models
+and first-data timeouts skip directly to the next target. Fallback preserves the
+selected primary, endpoint, credentials and prompt, and rebuilds model-specific
+request settings. It emits an existing `StreamErrorEvent` naming both targets
+and carrying the failed attempt's diagnostic. No Runtime or frontend state is
+added for routing.
 
-```toml
-[model_providers.example]
-base_url = "https://your-provider.example/v1"
-env_key = "PROVIDER_API_KEY"
-fallback_models = ["backup-one", "backup-two"]
-stream_max_retries = 1
-fallback_cooldown_seconds = 900
-```
-
-Transient errors exhaust the retry budget for each model before advancing.
-Unavailable-model errors and configured first-data timeouts advance immediately.
-Failed models enter a session-local cooldown; subsequent completions skip them
-until expiry. Zero disables cooldown, explicit model selection clears it, and
-if all models are cooling the next completion retries the full chain.
-Sessions and subagents have separate cooldowns. An absent or empty list disables
-failover; terminal input, context-length and incomplete errors are not masked.
-
-Failover retains the selected primary and conversation, while rebuilding
-model-dependent request settings for each target. The workspace displays the
-actual model, switch reason, elapsed time and primary retry time, and keeps
-per-turn switch notes across browser refresh. Routing notes remain in memory
-and are not restored after a service restart.
-
-Fallbacks should support the same tools and active context size as the primary.
-Automatic compaction continues to use the selected model's context policy;
-a fallback context-length error propagates through the existing context-error
-handling rather than silently choosing another model.
+`fallback_cooldown_seconds` is a nonnegative integer, defaults to 900 and can be
+zero. Each client tracks monotonic cooldown deadlines; later requests skip
+cooling targets and retry them in their original order after expiry. If all
+targets are cooling, the next completion clears the deadlines and tries again.
+Explicit model selection clears cooldowns; new clients have independent state.
+Terminal request, context-length and incomplete errors do not cause failover.
 
 Responses HTTP 408/429 and server errors use the provider retry budget.
 Rate-limit messages containing `try again in` or `retry after` supply the retry

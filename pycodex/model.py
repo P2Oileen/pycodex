@@ -8,7 +8,7 @@ import urllib.parse
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from time import monotonic, time
+from time import monotonic
 from typing import Callable
 
 import requests
@@ -24,7 +24,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 path
 from .events import (
     AssistantDeltaEvent,
     ModelEvent,
-    ModelRequestStartedEvent,
     ModelRequestTimingEvent,
     StreamErrorEvent,
     TokenCountEvent,
@@ -534,11 +533,9 @@ class ResponsesModelClient:
         available_models = [
             model for model in models if model not in self._model_cooldowns
         ]
-        cooldown_reset = False
         if not available_models:
             self._model_cooldowns.clear()
             available_models = list(models)
-            cooldown_reset = True
         fallback_models = iter(available_models)
         first_model = next(fallback_models)
         request_client = (
@@ -559,31 +556,7 @@ class ResponsesModelClient:
                 if active:
                     loop.call_soon_threadsafe(deliver, event)
 
-        def notify_model(
-            previous_model=None,
-            fallback_reason=None,
-            failed_after_seconds=None,
-        ):
-            if not self._config.fallback_models:
-                return
-            primary_retry_at = self._model_cooldowns.get(self.model)
-            cooldown_until = None
-            if request_client.model != self.model and primary_retry_at is not None:
-                cooldown_until = time() + max(0.0, primary_retry_at - monotonic())
-            event_handler(
-                ModelRequestStartedEvent(
-                    request_client.model,
-                    self.model,
-                    previous_model,
-                    fallback_cooldown_until=cooldown_until,
-                    fallback_reason=fallback_reason,
-                    failed_after_seconds=failed_after_seconds,
-                    cooldown_reset=cooldown_reset and previous_model is None,
-                )
-            )
-
         try:
-            notify_model()
             while True:
                 try:
                     response = await asyncio.to_thread(request_client._complete_sync, prompt, receive)
@@ -612,13 +585,7 @@ class ResponsesModelClient:
                                 str(exc),
                             )
                         )
-                        previous_model = request_client.model
                         request_client = self.with_overrides(model=fallback_model)
-                        notify_model(
-                            previous_model,
-                            _summarize_model_error(exc),
-                            getattr(exc, "elapsed_seconds", None),
-                        )
                         retries = 0
                         continue
                     retries += 1
@@ -1379,32 +1346,6 @@ class ResponsesModelClient:
         if unit == "ms":
             return value / 1000.0
         return value
-
-
-def _summarize_model_error(exc):
-    text = str(exc)
-    lower = text.lower()
-    if isinstance(exc, ResponsesFirstDataTimeout) or (
-        "readtimeout" in lower and "first_data_seconds: none" in lower
-    ):
-        return "no response data before timeout"
-    if "rate_limit_exceeded" in lower or "capacity limit" in lower:
-        retry = re.search(r"retry after\s+([0-9.]+\s*seconds?)", text, re.IGNORECASE)
-        quota = re.search(
-            r"reached:\s*([0-9,]+\s+tokens per\s+[0-9]+\s+seconds?)",
-            text,
-            re.IGNORECASE,
-        )
-        details = []
-        if quota:
-            details.append(quota.group(1))
-        if retry:
-            details.append("retry after " + retry.group(1))
-        return "rate limited" + (": " + "; ".join(details) if details else "")
-    status = re.search(r"status\s+(\d+)", text, re.IGNORECASE)
-    if status:
-        return "HTTP " + status.group(1)
-    return type(exc).__name__
 
 
 def _set_response_read_timeout(response, seconds):

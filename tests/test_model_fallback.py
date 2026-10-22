@@ -20,7 +20,6 @@ from pycodex.model import (
     ResponsesIncompleteError,
     ResponsesRetryableError,
 )
-from pycodex.events import ModelRequestStartedEvent
 
 MODELS = (
     "primary",
@@ -166,13 +165,7 @@ async def test_ordered_fallback_preserves_history_tools_and_primary(monkeypatch)
         )
         == 3
     )
-    starts = [event for event in events if isinstance(event, ModelRequestStartedEvent)]
-    assert [(event.model, event.previous_model) for event in starts] == [
-        (MODELS[0], None),
-        (MODELS[1], MODELS[0]),
-        (MODELS[2], MODELS[1]),
-        (MODELS[3], MODELS[2]),
-    ]
+    assert not any(event.kind == "model_request_started" for event in events)
     assert model_client.model == MODELS[0]
     recovered[0] = True
     await model_client.complete(prompt)
@@ -285,7 +278,6 @@ async def test_fallback_does_not_mask_terminal_errors(monkeypatch, failure, erro
 def cooldown_clock(monkeypatch):
     now = [1000.0]
     monkeypatch.setattr("pycodex.model.monotonic", lambda: now[0])
-    monkeypatch.setattr("pycodex.model.time", lambda: now[0] + 1700000000)
     return now
 
 
@@ -321,20 +313,9 @@ async def test_cooldown_skips_primary_and_reprobes_only_after_expiry(
     for _ in range(7):
         await model_client.complete(prompt, events.append)
     assert seen[3:] == [MODELS[1]] * 7
-    switches = [
-        event
-        for event in events
-        if isinstance(event, ModelRequestStartedEvent) and event.previous_model
-    ]
+    switches = [event for event in events if event.kind == "stream_error" and event.message.startswith("Falling back:")]
     assert len(switches) == 1
-    last_start = next(
-        event
-        for event in reversed(events)
-        if isinstance(event, ModelRequestStartedEvent)
-    )
-    assert last_start.model == MODELS[1]
-    assert last_start.previous_model is None
-    assert last_start.fallback_cooldown_until == 1700001900
+    assert model_client._model_cooldowns[MODELS[0]] == 1900
 
     cooldown_clock[0] += 899
     await model_client.complete(prompt)
@@ -346,12 +327,7 @@ async def test_cooldown_skips_primary_and_reprobes_only_after_expiry(
     assert seen[before:] == (
         [MODELS[0]] if recovers else [MODELS[0], MODELS[0], MODELS[1]]
     )
-    start = next(
-        event
-        for event in reversed(events)
-        if isinstance(event, ModelRequestStartedEvent)
-    )
-    assert start.fallback_cooldown_until == (None if recovers else 1700002800)
+    assert model_client._model_cooldowns.get(MODELS[0]) == (None if recovers else 2800)
     before = len(seen)
     await model_client.complete(prompt)
     assert seen[before:] == [MODELS[0] if recovers else MODELS[1]]
@@ -393,10 +369,8 @@ async def test_all_models_cooling_down_resets_and_retries_full_chain(
     with pytest.raises(ResponsesRetryableError):
         await model_client.complete(prompt, events.append)
     assert seen == list(MODELS) * 2
-    starts = [e for e in events if isinstance(e, ModelRequestStartedEvent)]
-    assert starts[0].model == MODELS[0]
-    assert starts[0].cooldown_reset is True
-    assert [e.model for e in starts] == list(MODELS)
+    switches = [e.message for e in events if e.kind == "stream_error" and e.message.startswith("Falling back:")]
+    assert switches == ["Falling back: %s -> %s" % pair for pair in zip(MODELS, MODELS[1:])]
 
 
 @pytest.mark.parametrize("recovered_model", [MODELS[0], MODELS[2]])
@@ -420,9 +394,6 @@ async def test_user_can_retry_during_cooldown_and_recover(monkeypatch, recovered
     events = []
     await model_client.complete(prompt, events.append)
     assert seen[len(MODELS) :] == list(MODELS[: MODELS.index(recovered_model) + 1])
-    assert next(
-        e for e in events if isinstance(e, ModelRequestStartedEvent)
-    ).cooldown_reset
     assert recovered_model not in model_client._model_cooldowns
 
 
@@ -481,30 +452,9 @@ async def test_fallback_event_uses_provider_reason_and_attempt_timing(monkeypatc
     events = []
     await model_client.complete(Prompt(input=[], tools=[]), events.append)
     assert seen == [MODELS[0], MODELS[0], MODELS[1]]
-    fallback = next(
-        e
-        for e in events
-        if isinstance(e, ModelRequestStartedEvent) and e.previous_model
-    )
-    assert fallback.fallback_reason == (
-        "rate limited: 600000 tokens per 60 seconds; retry after 12 seconds"
-    )
-    assert fallback.failed_after_seconds is not None
-    assert "failed after" in fallback.visualize()
-
-
-def test_fallback_event_explains_reason_and_elapsed_time():
-    event = ModelRequestStartedEvent(
-        "backup",
-        "primary",
-        "primary",
-        fallback_reason="rate limited: 600000 tokens per 60 seconds; retry after 8 seconds",
-        failed_after_seconds=0.43,
-    )
-    assert event.visualize() == (
-        "Fallback: primary → backup · rate limited: "
-        "600000 tokens per 60 seconds; retry after 8 seconds · failed after 0.4s"
-    )
+    fallback = next(e for e in events if e.kind == "stream_error" and e.message.startswith("Falling back:"))
+    assert fallback.message == "Falling back: primary -> backup-one"
+    assert "retry after 12 seconds" in fallback.error
 
 
 async def test_cooldown_is_session_local_and_manual_selection_clears_it(
