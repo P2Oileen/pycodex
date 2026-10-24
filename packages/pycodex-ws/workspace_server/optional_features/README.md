@@ -9,6 +9,7 @@ The Agent reads the selected source and adapts it into your frontend.
 | --- | --- | --- | --- |
 | exec-status | [Exec status](exec-status/README.md) | Running and exited command sessions above the composer. | Chromium fixtures, lifecycle, desktop/mobile; live processes not tested |
 | reasoning-display | [Recorded reasoning](reasoning-display/README.md) | Readable recorded reasoning summaries and text. | Chromium fixtures, opaque filtering, desktop/mobile; live model not tested |
+| subagent-status | [Subagent status](subagent-status/README.md) | Descendant agents, parents and completion/error details. | Chromium fixtures, lifecycle, desktop/mobile; live agents not tested |
 
 Each published row links its feature name to `<feature-id>/README.md`.
 Only list features whose source and documentation are present in this library;
