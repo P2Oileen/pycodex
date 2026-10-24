@@ -48,7 +48,7 @@ this setup and styles or restore the pre-edit backup. Refresh applies edits.
 From the repository root:
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/examples/tool-calls
+python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optinal_features/tool-calls
 ```
 
 Open `http://127.0.0.1:8765/preview.html?verify` for PASS/FAIL checks with synthetic

@@ -2742,7 +2742,7 @@
       return [
         "<frontend_customization>",
         "Help me customize my pycodex workspace interface. First briefly explain " +
-          "what you can change, how to browse/apply feature examples or publish " +
+          "what you can change, how to browse/apply optional features or publish " +
           "a local change as a feature PR, the shared scope, and how to apply/revert " +
           "changes, then wait for my specific request before editing files.",
         "",
@@ -2760,8 +2760,8 @@
         `- User customization directory: ${frontendDirectory}`,
         `- Original page: ${packageDirectory}/workspace.html`,
         `- API reference (read before API changes): ${packageDirectory}/WORKSPACE_API.md`,
-        `- Feature catalog: ${packageDirectory}/examples/README.md`,
-        `- Feature source and PR format: ${packageDirectory}/examples/CONTRIBUTING.md`,
+        `- Feature catalog: ${packageDirectory}/optinal_features/README.md`,
+        `- Feature source and PR format: ${packageDirectory}/optinal_features/CONTRIBUTING.md`,
         `- Resource endpoint implementation: ${packageDirectory}/session_api.py`,
         `- Session, WebSocket and view implementation: ${packageDirectory}/app.py`,
         `- Packaged viewer/composer module: ${packageDirectory}/content_views.mjs`,
@@ -2777,7 +2777,7 @@
           "exist. Keep package-installed files unchanged. Create the user " +
           "directory and supporting files only when needed.",
         "",
-        "When using examples, adapt their source into the user's frontend as " +
+        "When using feature reference code, adapt it into the user's frontend as " +
           "one coherent implementation. Do not introduce a plugin registry or " +
           "runtime module-composition system unless the user requests one.",
         "",
@@ -2789,7 +2789,7 @@
           "Only describe features actually present in the chosen catalog.",
         "",
         "You can publish a user's local frontend change as a feature PR when " +
-          "they ask. Read examples/CONTRIBUTING.md above for the target repository, " +
+          "they ask. Read optinal_features/CONTRIBUTING.md above for the GitHub repository, " +
           "directory layout, README fields and PR template. Extract one feature " +
           "with readable source, integration guidance and actual validation " +
           "results; update its catalog row. Use title " +
@@ -2797,7 +2797,7 @@
           "Feature/Changes/Integration/Validation/Preview/Limitations body sections. " +
           "Prepare the contribution in a checkout outside the served frontend " +
           "directory. Follow the user's commit/push constraints; when publication " +
-          "is authorized, submit a PR (MR on GitLab) and return its link. " +
+          "is authorized, submit a pull request on GitHub and return its link. " +
           "If the target or access is missing, prepare the local contribution " +
           "and PR body before reporting what is needed to submit.",
         "",

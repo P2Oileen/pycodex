@@ -5,15 +5,15 @@ the user's frontend. Its files may be a complete page or focused JS/CSS and
 assets. There is no required export, mounting interface or runtime registration.
 
 The default contribution repository is
-[stepresearch/pycodex](https://gitlab.basemind.com/stepresearch/pycodex).
-Submit a merge request there; this guide uses PR to include GitLab MRs.
+[Randomizez/pycodex](https://github.com/Randomizez/pycodex).
+Submit a pull request on GitHub.
 Use a different target when the user explicitly names one. The user's current
 working directory may be an unrelated project, so do not infer the publication
 target from its Git remote.
 
 ## Browse and apply
 
-Link the installed `examples/README.md` using an absolute Markdown file link.
+Link the installed `optinal_features/README.md` using an absolute Markdown file link.
 Clicking it opens the catalog in the existing workspace view area. Link feature
 READMEs and previews the same way. The user chooses by writing feature names,
 IDs and desired changes in chat; selection has no checkbox, form or new command.
@@ -32,7 +32,7 @@ Browsing a feature does not apply it.
 Submit one feature per PR under this repository path:
 
 ```text
-packages/pycodex-ws/workspace_server/examples/
+packages/pycodex-ws/workspace_server/optinal_features/
   README.md
   <feature-id>/
     README.md
@@ -153,5 +153,5 @@ If the target or access is missing, finish the local source, diff and PR body
 first, then report what is needed to submit. Never claim a locally prepared
 contribution has been published.
 
-Merged examples appear in the repository catalog. Installed catalogs update
+Merged features appear in the repository catalog. Installed catalogs update
 when the workspace package is updated; there is no automatic remote fetch.
