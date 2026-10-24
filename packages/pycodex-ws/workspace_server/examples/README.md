@@ -5,10 +5,9 @@ Agent which features to apply by name or ID. For example: "Show me the available
 features" or "Apply the exec status feature using my current layout."
 The Agent reads the selected source and adapts it into your frontend.
 
-No features have been added to this catalog yet.
-
 | ID | Feature | Summary | Validation |
 | --- | --- | --- | --- |
+| subagent-status | [Subagent status](subagent-status/README.md) | Descendant agents, parents and completion/error details. | Chromium fixtures, lifecycle, desktop/mobile; live agents not tested |
 
 Each published row links its feature name to `<feature-id>/README.md`.
 Only list examples whose source and documentation are present in this library;
