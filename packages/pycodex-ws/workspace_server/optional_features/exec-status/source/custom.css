@@ -1,0 +1,5 @@
+.example-exec-status { color: var(--ink, #17313b); font: 12px/1.5 system-ui, sans-serif; min-width: 0; }
+.example-exec-status p { margin: 0 0 4px; }
+.example-exec-status ul { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; max-height: 96px; overflow: auto; }
+.example-exec-status li { padding: 3px 8px; border: 1px solid var(--line, #cbd5df); border-radius: 6px; overflow-wrap: anywhere; }
+.example-exec-status li[data-status="running"] { border-color: var(--accent, #087f9a); }
