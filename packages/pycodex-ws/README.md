@@ -72,11 +72,11 @@ state, model catalogs, asynchronous command results, paginated history, event
 replay and sub-agent/background-work inventories. A `mount(host)` export in
 `custom.js` can access the built-in page's session, draft and view controls.
 
-Ask the Agent to show the [feature catalog](workspace_server/examples/README.md)
-in the view area, then choose examples by name or ID in chat. The Agent adapts
+Ask the Agent to show the [feature catalog](workspace_server/optinal_features/README.md)
+in the view area, then choose features by name or ID in chat. The Agent adapts
 their source into your frontend. To share a local change, ask it to publish a
-feature PR; the [contribution guide](workspace_server/examples/CONTRIBUTING.md)
-specifies the source, documentation, validation and PR/MR format.
+feature PR on GitHub; the [contribution guide](workspace_server/optinal_features/CONTRIBUTING.md)
+specifies the source, documentation, validation and PR format.
 
 ## Storage
 
