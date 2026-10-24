@@ -46,7 +46,7 @@ pre-edit backup. Refresh applies the resulting frontend.
 Run from the repository root:
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/examples/subagent-status
+python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optinal_features/subagent-status
 ```
 
 Open `http://127.0.0.1:8765/preview.html?verify` and wait for PASS or FAIL.
