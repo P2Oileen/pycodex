@@ -10,6 +10,8 @@ from ..events import (
     CompactFailedEvent,
     CompactStartedEvent,
     Event,
+    RuntimeUpdatedEvent,
+    SessionClosedEvent,
     TurnCompletedEvent,
     TurnFailedEvent,
     TurnInterruptedEvent,
@@ -225,6 +227,40 @@ class SubAgentManager:
         self._condition = None
         self._available_nicknames: "typing.List[str]" = []
         self._nickname_random = random.Random()
+        self._state_listener = None
+
+    def set_state_listener(self, listener):
+        self._state_listener = listener
+
+    def _state_changed(self):
+        if self._state_listener is not None:
+            self._state_listener()
+
+    def list_agents(self, parent_agent_id):
+        agents = []
+        for managed in self._agents.values():
+            agents.append({
+                "agent_id": managed.agent_id,
+                "parent_agent_id": parent_agent_id,
+                "nickname": managed.nickname,
+                "status": self._status_payload(managed),
+            })
+            agents.extend(
+                managed.runtime.agent.tool_registry.runtime_environment
+                .subagent_manager.list_agents(managed.agent_id)
+            )
+        return agents
+
+    def get_runtime(self, agent_id):
+        if agent_id in self._agents:
+            return self._agents[agent_id].runtime
+        for managed in self._agents.values():
+            manager = managed.runtime.agent.tool_registry.runtime_environment.subagent_manager
+            try:
+                return manager.get_runtime(agent_id)
+            except KeyError:
+                continue
+        raise KeyError(agent_id)
 
     def _get_condition(self):
         if self._condition is None:
@@ -271,6 +307,7 @@ class SubAgentManager:
         async with self._get_condition():
             self._agents[agent_id] = managed
             self._condition.notify_all()
+        self._state_changed()
 
         initial_prompt = self._compose_prompt(message, items)
         if initial_prompt:
@@ -300,6 +337,7 @@ class SubAgentManager:
         future.add_done_callback(self._submission_finished)
         async with self._get_condition():
             self._condition.notify_all()
+        self._state_changed()
         return {"submission_id": submission_id}
 
     async def resume_agent(self, agent_id: "str") -> "typing.Dict[str, object]":
@@ -312,6 +350,7 @@ class SubAgentManager:
             await managed.runtime.start()
         async with self._get_condition():
             self._condition.notify_all()
+        self._state_changed()
         return {"status": self._status_payload(managed)}
 
     async def close_agent(self, agent_id: "str") -> "typing.Dict[str, object]":
@@ -322,6 +361,7 @@ class SubAgentManager:
         await managed.runtime.close()
         async with self._get_condition():
             self._condition.notify_all()
+        self._state_changed()
         return {"previous_status": previous_status}
 
     async def shutdown(self) -> "None":
@@ -389,6 +429,9 @@ class SubAgentManager:
         asyncio.create_task(self._notify_waiters())
 
     def _handle_agent_event(self, managed: "ManagedAgent", event: "Event") -> "None":
+        if isinstance(event, (RuntimeUpdatedEvent, SessionClosedEvent)):
+            self._state_changed()
+            return
         if isinstance(event, TurnCompletedEvent):
             managed.last_status = {"completed": event.output_text}
         elif isinstance(event, CompactCompletedEvent):
@@ -426,6 +469,7 @@ class SubAgentManager:
         asyncio.create_task(self._notify_waiters())
 
     async def _notify_waiters(self) -> "None":
+        self._state_changed()
         async with self._get_condition():
             self._condition.notify_all()
 

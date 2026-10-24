@@ -1468,6 +1468,8 @@
     let spinnerText = "";
     let toastTimer = null;
     let activeSessionId = "";
+    const frontendEvents = new EventTarget();
+    let lastFrontendSessionId = "";
     let sessions = [];
     let editingContextId = null;
     const sessionState = new Map();
@@ -2172,6 +2174,11 @@
     }
 
     function renderTabs() {
+      queueMicrotask(() => {
+        if (activeSessionId === lastFrontendSessionId) return;
+        lastFrontendSessionId = activeSessionId;
+        frontendEvents.dispatchEvent(new CustomEvent("sessionchange", {detail: activeSessionId}));
+      });
       if (activeSessionId) window.sessionStorage.setItem(activeSessionKey, activeSessionId);
       const active = sessionById(activeSessionId);
       const activeIndex = sessions.findIndex(session => session.id === activeSessionId);
@@ -3143,7 +3150,42 @@
       contentTabs.stop();
     }
 
+    async function mountCustomFrontend() {
+      const script = document.querySelector("script[data-pycodex-custom-script]");
+      if (!script) return;
+      const extension = await import(script.src);
+      if (typeof extension.mount !== "function") return;
+      await extension.mount(Object.freeze({
+        apiVersion: 1,
+        getActiveSessionId: () => activeSessionId,
+        selectSession: async sessionId => {
+          if (!sessionById(sessionId)) throw new Error("Unknown session: " + sessionId);
+          await selectSession(sessionId);
+        },
+        onSessionChanged: handler => {
+          const listener = event => handler(event.detail);
+          frontendEvents.addEventListener("sessionchange", listener);
+          return () => frontendEvents.removeEventListener("sessionchange", listener);
+        },
+        getDraft: () => composer.read(),
+        setDraft: draft => {
+          if (!draft || !Array.isArray(draft.parts)) throw new TypeError("draft.parts must be an array");
+          composer.set(draft);
+          stateForSession(activeSessionId).draft = composer.read();
+          resizePrompt();
+        },
+        openView: (href, srcPath) => contentTabs.open(href, srcPath, activeSessionId),
+        request: async (path, options = {}) => {
+          const response = await fetch(relativeUrl(path), options);
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+          return payload;
+        },
+      }));
+    }
+
     startContentViews();
+    mountCustomFrontend().catch(error => showToast("Unable to initialize custom frontend: " + error.message));
     window.addEventListener("pagehide", clearSessionsHover);
     window.addEventListener("pagehide", stopContentViews);
     window.addEventListener("pageshow", startContentViews);

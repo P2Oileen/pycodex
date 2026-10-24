@@ -41,6 +41,72 @@ def _subagent_notifications(history):
     ]
 
 
+@pytest.mark.asyncio
+async def test_nonblocking_commands_share_serial_execution_and_drain_on_close():
+    runtime = AgentRuntime(Agent(ScriptedModelClient([]), ToolRegistry(), ContextConfig()))
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    completed = []
+
+    async def command(argument):
+        entered.set()
+        await release.wait()
+        completed.append(argument)
+        return {"kind": "test_command", "value": argument}
+
+    runtime.register_command("test_command", command)
+    await runtime.start()
+    first = await runtime.submit_input("/test_command first", wait_for_command=False)
+    await entered.wait()
+    second = await runtime.submit_input("/test_command second", wait_for_command=False)
+    closing = asyncio.create_task(runtime.close())
+    try:
+        await asyncio.sleep(0)
+        assert not first.future.done()
+        assert not second.future.done()
+        assert not closing.done()
+        release.set()
+        await asyncio.wait_for(closing, 2)
+        assert (await first.future)["value"] == "first"
+        assert (await second.future)["value"] == "second"
+        assert completed == ["first", "second"]
+    finally:
+        release.set()
+        await closing
+
+
+@pytest.mark.asyncio
+async def test_lightweight_state_excludes_history_and_preserves_queue_identity():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def response(prompt, count):
+        entered.set()
+        await release.wait()
+        return ModelResponse([AssistantMessage("done")])
+
+    runtime = AgentRuntime(Agent(
+        ScriptedModelClient(response_factory=response), ToolRegistry(), ContextConfig(),
+        initial_history=(UserMessage("old"), AssistantMessage("previous")),
+    ))
+    await runtime.start()
+    try:
+        first = await runtime.submit_input("first")
+        await entered.wait()
+        second = await runtime.submit_input("/queue second")
+        state = runtime.state_snapshot()
+        assert "history" not in state
+        assert "completed_history" not in state["active_turn"]
+        assert state["queued_inputs"] == [{
+            "submission_id": second.submission_id, "turn_id": second.submission_id,
+            "queue": "enqueue", "prompts": ["second"],
+        }]
+        assert state["active_turn"]["submission_id"] == first.submission_id
+    finally:
+        release.set()
+        await runtime.close()
+
+
 def test_agent_and_tools_share_a_session_local_runtime():
     environment = AgentRuntimeEnvironment()
     tools = get_tools(environment)

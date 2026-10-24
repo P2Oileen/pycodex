@@ -618,6 +618,29 @@ The response includes the new session ID, session list and snapshot. These
 fields are general frontend inputs: the API does not select prompts, infer
 reply languages or interpret feature-specific flags.
 
+The [workspace resource API](WORKSPACE_API.md) adds lightweight Runtime state,
+model catalogs, asynchronous commands/results, paginated history, descendant
+Agent and background-work inventories, and cursored WS replay. Queries run on
+the owning session loop; rollout scans run in a thread pool. WS state and
+cursors are captured together in `WebSessionView`.
+
+`AgentRuntime.submit_input(..., wait_for_command=False)` returns an admitted
+command receipt without waiting for completion. Runtime owns these command
+tasks, serializes them with the same command lock and drains them on close.
+The default remains synchronous command completion. These are host command
+tasks, not Agent-owned turn tasks or a cancellation API.
+`state_snapshot()` excludes completed history and describes queued turns,
+active commands and model/effort separately. `RuntimeUpdatedEvent` signals plan,
+queue and resource changes; `CommandStartedEvent` identifies an executing
+command. Tool managers expose inventories through the explicit
+`background_work_snapshot` / `set_state_listener` hooks.
+
+`attach(handler, interactive=False)` observes without counting as an interactive
+frontend. Child views use this mode, so inspecting a child cannot make it wait
+for a permission/question response. Submission results and event replay are
+bounded in-memory stores; retention and reset behavior are part of the linked
+API contract.
+
 ## Frontend customization
 
 Browser workspace pages use the server OS user's `~/.pycodex/frontend/`,
@@ -629,6 +652,10 @@ module, respectively, including when using the packaged template. Lazy-loaded
 editor styles are inserted before `custom.css`, preserving that order when a
 code view first opens; normal CSS specificity still applies. The script is an
 ES module; page module variables remain private.
+An optional `mount(host)` export receives the built-in page's versioned
+session/draft/view interface. Side-effect-only scripts still load; full template
+replacements own their initialization. See the
+[host contract](WORKSPACE_API.md#built-in-page-extension-host).
 
 Custom templates retain closing `head`/`body` tags and the placeholders
 `__WORKSPACE_TITLE__`, `__BOARD_LABEL__`, `__CWD_LABEL__`, `__ENABLE_BOARD__` and

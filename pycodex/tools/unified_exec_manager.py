@@ -125,6 +125,7 @@ class UnifiedExecManager:
         self._next_session_id = DEFAULT_SESSION_ID_START
         self._sessions: "typing.Dict[int, UnifiedExecSession]" = {}
         self._lock = threading.Lock()
+        self._state_listener = None
         self._notify_hook: "typing.Union[typing.Callable[[typing.Dict[str, object]], typing.Awaitable[typing.Any]], None]" = (None)
 
     def set_notify_hook(
@@ -139,6 +140,29 @@ class UnifiedExecManager:
             for session in self._sessions.values()
             if session.process.returncode is None
         )
+
+    def set_state_listener(self, listener):
+        self._state_listener = listener
+
+    def _state_changed(self):
+        if self._state_listener is not None:
+            self._state_listener()
+
+    def snapshot(self):
+        with self._lock:
+            return [
+                {
+                    "kind": "exec",
+                    "session_id": session.session_id,
+                    "pid": session.process.pid,
+                    "tty": session.tty,
+                    "status": (
+                        "running" if session.process.returncode is None else "exited"
+                    ),
+                    "exit_code": session.process.returncode,
+                }
+                for session in self._sessions.values()
+            ]
 
     async def exec_command(
         self,
@@ -180,6 +204,7 @@ class UnifiedExecManager:
 
         with self._lock:
             self._sessions[session_id] = session
+        self._state_changed()
 
         output = await self._wait_and_snapshot(
             session_id,
@@ -299,6 +324,7 @@ class UnifiedExecManager:
             session = self._sessions.pop(session_id, None)
         if session is None:
             return
+        self._state_changed()
         if session.process.stdin is not None and not stream_writer_is_closing(
             session.process.stdin
         ):
@@ -349,6 +375,7 @@ class UnifiedExecManager:
         if session is None:
             return
         await session.process.wait()
+        self._state_changed()
         with self._lock:
             if self._sessions.get(session_id) is not session:
                 return

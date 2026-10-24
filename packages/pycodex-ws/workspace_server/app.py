@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import threading
+from collections import deque
 from dataclasses import asdict, fields, is_dataclass
 
 try:
@@ -45,6 +46,7 @@ from pycodex.events import (
     AutoCompactStartedEvent,
     CommandCompletedEvent,
     CommandFailedEvent,
+    CommandStartedEvent,
     CompactCompletedEvent,
     CompactFailedEvent,
     CompactStartedEvent,
@@ -83,6 +85,7 @@ from .customization import (
     load_workspace_template,
 )
 from .runtime_info import runtime_info_prompt
+from .session_api import history_page, session_api_routes
 from .workspace_views import WorkspaceViewOpener
 from .workspaces import (
     WorkspaceDefinition,
@@ -203,6 +206,9 @@ class WebSessionView:
     def __init__(self) -> None:
         self._subscribers: "typing.Set[asyncio.Queue]" = set()
         self._events: "typing.List[typing.Dict[str, object]]" = []
+        self._stream_id = uuid7_string()
+        self._sequence = 0
+        self._runtime_state = None
         self._turns: "typing.List[typing.Dict[str, object]]" = []
         self._turns_by_submission_id: "typing.Dict[str, typing.Dict[str, object]]" = {}
         self._turns_by_turn_id: "typing.Dict[str, typing.Dict[str, object]]" = {}
@@ -225,14 +231,31 @@ class WebSessionView:
     def attach_server_loop(self, loop: "asyncio.AbstractEventLoop") -> None:
         self._server_loop = loop
 
-    def handle_event(self, event: "Event") -> None:
+    def handle_event(self, event: "Event", runtime_state=None) -> None:
         with self._lock:
+            if runtime_state is not None:
+                self._runtime_state = _json_safe(runtime_state)
             self._apply_runtime_event(event)
             payload = _event_data(event)
             payload.update({"type": "event", "snapshot": self.snapshot()})
             if isinstance(event, ToolCompletedEvent):
                 payload["summary"] = event.visualize()
-        self._publish_nowait(payload)
+            self._publish_nowait(payload)
+
+    def api_snapshot(self):
+        with self._lock:
+            return {
+                "api_version": 1,
+                "state": self._runtime_state,
+                "cursor": "{0}:{1}".format(self._stream_id, self._sequence),
+            }
+
+    def synchronize_state(self, state):
+        with self._lock:
+            state = _json_safe(state)
+            if state != self._runtime_state:
+                self._runtime_state = state
+                self._publish_nowait({"type": "state"})
 
     def finish_stream(self) -> None:
         with self._lock:
@@ -304,16 +327,34 @@ class WebSessionView:
             event = {"type": "snapshot", "snapshot": self.snapshot()}
         self._publish_nowait(event)
 
-    def subscribe(self) -> "asyncio.Queue":
+    def subscribe(self, cursor=None) -> "asyncio.Queue":
         queue: "asyncio.Queue" = asyncio.Queue()
         with self._lock:
+            events = list(self._events[-200:])
+            reset_required = False
+            if cursor is not None:
+                stream_id, separator, sequence = cursor.rpartition(":")
+                if not separator or not sequence.isdigit():
+                    raise ValueError("invalid event cursor")
+                sequence = int(sequence)
+                oldest = self._events[0]["sequence"] if self._events else self._sequence + 1
+                reset_required = (
+                    stream_id != self._stream_id
+                    or sequence < oldest - 1
+                    or sequence > self._sequence
+                )
+                events = [] if reset_required else [
+                    event for event in self._events if event["sequence"] > sequence
+                ]
             self._subscribers.add(queue)
             event = {
                 "type": "hello",
-                "events": list(self._events[-200:]),
+                "events": events,
                 "snapshot": self.snapshot(),
+                **self.api_snapshot(),
+                "reset_required": reset_required,
             }
-        queue.put_nowait(event)
+            queue.put_nowait(event)
         return queue
 
     def unsubscribe(self, queue: "asyncio.Queue") -> None:
@@ -643,11 +684,13 @@ class WebSessionView:
 
     def _publish_nowait(self, event: "typing.Dict[str, object]") -> None:
         with self._lock:
+            self._sequence += 1
+            event.update(self.api_snapshot(), sequence=self._sequence)
             self._events.append(event)
             if len(self._events) > 500:
                 del self._events[:-500]
             subscribers = tuple(self._subscribers)
-        self._publish_to_queues(subscribers, event)
+            self._publish_to_queues(subscribers, event)
 
     def _publish_to_queues(
         self,
@@ -677,12 +720,46 @@ class WorkspaceInteractiveSession:
         self.config_path = config_path
         self.view = WebSessionView()
         self._frontend_id = None
+        self._child_views = {}
+        self._submissions = {}
+        self._finished_submissions = deque()
 
     async def start(self) -> "WorkspaceInteractiveSession":
         await self.runtime.start(self.config_path)
         if self._frontend_id is None:
-            self._frontend_id = self.runtime.attach(self.view.handle_event)
+            self._frontend_id = self.runtime.attach(self._handle_event)
         return self
+
+    def _handle_event(self, event):
+        self._handle_runtime_event(event, self.runtime, self.view)
+
+    def _handle_runtime_event(self, event, runtime, view):
+        view.handle_event(event, runtime.state_snapshot())
+        if (
+            isinstance(event, (CommandStartedEvent, CommandCompletedEvent, CommandFailedEvent))
+            and event.submission_id not in self._submissions
+        ):
+            self._submissions[event.submission_id] = {
+                "submission_id": event.submission_id,
+                "agent_id": runtime.agent.session_id,
+                "kind": "command", "command": event.command.lstrip("/"),
+                "status": "queued", "result": None, "error": None,
+            }
+        if (
+            isinstance(event, (TurnStartedEvent, CommandStartedEvent))
+            and event.submission_id in self._submissions
+        ):
+            record = self._submissions[event.submission_id]
+            record["status"] = "running"
+            self._publish_submission(record, view)
+        elif isinstance(event, CommandCompletedEvent):
+            self._finish_submission(
+                self._submissions[event.submission_id], view, result=event.result,
+            )
+        elif isinstance(event, CommandFailedEvent):
+            self._finish_submission(self._submissions[event.submission_id], view, error={
+                "type": event.error_type, "message": event.error,
+            })
 
     async def close(self) -> None:
         try:
@@ -694,6 +771,10 @@ class WorkspaceInteractiveSession:
         if self._frontend_id is not None:
             self.runtime.detach(self._frontend_id)
             self._frontend_id = None
+        for runtime, frontend_id, view in self._child_views.values():
+            runtime.detach(frontend_id)
+            view.close()
+        self._child_views.clear()
         self.view.close()
 
     async def submit(
@@ -703,11 +784,125 @@ class WorkspaceInteractiveSession:
             receipt = await self.runtime.submit_input(prompt, sender)
         except (ValueError, RuntimeError) as exc:
             return {"ok": False, "error": str(exc), "snapshot": self.snapshot()}
+        self._track_submission(receipt)
         return {
             "ok": True,
             "type": "submitted",
             "submission_id": receipt.submission_id,
             "snapshot": self.snapshot(),
+        }
+
+    def _publish_submission(self, record, view):
+        view._publish_nowait({"type": "submission", "submission": _json_safe(record)})
+
+    def _finish_submission(self, record, view, result=None, error=None):
+        record.update(
+            status="failed" if error is not None else "completed",
+            result=_json_safe(result), error=error,
+        )
+        self._finished_submissions.append(record["submission_id"])
+        while len(self._finished_submissions) > 500:
+            del self._submissions[self._finished_submissions.popleft()]
+        self._publish_submission(record, view)
+
+    def _track_submission(self, receipt, runtime=None, view=None, command=None):
+        if receipt.submission_id in self._submissions:
+            return
+        runtime = self.runtime if runtime is None else runtime
+        view = self.view if view is None else view
+        record = {
+            "submission_id": receipt.submission_id,
+            "agent_id": runtime.agent.session_id,
+            "kind": receipt.kind, "status": "queued", "result": None, "error": None,
+        }
+        if command is not None:
+            record["command"] = command
+        self._submissions[receipt.submission_id] = record
+        self._publish_submission(record, view)
+        if receipt.kind == "command":
+            return
+
+        def completed(future):
+            try:
+                result = future.result()
+                if receipt.kind == "turn":
+                    result = {
+                        "turn_id": result.turn_id, "output_text": result.output_text,
+                        "iterations": result.iterations,
+                    }
+            except Exception as error:
+                self._finish_submission(record, view, error={
+                    "type": type(error).__name__, "message": str(error),
+                })
+            else:
+                self._finish_submission(record, view, result=result)
+
+        receipt.future.add_done_callback(completed)
+
+    def _runtime_for_agent(self, agent_id):
+        if agent_id is None or agent_id == self.runtime.agent.session_id:
+            return self.runtime
+        manager = self.runtime.agent.tool_registry.runtime_environment.subagent_manager
+        return manager.get_runtime(agent_id)
+
+    async def event_view(self, agent_id=None):
+        runtime = self._runtime_for_agent(agent_id)
+        if runtime is self.runtime:
+            view = self.view
+        elif agent_id in self._child_views:
+            view = self._child_views[agent_id][2]
+        else:
+            view = WebSessionView()
+            view.attach_server_loop(self.view._server_loop)
+            frontend_id = runtime.attach(
+                lambda event: self._handle_runtime_event(event, runtime, view),
+                interactive=False,
+            )
+            self._child_views[agent_id] = (runtime, frontend_id, view)
+        view.synchronize_state(runtime.state_snapshot())
+        return view
+
+    async def api_query(self, resource, options):
+        if resource == "submission":
+            return {"submission": _json_safe(self._submissions[options["submission_id"]])}
+        agent_id = options.get("agent_id")
+        runtime = self._runtime_for_agent(agent_id)
+        if resource == "state":
+            view = await self.event_view(agent_id)
+            return view.api_snapshot()
+        if resource == "models":
+            return {
+                "model": runtime.state_snapshot()["model"],
+                "models": await runtime.list_models(),
+            }
+        if resource == "history":
+            agent = runtime.agent
+            return await run_in_threadpool(
+                history_page, agent.session_id, agent.recorded_session_file_path,
+                agent.history, options.get("before"), options["limit"],
+            )
+        if resource == "agents":
+            manager = runtime.agent.tool_registry.runtime_environment.subagent_manager
+            return {"agents": manager.list_agents(agent_id or runtime.agent.session_id)}
+        if resource == "background-work":
+            return {"background_work": runtime.background_work_snapshot()}
+        raise ValueError("unknown session resource: " + resource)
+
+    async def submit_command(self, command, argument="", agent_id=None):
+        runtime = self._runtime_for_agent(agent_id)
+        if command not in runtime.commands() or command == "queue":
+            raise ValueError("expected an available session command other than queue")
+        if not runtime.accepts_input:
+            raise RuntimeError("agent is shutting down")
+        view = await self.event_view(agent_id)
+        receipt = await runtime.submit_input(
+            "/" + command + (" " + argument if argument else ""),
+            sender="web", wait_for_command=False,
+        )
+        self._track_submission(receipt, runtime, view, command)
+        return {
+            "submission": _json_safe(self._submissions[receipt.submission_id]),
+            "submission_id": receipt.submission_id,
         }
 
     async def answer_input(self, request_id, answer):
@@ -846,6 +1041,21 @@ class ThreadedWorkspaceInteractiveSession:
             self._worker_loop,
         )
         return await asyncio.wrap_future(future)
+
+    async def api_query(self, resource, options):
+        return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(
+            self._session.api_query(resource, options), self._worker_loop,
+        ))
+
+    async def submit_command(self, command, argument="", agent_id=None):
+        return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(
+            self._session.submit_command(command, argument, agent_id), self._worker_loop,
+        ))
+
+    async def event_view(self, agent_id=None):
+        return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(
+            self._session.event_view(agent_id), self._worker_loop,
+        ))
 
     def subscribe(self) -> "asyncio.Queue":
         return self._view.subscribe()
@@ -1057,6 +1267,14 @@ def create_multi_workspace_app(
             entry.definition.board_path, request.path_params["asset_path"]
         )
 
+    def api_manager(request):
+        return _workspace_entry_or_404(
+            registry, request.path_params["workspace_id"]
+        ).manager
+
+    app.routes.extend(session_api_routes(
+        api_manager, _json_object_body, "/w/{workspace_id}",
+    ))
     app.routes.extend([
         Route("/", index, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
@@ -1460,6 +1678,7 @@ def _install_workspace_routes(
     async def board_asset(request: Request) -> Response:
         return _board_asset_response(board_path, request.path_params["asset_path"])
 
+    app.routes.extend(session_api_routes(lambda request: manager, _json_object_body))
     app.routes.extend([
         Route("/", index, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
@@ -1753,7 +1972,14 @@ async def _websocket_session_handler(
     except KeyError:
         await websocket.close(code=1008)
         return
-    subscriber = link.subscribe()
+    agent_id = websocket.query_params.get("agent_id")
+    try:
+        view = await link.event_view(agent_id)
+        subscriber = view.subscribe(websocket.query_params.get("cursor"))
+    except (KeyError, ValueError) as error:
+        await websocket.send_json({"type": "error", "error": str(error)})
+        await websocket.close(code=1008)
+        return
     sender = asyncio.create_task(_send_ws_events(websocket, subscriber))
     try:
         while True:
@@ -1765,6 +1991,11 @@ async def _websocket_session_handler(
                 continue
             action = str(payload.get("type") or payload.get("action") or "")
             if action in {"send", "answer"}:
+                if agent_id is not None:
+                    await websocket.send_json({
+                        "type": "error", "error": "child-agent subscriptions are read-only",
+                    })
+                    continue
                 target_session_id = str(payload.get("session_id") or session_id or "")
                 try:
                     target_link = manager.get(target_session_id or None)
@@ -1791,7 +2022,7 @@ async def _websocket_session_handler(
     except WebSocketDisconnect:
         pass
     finally:
-        link.unsubscribe(subscriber)
+        view.unsubscribe(subscriber)
         sender.cancel()
         await asyncio.gather(sender, return_exceptions=True)
 
@@ -1840,7 +2071,7 @@ def _event_data(event: "Event") -> "typing.Dict[str, object]":
         if event.submission_id is not None:
             payload.update(submission_id=event.submission_id, turn_id=event.turn_id)
     elif isinstance(
-        event, (CommandCompletedEvent, CommandFailedEvent, InputQueuedEvent)
+        event, (CommandStartedEvent, CommandCompletedEvent, CommandFailedEvent, InputQueuedEvent)
     ):
         turn_id = event.submission_id
         if isinstance(event, InputQueuedEvent):

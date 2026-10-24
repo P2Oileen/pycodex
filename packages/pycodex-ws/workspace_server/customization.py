@@ -50,7 +50,7 @@ def load_workspace_template(builtin: bool = False) -> str:
     additions = {}
     for name, closing_tag, markup in [
         ("custom.css", "head", '<link rel="stylesheet" href="frontend/custom.css" data-pycodex-custom-style>'),
-        ("custom.js", "body", '<script type="module" src="frontend/custom.js"></script>'),
+        ("custom.js", "body", '<script type="module" src="frontend/custom.js" data-pycodex-custom-script></script>'),
     ]:
         try:
             frontend_file(name).stat()

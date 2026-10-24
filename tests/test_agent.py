@@ -1213,12 +1213,17 @@ async def test_runtime_recovers_after_pre_turn_compact_failure() -> "None":
             await asyncio.wait_for(runtime.submit_user_turn("new prompt"), timeout=1.0)
 
         assert [event.kind for event in events] == [
+            "runtime_updated",
             "session_state",
             "turn_started",
             "auto_compact_started",
             "auto_compact_failed",
             "turn_failed",
+            "runtime_updated",
         ]
+        assert [
+            event.reason for event in events if event.kind == "runtime_updated"
+        ] == ["queue", "idle"]
         assert not agent.is_running
         assert agent.history == (UserMessage(text="older prompt"),)
         await asyncio.wait_for(agent.wait_until_idle(), timeout=1.0)

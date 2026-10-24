@@ -10,10 +10,12 @@ from .events import (
     AutoCompactCompletedEvent,
     CommandCompletedEvent,
     CommandFailedEvent,
+    CommandStartedEvent,
     Event,
     InputQueuedEvent,
     InputRequestedEvent,
     InputResolvedEvent,
+    RuntimeUpdatedEvent,
     SessionClosedEvent,
     SessionStateEvent,
     StreamErrorEvent,
@@ -86,6 +88,9 @@ class AgentRuntime:
         self.title = ""
         self.command_handlers = {}
         self._frontends = {}
+        self._interactive_frontends = set()
+        self._command_tasks = set()
+        self._active_commands = {}
         self._close_handlers = []
         self._worker = None
         self._command_lock = None
@@ -96,10 +101,18 @@ class AgentRuntime:
         environment = agent.tool_registry.runtime_environment
         environment.request_user_input_manager.set_handler(self._request_user_input)
         environment.request_permissions_manager.set_handler(self._request_permissions)
+        environment.plan_store.set_listener(lambda _plan: self._publish_update("plan"))
+        environment.subagent_manager.set_state_listener(
+            lambda: self._publish_update("agents")
+        )
+        for tool in self.agent.tool_registry.tools():
+            tool.set_state_listener(lambda: self._publish_update("background_work"))
 
-    def attach(self, event_handler):
+    def attach(self, event_handler, interactive=True):
         frontend_id = uuid7_string()
         self._frontends[frontend_id] = event_handler
+        if interactive:
+            self._interactive_frontends.add(frontend_id)
         self._notify_handler(
             event_handler, SessionStateEvent("attach", self.snapshot())
         )
@@ -107,7 +120,8 @@ class AgentRuntime:
 
     def detach(self, frontend_id):
         del self._frontends[frontend_id]
-        if not self._frontends and self._input_request is not None:
+        self._interactive_frontends.discard(frontend_id)
+        if not self._interactive_frontends and self._input_request is not None:
             self._finish_input_request(None)
 
     def register_command(self, name, handler):
@@ -169,6 +183,70 @@ class AgentRuntime:
             ),
             "plan": self.agent.tool_registry.runtime_environment.plan_store.snapshot(),
         }
+
+    def state_snapshot(self):
+        """Current frontend state, without completed conversation history."""
+        agent = self.agent
+        client = typing.cast(ModelControl, agent.model_client)
+        active = self._active_turn
+        return {
+            "agent_session_id": agent.session_id,
+            "title": self.title,
+            "cwd": str(agent.context_manager.cwd),
+            "model": {
+                "name": agent.model_name,
+                "reasoning_effort": client.reasoning_effort,
+            },
+            "busy": self.is_busy,
+            "running": agent.is_running,
+            "closed": agent.is_shutdown,
+            "accepts_input": self.accepts_input,
+            "active_turn": (
+                {
+                    key: active[key]
+                    for key in (
+                        "turn_id", "submission_id", "user_texts", "assistant_text",
+                        "model_errors",
+                    )
+                } if active is not None else None
+            ),
+            "queued_inputs": [
+                {
+                    "submission_id": item.submission_id,
+                    "turn_id": item.turn_id,
+                    "queue": name,
+                    "prompts": list(item.texts),
+                }
+                for name, queue in (
+                    ("steer", self._steer_queue), ("enqueue", self._enqueue_queue)
+                )
+                for item in queue
+            ],
+            "input_request": self._input_request_event(),
+            "plan": agent.tool_registry.runtime_environment.plan_store.snapshot(),
+            "commands": [dict(command) for command in self._active_commands.values()],
+            "background_work_count": sum(
+                tool.background_work_count(False)
+                for tool in agent.tool_registry.tools()
+            ),
+            "context_window": agent.context_manager.resolve_model_context_window(),
+            "max_context_window": agent.context_manager.resolve_model_max_context_window(),
+            "auto_compact_token_limit": agent.context_manager.resolve_auto_compact_token_limit(),
+            "usage_tokens": agent._last_total_usage_tokens,
+        }
+
+    def background_work_snapshot(self):
+        return [
+            dict(item, tool=tool.name)
+            for tool in self.agent.tool_registry.tools()
+            for item in tool.background_work_snapshot()
+        ]
+
+    async def list_models(self):
+        return await self.agent.model_client.list_models()
+
+    def _publish_update(self, reason):
+        self._publish(RuntimeUpdatedEvent(reason))
 
     def publish_state(self, reason):
         self._recorded_rollout_path = self.agent.recorded_session_file_path
@@ -237,7 +315,7 @@ class AgentRuntime:
             self._wake_worker()
         await asyncio.shield(self._worker)
 
-    async def submit_input(self, text, sender="user"):
+    async def submit_input(self, text, sender="user", wait_for_command=True):
         if not self.agent.accepts_input:
             raise RuntimeError("agent is shutting down")
         input_starts_with_space = text.startswith(" ")
@@ -270,19 +348,50 @@ class AgentRuntime:
             return await self._submit_message(argument.strip(), "enqueue", sender, True)
         submission_id = uuid7_string()
         future = asyncio.get_running_loop().create_future()
+        future.add_done_callback(self._observe_completion)
+        receipt = SubmittedInput(submission_id, "command", future)
+        self._active_commands[submission_id] = {
+            "submission_id": submission_id, "command": command,
+            "sender": sender, "status": "queued",
+        }
+        self._publish_update("commands")
+        operation = self._run_command(receipt, command, argument.strip(), sender)
+        if wait_for_command:
+            await operation
+        else:
+            task = asyncio.create_task(operation)
+            self._command_tasks.add(task)
+            task.add_done_callback(self._command_tasks.discard)
+        return receipt
+
+    async def _run_command(self, receipt, command, argument, sender):
         try:
             async with self._get_command_lock():
-                if not self.agent.accepts_input:
-                    raise RuntimeError("agent is shutting down")
-                result = await self._execute_command(command[1:], argument.strip())
+                self._active_commands[receipt.submission_id]["status"] = "running"
+                self._publish(
+                    CommandStartedEvent(receipt.submission_id, command, sender)
+                )
+                result = await self._execute_command(command[1:], argument)
+        except asyncio.CancelledError:
+            del self._active_commands[receipt.submission_id]
+            receipt.future.cancel()
+            self._publish(CommandFailedEvent(
+                receipt.submission_id, command, "command caller cancelled",
+                sender, "CancelledError",
+            ))
+            raise
         except Exception as exc:
-            future.set_exception(exc)
-            self._publish(CommandFailedEvent(submission_id, command, str(exc), sender))
+            del self._active_commands[receipt.submission_id]
+            receipt.future.set_exception(exc)
+            self._publish(CommandFailedEvent(
+                receipt.submission_id, command, str(exc), sender, type(exc).__name__,
+            ))
         else:
-            future.set_result(result)
-            self._publish(CommandCompletedEvent(submission_id, command, result, sender))
-        future.add_done_callback(self._observe_completion)
-        return SubmittedInput(submission_id, "command", future)
+            del self._active_commands[receipt.submission_id]
+            receipt.future.set_result(result)
+            self._publish(
+                CommandCompletedEvent(receipt.submission_id, command, result, sender)
+            )
 
     async def _execute_command(self, command, argument):
         if command in {"help", "history", "compact", "fork"} and argument:
@@ -309,7 +418,7 @@ class AgentRuntime:
             return {
                 "kind": "models",
                 "model": self.agent.model_name,
-                "models": await self.agent.model_client.list_models(),
+                "models": await self.list_models(),
             }
         if command == "effort":
             client = typing.cast(ModelControl, self.agent.model_client)
@@ -373,7 +482,7 @@ class AgentRuntime:
         return await self._request_input("permissions", payload)
 
     async def _request_input(self, kind, payload):
-        if not self._frontends or not self.agent.accepts_input:
+        if not self._interactive_frontends or not self.agent.accepts_input:
             return None
         if self._input_request is not None:
             raise RuntimeError("a user input request is already pending")
@@ -506,6 +615,7 @@ class AgentRuntime:
             queued = self._steer_queue[-1]
             queued.texts.append(text)
             queued.futures.append(future)
+            self._publish_update("queue")
             return queued.submission_id, future
 
         submission_id = uuid7_string()
@@ -522,6 +632,7 @@ class AgentRuntime:
         )
         target = self._steer_queue if queue == "steer" else self._enqueue_queue
         target.append(queued)
+        self._publish_update("queue")
         asyncio.get_running_loop().call_soon(self._wake_worker)
         return submission_id, future
 
@@ -544,7 +655,10 @@ class AgentRuntime:
                 self._finish_submission_result(queued, result)
             finally:
                 self._current_submission = None
+                self._publish_update("idle")
         try:
+            if self._command_tasks:
+                await asyncio.gather(*tuple(self._command_tasks))
             async with self._get_command_lock():
                 await self._close_resources()
         finally:

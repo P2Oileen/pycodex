@@ -115,6 +115,10 @@ them, and use **Insert into chat** to add selected code to an editable draft.
 Keep the server's stdin open: EOF initiates shutdown.
 The gear button starts an Agent conversation for customizing the interface
 through files in `~/.pycodex/frontend/`.
+The [custom frontend API](docs/WORKSPACE_API.md) provides structured state,
+command results, history pagination, event replay and Agent/background-task
+inventories. Optional `custom.js` extensions can export `mount(host)` to use
+the built-in page's session, draft and viewer controls.
 
 See the [workspace guide](packages/pycodex-ws/README.md) for session controls,
 storage and Feishu setup. The separately distributed

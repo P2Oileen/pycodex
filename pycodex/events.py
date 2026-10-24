@@ -752,12 +752,26 @@ class SessionStateEvent(Event):
 
 
 @dataclass(frozen=True)
+class RuntimeUpdatedEvent(Event):
+    reason: "str"
+    kind: ClassVar[str] = "runtime_updated"
+
+
+@dataclass(frozen=True)
 class SessionClosedEvent(Event):
     kind: ClassVar[str] = "session_closed"
 
     def render(self, display: "EventDisplay") -> "None":
         display.closed = True
         display.finish_stream()
+
+
+@dataclass(frozen=True)
+class CommandStartedEvent(Event):
+    submission_id: "str"
+    command: "str"
+    sender: "str" = "user"
+    kind: ClassVar[str] = "command_started"
 
 
 @dataclass(frozen=True)
@@ -782,6 +796,7 @@ class CommandFailedEvent(Event):
     command: "str"
     error: "str"
     sender: "str"
+    error_type: "str" = "CommandError"
     kind: ClassVar[str] = "command_failed"
 
     def visualize(self) -> "str":

@@ -96,6 +96,10 @@ env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests/test_feishu_car
 
 ### HTTP 框架依赖
 
+- `test_session_api.py` 覆盖单/多 workspace、普通/独立线程会话的资源查询、
+  命令回执、结果、鉴权、分页和事件恢复；core 的 `test_history_page.py`
+  验证压缩前历史与工具结果分页。扩展 host 的独立 Node 测试手动运行：
+  `node packages/pycodex-ws/tests/workspace_custom_host.mjs`。
 - 两处 HTTP 服务及 fake 下游均直接使用 Starlette。Python 3.6 CI 安装
   Starlette 0.19.x；安装和运行不需要 FastAPI、Pydantic 或 pydantic-core。
 - `tests/responses_server/test_server.py` 覆盖路由别名、JSON 响应和 HTTP 错误，

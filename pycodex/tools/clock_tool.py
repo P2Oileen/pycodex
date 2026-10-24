@@ -8,7 +8,7 @@ cancels the pending countdown, and every successful reply starts a fresh one.
 import asyncio
 import math
 import typing
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..events import (
     CompactCompletedEvent,
@@ -50,6 +50,8 @@ class ClockManager:
         self._period_m: "typing.Union[float, None]" = None
         self._timer_task: "typing.Union[asyncio.Task, None]" = None
         self._generation = 0
+        self._next_fire_at = None
+        self._state_listener = None
         self._notify_hook: "typing.Union[typing.Callable[[typing.Dict[str, object]], typing.Awaitable[typing.Any]], None]" = (None)
 
     def set_notify_hook(
@@ -58,10 +60,29 @@ class ClockManager:
     ) -> "None":
         self._notify_hook = callback
 
+    def set_state_listener(self, listener):
+        self._state_listener = listener
+
+    def _state_changed(self):
+        if self._state_listener is not None:
+            self._state_listener()
+
+    def background_snapshot(self):
+        return dict(
+            self.snapshot(),
+            kind="clock",
+            next_fire_at=self._next_fire_at,
+            status=(
+                "armed" if self._next_fire_at is not None
+                else "paused" if self.enabled else "disabled"
+            ),
+        )
+
     def set_period(self, value: "object") -> "JSONDict":
         self._cancel_pending()
         if value is None:
             self._period_m = None
+            self._state_changed()
             return self.snapshot()
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("period_m must be a positive finite number or null")
@@ -69,6 +90,7 @@ class ClockManager:
         if not math.isfinite(period_m) or period_m <= 0:
             raise ValueError("period_m must be a positive finite number or null")
         self._period_m = period_m
+        self._state_changed()
         return self.snapshot()
 
     def snapshot(self) -> "JSONDict":
@@ -81,21 +103,32 @@ class ClockManager:
     def enabled(self) -> "bool":
         return self._period_m is not None
 
+    @property
+    def armed(self) -> "bool":
+        return self._next_fire_at is not None
+
     def turn_started(self) -> "None":
         self._cancel_pending()
+        self._state_changed()
 
     def arm_after_reply(self) -> "None":
         self._cancel_pending()
         period_m = self._period_m
         if period_m is None or self._notify_hook is None:
+            self._state_changed()
             return
         generation = self._generation
+        self._next_fire_at = (
+            datetime.now().astimezone()
+            + timedelta(seconds=period_m * self._seconds_per_minute)
+        ).isoformat()
         self._timer_task = asyncio.create_task(
             self._wait_and_notify(generation, period_m)
         )
         self._timer_task.add_done_callback(
             lambda task: None if task.cancelled() else task.exception()
         )
+        self._state_changed()
 
     def cancel(self) -> "None":
         self.set_period(None)
@@ -104,6 +137,7 @@ class ClockManager:
         self._generation += 1
         task = self._timer_task
         self._timer_task = None
+        self._next_fire_at = None
         if task is not None and not task.done():
             task.cancel()
 
@@ -118,6 +152,8 @@ class ClockManager:
             return
 
         self._timer_task = None
+        self._next_fire_at = None
+        self._state_changed()
         callback = self._notify_hook
         if callback is None:
             return
@@ -192,7 +228,13 @@ class ClockTool(BaseTool):
         self._manager.set_notify_hook(None)
 
     def background_work_count(self, after_reply: "bool") -> "int":
-        return int(after_reply and self._manager.enabled)
+        return int(self._manager.enabled if after_reply else self._manager.armed)
+
+    def background_work_snapshot(self):
+        return [self._manager.background_snapshot()]
+
+    def set_state_listener(self, listener):
+        self._manager.set_state_listener(listener)
 
     async def run(self, context: "ToolContext", args: "JSONDict") -> "JSONValue":
         del context

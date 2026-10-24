@@ -107,6 +107,12 @@ class BaseTool(ABC):
     def background_work_count(self, after_reply: "bool") -> "int":
         return 0
 
+    def background_work_snapshot(self) -> "typing.List[JSONDict]":
+        return []
+
+    def set_state_listener(self, listener) -> "None":
+        pass
+
 
 class ToolRegistry:
     def __init__(

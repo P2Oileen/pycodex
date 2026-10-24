@@ -332,6 +332,37 @@ def conversation_history_to_turns(
     return tuple(turns)
 
 
+def read_rollout_history_page(rollout_path, before=None, limit=100):
+    """Read a bounded page of conversation records in chronological order."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200:
+        raise ValueError("limit must be between 1 and 200")
+    if before is not None and (
+        isinstance(before, bool) or not isinstance(before, int) or before < 0
+    ):
+        raise ValueError("before must be a non-negative record index")
+    entries = deque(maxlen=limit + 1)
+    index = 0
+    for entry in _iter_rollout_entries(Path(rollout_path)):
+        kind = entry.get("type")
+        if kind not in {"response_item", "compacted"}:
+            continue
+        if before is not None and index >= before:
+            break
+        payload = entry["payload"]
+        if kind == "compacted":
+            payload = {"message": payload.get("message", "")}
+        entries.append({"index": index, "type": kind, "payload": payload})
+        index += 1
+    if before is not None and before > index:
+        raise ValueError("history cursor is beyond the current history")
+    more = len(entries) > limit
+    items = list(entries)[-limit:]
+    return {
+        "items": items,
+        "next_before": items[0]["index"] if more else None,
+    }
+
+
 def load_display_history(
     rollout_path: "typing.Union[str, Path]",
     limit: "int" = 80,

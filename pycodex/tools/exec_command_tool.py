@@ -86,6 +86,12 @@ class ExecCommandTool(BaseTool):
     def background_work_count(self, after_reply: "bool") -> "int":
         return self._manager.running_session_count()
 
+    def background_work_snapshot(self):
+        return self._manager.snapshot()
+
+    def set_state_listener(self, listener):
+        self._manager.set_state_listener(listener)
+
     async def run(self, context: "ToolContext", args: "JSONDict") -> "JSONValue":
         cmd = str(args.get("cmd", "")).strip()
         if not cmd:

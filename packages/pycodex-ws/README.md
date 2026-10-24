@@ -67,6 +67,10 @@ Refresh to apply changes and keep the selected conversation. Open the workspace
 with `?builtin=1` to bypass all customizations; click “Re-enable customizations”
 to return. Changes apply to all workspaces for that OS user.
 See the [customization contract](../../docs/RUNTIME.md#frontend-customization).
+For custom interfaces, the [resource API](../../docs/WORKSPACE_API.md) exposes
+state, model catalogs, asynchronous command results, paginated history, event
+replay and sub-agent/background-work inventories. A `mount(host)` export in
+`custom.js` can access the built-in page's session, draft and view controls.
 
 ## Storage
 

@@ -444,6 +444,11 @@ async def test_late_frontends_restore_active_stream_and_follow_completion():
 
     class StreamingClient:
         model = "streaming"
+        reasoning_effort = None
+        endpoint = "in-process"
+
+        async def list_models(self):
+            return [self.model]
 
         async def complete(self, prompt, event_handler):
             event_handler(deltas[0])
