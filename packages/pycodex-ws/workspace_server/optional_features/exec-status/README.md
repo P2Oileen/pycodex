@@ -44,7 +44,7 @@ this setup and CSS or restore the pre-edit backup outside the served directory.
 From the repository root, run the preview with:
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optinal_features/exec-status
+python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optional_features/exec-status
 ```
 
 Open `http://127.0.0.1:8765/preview.html?verify`. It reports PASS or FAIL using

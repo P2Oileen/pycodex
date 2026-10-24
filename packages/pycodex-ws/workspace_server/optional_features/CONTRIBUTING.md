@@ -13,7 +13,7 @@ target from its Git remote.
 
 ## Browse and apply
 
-Link the installed `optinal_features/README.md` using an absolute Markdown file link.
+Link the installed `optional_features/README.md` using an absolute Markdown file link.
 Clicking it opens the catalog in the existing workspace view area. Link feature
 READMEs and previews the same way. The user chooses by writing feature names,
 IDs and desired changes in chat; selection has no checkbox, form or new command.
@@ -32,7 +32,7 @@ Browsing a feature does not apply it.
 Submit one feature per PR under this repository path:
 
 ```text
-packages/pycodex-ws/workspace_server/optinal_features/
+packages/pycodex-ws/workspace_server/optional_features/
   README.md
   <feature-id>/
     README.md
