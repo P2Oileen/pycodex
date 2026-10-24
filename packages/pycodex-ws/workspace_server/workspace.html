@@ -2738,12 +2738,13 @@
     }
 
     function frontendCustomizationPrompt() {
-      const {frontendDirectory, packageDirectory, packageVersion} = document.body.dataset;
+      const {frontendDirectory, packageDirectory} = document.body.dataset;
       return [
         "<frontend_customization>",
         "Help me customize my pycodex workspace interface. First briefly explain " +
-          "what you can change, the shared scope, and how to apply/revert changes, " +
-          "then wait for my specific request before editing files.",
+          "what you can change, how to browse/apply feature examples or publish " +
+          "a local change as a feature PR, the shared scope, and how to apply/revert " +
+          "changes, then wait for my specific request before editing files.",
         "",
         "Use the user's preferred language for all replies, starting with your " +
           "introduction. Prioritize explicit language preferences, then the " +
@@ -2755,21 +2756,109 @@
         "Browser language preferences (most preferred first): " +
           (navigator.languages.join(", ") || "not supplied"),
         "",
-        `Frontend files (pycodex-ws ${packageVersion}):`,
+        "Frontend files:",
         `- User customization directory: ${frontendDirectory}`,
         `- Original page: ${packageDirectory}/workspace.html`,
+        `- API reference (read before API changes): ${packageDirectory}/WORKSPACE_API.md`,
+        `- Feature catalog: ${packageDirectory}/examples/README.md`,
+        `- Feature source and PR format: ${packageDirectory}/examples/CONTRIBUTING.md`,
+        `- Resource endpoint implementation: ${packageDirectory}/session_api.py`,
+        `- Session, WebSocket and view implementation: ${packageDirectory}/app.py`,
         `- Packaged viewer/composer module: ${packageDirectory}/content_views.mjs`,
         `- Packaged viewer styles: ${packageDirectory}/content_views.css`,
         "",
         "Prefer small overrides in custom.css for styling and custom.js for " +
           "additional behavior. They are automatically loaded after the page's " +
           "styles and module, even without a custom workspace.html. custom.js " +
-          "is an ES module; it can use the DOM and HTTP APIs, but the page's " +
-          "module variables are private. Read existing custom files first and " +
-          "preserve unrelated changes. If markup or core page logic must change, " +
+          "is an ES module; it can use the DOM, HTTP APIs and the host described " +
+          "below, but the page's module variables are private. Read existing custom " +
+          "files first and preserve unrelated changes. If markup or core page logic must change, " +
           "copy the original workspace.html only if the user's copy does not " +
           "exist. Keep package-installed files unchanged. Create the user " +
           "directory and supporting files only when needed.",
+        "",
+        "When using examples, adapt their source into the user's frontend as " +
+          "one coherent implementation. Do not introduce a plugin registry or " +
+          "runtime module-composition system unless the user requests one.",
+        "",
+        "To show available features, read the catalog and offer an absolute " +
+          "Markdown file link to open it in the existing view area. The user " +
+          "chooses features and requests changes in ordinary chat text by name " +
+          "or ID. Use the same view area for feature descriptions and previews; " +
+          "do not add checkboxes, selection widgets, new buttons or chat commands. " +
+          "Only describe features actually present in the chosen catalog.",
+        "",
+        "You can publish a user's local frontend change as a feature PR when " +
+          "they ask. Read examples/CONTRIBUTING.md above for the target repository, " +
+          "directory layout, README fields and PR template. Extract one feature " +
+          "with readable source, integration guidance and actual validation " +
+          "results; update its catalog row. Use title " +
+          "'feature(<feature-id>): <short description>' and the documented " +
+          "Feature/Changes/Integration/Validation/Preview/Limitations body sections. " +
+          "Prepare the contribution in a checkout outside the served frontend " +
+          "directory. Follow the user's commit/push constraints; when publication " +
+          "is authorized, submit a PR (MR on GitLab) and return its link. " +
+          "If the target or access is missing, prepare the local contribution " +
+          "and PR body before reporting what is needed to submit.",
+        "",
+        "Built-in page host: custom.js may export " +
+          "mount(host), called once during page initialization. The frozen host " +
+          "provides getActiveSessionId(), selectSession(id) (async), " +
+          "onSessionChanged(handler) (returns unsubscribe), getDraft(), " +
+          "setDraft(draft) (draft.parts must be an array), openView(href, srcPath), " +
+          "and request(path, options) (workspace-relative JSON; HTTP failures reject). " +
+          "The initial session ID may be empty. Recheck the active session before " +
+          "applying asynchronous results; unsubscribe and close session-specific " +
+          "connections when switching or removing UI. Side-effect-only scripts " +
+          "still load; a full HTML replacement owns its initialization.",
+        "",
+        "Workspace API quick reference (full schemas and limits are in " +
+          "WORKSPACE_API.md above). Keep HTTP and WS URLs relative to the workspace " +
+          "so /w/{workspace_id}/ prefixes and existing authentication work. " +
+          "{id} is the workspace tab ID " +
+          "from GET api/sessions or host.getActiveSessionId(); it is distinct " +
+          "from state.agent_session_id and stays stable across fork/resume.",
+        "- GET api/sessions/{id}/state -> {state, cursor}: model/effort, " +
+          "running/busy/closed/accepts_input, active turn, queued inputs, commands, " +
+          "input request, plan, context/usage and background-work count; no completed history.",
+        "- GET api/sessions/{id}/models -> {model, models}: model catalog " +
+          "without invoking a completion or adding a chat message.",
+        "- POST api/sessions/{id}/commands with {command, argument?}: command " +
+          "name without slash and optional string argument; HTTP 202 returns " +
+          "{submission_id, submission}. This is admission, not success. " +
+          "GET api/sessions/{id}/submissions/{submission_id} or WS submission " +
+          "notifications track queued/running/completed/failed and result/error. " +
+          "Message receipts are queryable too. Pending and the latest 500 completed " +
+          "submissions are kept in memory; unknown/expired IDs return 404. " +
+          "Send /queue through the message endpoint, not commands.",
+        "- GET api/sessions/{id}/history?limit=100&before=... -> " +
+          "{source, items, next_cursor}: newest page first, chronological items " +
+          "within each page, limit 1-200. Use opaque next_cursor as before for " +
+          "older pages; null ends pagination. HTTP 409 means restart pagination. " +
+          "Items have index/type/payload; response_item includes tool calls/results " +
+          "and available reasoning. Recorded rollout history includes pre-compaction " +
+          "records; active_history contains only current in-memory history.",
+        "- GET api/sessions/{id}/agents -> {agents}: descendant agent_id, " +
+          "parent_agent_id, nickname and status. Add agent_id to resource/command " +
+          "queries to target an owned child; submission lookup needs only its ID.",
+        "- GET api/sessions/{id}/background-work -> {background_work}: exec " +
+          "session_id/pid/tty/status/exit_code and clock enabled/period_m/status/" +
+          "next_fire_at. Exec entries omit arguments, environment and output, and " +
+          "disappear when released; use tool history for past executions.",
+        "- WS ws/session?session_id=... with optional cursor and agent_id: " +
+          "hello includes snapshot/events/state/cursor/reset_required. Without a " +
+          "cursor it includes up to 200 cached events; replay is bounded to 500. " +
+          "Hello state is authoritative at its cursor; replay fills the timeline " +
+          "without replacing it with older state. Process live events in cursor " +
+          "order. On reset_required, discard stale stream state and reload resources/" +
+          "history as needed. runtime_updated and submission events signal state " +
+          "and result changes; re-query agent/background inventories on changes. " +
+          "Child streams have separate cursors and are read-only (ping allowed; " +
+          "send/answer rejected); observing one does not enable interaction.",
+        "Reasoning display is limited to readable records actually supplied by " +
+          "the model. Encrypted reasoning is not readable, and there is currently " +
+          "no dedicated live reasoning-delta event. The display snapshot's " +
+          "thinking field is assistant text, not a reasoning API.",
         "",
         "Module execution and DOMContentLoaded do not mean asynchronous content " +
           "is ready: session tabs, messages and file views arrive later. Renderers " +
@@ -2779,8 +2868,9 @@
           "renderer-owned nodes. custom.css follows packaged styles, including " +
           "the lazily loaded editor stylesheet; normal CSS specificity still applies.",
         "",
-        "All supporting files belong inside the customization directory. The " +
-          "workspace-relative URL frontend/<path> serves files from it; for example " +
+        "All files served by the customized interface belong inside the " +
+          "customization directory. The workspace-relative URL frontend/<path> " +
+          "serves files from it; for example " +
           "frontend/assets/logo.svg. CSS URLs and module imports resolve normally " +
           "relative to their files. Existing assets/content_views.mjs, " +
           "assets/content_views.css and assets/editor.* remain package resources.",
@@ -2810,7 +2900,7 @@
         "",
         "Before substantial edits, keep a recoverable copy outside the served " +
           "directory. On the first full HTML override, keep the original template " +
-          "and its package version with that backup for future comparisons. Full " +
+          "with that backup for future comparisons. Full " +
           "overrides are not automatically merged on upgrades; compare that " +
           "baseline, the user's edits and the new packaged template without " +
           "overwriting existing customizations. After editing, verify the affected " +

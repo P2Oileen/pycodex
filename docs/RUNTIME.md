@@ -655,7 +655,7 @@ ES module; page module variables remain private.
 An optional `mount(host)` export receives the built-in page's versioned
 session/draft/view interface. Side-effect-only scripts still load; full template
 replacements own their initialization. See the
-[host contract](WORKSPACE_API.md#built-in-page-extension-host).
+[host contract](../packages/pycodex-ws/workspace_server/WORKSPACE_API.md#built-in-page-extension-host).
 
 Custom templates retain closing `head`/`body` tags and the placeholders
 `__WORKSPACE_TITLE__`, `__BOARD_LABEL__`, `__CWD_LABEL__`, `__ENABLE_BOARD__` and
@@ -680,8 +680,27 @@ The gear button in `workspace.html` assembles the `Customize interface` title
 and introductory prompt, then passes both to the ordinary session creation
 API. The prompt and its development guidance belong to the editable frontend;
 the Python customization module only loads templates and serves their resources.
-The button uses the page's path/version metadata and `navigator.languages`
-in preference order. The Agent is instructed to explain the available changes
+The button uses the page's path metadata and `navigator.languages`
+in preference order. Its context includes the installed `WORKSPACE_API.md`
+path, API implementation paths, and a quick reference for the host,
+state/models, commands/results, history, descendant/background inventories and
+WS replay/reset. The full API reference lives beside `workspace.html` and ships
+in the wheel and sdist; it does not require a source checkout. Reasoning guidance
+distinguishes recorded readable content from the display `thinking` field and
+does not promise live reasoning deltas. Examples are guidance for adapting
+source into a coherent frontend, without requiring a plugin registry or runtime
+composition system.
+The packaged `examples/README.md` is a Markdown feature catalog opened in the
+existing view area; users choose features by name or ID in ordinary chat text.
+There are no additional selection controls or chat commands. The context links
+the [feature contribution guide](../packages/pycodex-ws/workspace_server/examples/CONTRIBUTING.md),
+which defines the target repository, per-feature source layout, README metadata,
+validation evidence and PR/MR title/body format. On a publication request, the
+Agent prepares the scoped contribution in a separate checkout and submits it
+subject to the user's commit/push constraints. Catalog entries describe source
+actually present in the library; installed catalogs ship with the package and
+do not fetch remote entries automatically.
+The Agent is instructed to explain the available changes
 and wait for the user's request before editing. Replies, including the
 introduction, follow explicit user language preferences first, then the user's
 own conversation language, then the browser's language preferences. Time zone,
@@ -699,7 +718,7 @@ The prompt directs the Agent to read existing customizations, use event
 delegation and idempotent setup for asynchronously rendered content, and
 verify the affected interactions. Substantial changes need recoverable copies
 outside the served directory. A first full HTML override also preserves the
-original template and package version for comparison with future upgrades.
+original template for comparison with future upgrades.
 
 ## Workspace content views
 

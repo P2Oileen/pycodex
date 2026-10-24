@@ -114,7 +114,12 @@ HTML Canvas and read-only file/diff viewers. Click file links in replies to open
 them, and use **Insert into chat** to add selected code to an editable draft.
 Keep the server's stdin open: EOF initiates shutdown.
 The gear button starts an Agent conversation for customizing the interface
-through files in `~/.pycodex/frontend/`.
+through files in `~/.pycodex/frontend/`. Its setup context includes an API quick
+reference and the path to the full API documentation shipped with the package.
+Browse the [feature catalog](packages/pycodex-ws/workspace_server/examples/README.md)
+in the view area and tell the Agent which examples to adapt. You can also ask it
+to publish a local customization as a feature PR using the
+[contribution format](packages/pycodex-ws/workspace_server/examples/CONTRIBUTING.md).
 The [custom frontend API](docs/WORKSPACE_API.md) provides structured state,
 command results, history pagination, event replay and Agent/background-task
 inventories. Optional `custom.js` extensions can export `mount(host)` to use
