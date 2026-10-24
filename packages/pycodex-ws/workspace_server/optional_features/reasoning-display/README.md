@@ -47,7 +47,7 @@ refresh to apply the frontend.
 From the repository root:
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optinal_features/reasoning-display
+python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optional_features/reasoning-display
 ```
 
 Open `http://127.0.0.1:8765/preview.html?verify` for PASS/FAIL browser checks with

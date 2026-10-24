@@ -690,10 +690,10 @@ distinguishes recorded readable content from the display `thinking` field and
 does not promise live reasoning deltas. Feature reference code is adapted
 into a coherent frontend, without requiring a plugin registry or runtime
 composition system.
-The packaged `optinal_features/README.md` is a Markdown feature catalog opened in the
+The packaged `optional_features/README.md` is a Markdown feature catalog opened in the
 existing view area; users choose features by name or ID in ordinary chat text.
 There are no additional selection controls or chat commands. The context links
-the [feature contribution guide](../packages/pycodex-ws/workspace_server/optinal_features/CONTRIBUTING.md),
+the [feature contribution guide](../packages/pycodex-ws/workspace_server/optional_features/CONTRIBUTING.md),
 which defines the target repository, per-feature source layout, README metadata,
 validation evidence and GitHub PR title/body format. On a publication request, the
 Agent prepares the scoped contribution in a separate checkout and submits it
