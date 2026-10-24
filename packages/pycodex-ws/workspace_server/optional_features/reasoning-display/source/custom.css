@@ -1,0 +1,6 @@
+.example-reasoning-display { color: var(--ink, #17313b); font: 12px/1.5 system-ui, sans-serif; min-width: 0; }
+.example-reasoning-display summary { cursor: pointer; }
+.example-reasoning-display p { margin: 4px 0; overflow-wrap: anywhere; }
+.example-reasoning-list { max-height: 220px; overflow: auto; }
+.example-reasoning-list section { border: 1px solid var(--line, #cbd5df); border-radius: 6px; margin: 4px 0; padding: 6px 8px; }
+.example-reasoning-list pre { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
