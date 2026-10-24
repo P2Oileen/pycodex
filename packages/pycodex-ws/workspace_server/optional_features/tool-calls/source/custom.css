@@ -1,0 +1,6 @@
+.example-tool-calls { color: var(--ink, #17313b); font: 12px/1.5 system-ui, sans-serif; min-width: 0; }
+.example-tool-calls summary { cursor: pointer; overflow-wrap: anywhere; }
+.example-tool-calls p { margin: 4px 0; overflow-wrap: anywhere; }
+.example-tool-calls-list { max-height: 220px; overflow: auto; }
+.example-tool-calls-list > details { border: 1px solid var(--line, #cbd5df); border-radius: 6px; padding: 6px 8px; margin: 4px 0; }
+.example-tool-calls pre { margin: 4px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 150px; overflow: auto; font-size: 11px; }
