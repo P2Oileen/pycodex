@@ -173,7 +173,8 @@ def test_history_pages_survive_append_and_reject_a_different_session(api_setup):
         ).status_code == 409
 
 
-def test_event_cursor_replay_expiry_and_restart():
+@pytest.mark.asyncio
+async def test_event_cursor_replay_expiry_and_restart():
     view = WebSessionView()
     cursor = view.api_snapshot()["cursor"]
     for index in range(505):
