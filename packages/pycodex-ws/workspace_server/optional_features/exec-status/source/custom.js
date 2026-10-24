@@ -1,6 +1,7 @@
 // Reference implementation: adapt this source into your own custom.js.
 export function mount(host) {
   const root = document.createElement("section");
+  root.hidden = true;
   root.className = "example-exec-status";
   root.setAttribute("aria-label", "Command sessions");
   const status = document.createElement("p");
@@ -13,9 +14,10 @@ export function mount(host) {
 
   function select() {
     stopSession();
+    root.hidden = true;
     list.replaceChildren();
     const sessionId = host.getActiveSessionId();
-    status.textContent = sessionId ? "Loading command sessions…" : "Select a session.";
+    status.textContent = "";
     if (!sessionId) return;
     const request = new AbortController();
     let timer;
@@ -32,9 +34,8 @@ export function mount(host) {
         );
         if (request.signal.aborted || host.getActiveSessionId() !== sessionId) return;
         const commands = background_work.filter(item => item.kind === "exec");
-        status.textContent = commands.length
-          ? `${commands.filter(item => item.status === "running").length} running · ${commands.length} command sessions`
-          : "No command sessions.";
+        root.hidden = commands.length === 0;
+        status.textContent = `${commands.filter(item => item.status === "running").length} running · ${commands.length} command sessions`;
         const serialized = JSON.stringify(commands);
         if (serialized !== lastRows) {
           list.replaceChildren(...commands.map(command => {
@@ -51,6 +52,7 @@ export function mount(host) {
         list.replaceChildren();
         lastRows = "";
         status.textContent = `Unable to read command sessions: ${error.message}`;
+        root.hidden = false;
       } finally {
         if (!request.signal.aborted) timer = setTimeout(refresh, 2000);
       }

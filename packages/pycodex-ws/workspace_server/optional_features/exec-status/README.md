@@ -14,6 +14,9 @@ from `running` to `exited (0)` when execution finishes. Released entries disappe
 
 The count and rows refresh every two seconds after the previous request finishes.
 Changing the selected conversation clears the old rows immediately.
+The whole panel stays hidden during initial loading, without a selected session
+or when no exec entries remain. Polling continues while hidden, so new entries
+appear automatically. Request failures display an error until polling recovers.
 
 ## Source
 
@@ -57,9 +60,10 @@ Chromium checks passed for the supplied preview:
 | Scenario | Observed result |
 | --- | --- |
 | Running, exited and clock records | Two exec entries; clock excluded; exit code and PID displayed |
-| Initially empty selection, then running work | Empty state followed by the inventory |
+| Empty selection, loading, no exec entries, then running work | No occupied space until exec entries arrive; clock-only results stay hidden |
+| Polling from populated to empty and back | Entire panel hides and reappears automatically |
 | Switch with a late old response | Old request aborted; late data did not replace current rows |
-| Failed request followed by successful polling | Error visible, then current rows restored |
+| Failed request followed by an empty successful result | Error visible, then panel hidden |
 | Page hide, cached-page restoration, disposal and remount | Polling paused/resumed; subscriptions and UI cleaned up |
 | Desktop, 390px mobile and refresh | No horizontal overflow; composer draft preserved |
 

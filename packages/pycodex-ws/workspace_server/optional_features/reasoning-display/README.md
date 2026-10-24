@@ -10,12 +10,15 @@ tags: [reasoning, history]
 
 Add a collapsible panel showing readable reasoning returned by the model and
 recorded in the conversation. A reasoning record can contain summary text,
-reasoning text, both, or neither. Records without readable content get an
-explicit unavailable message.
+reasoning text, both, or neither. Records without readable content are omitted,
+including opaque-only and whitespace-only records.
 
 The panel reads the newest 200 history records every two seconds after the
 previous request finishes. It renders newest reasoning records first.
 Assistant message text and the display snapshot's `thinking` field are not used.
+The whole panel stays hidden during initial loading, without a selected session
+or when no readable records remain. Polling continues while hidden.
+Request failures display an error until polling recovers.
 
 ## Source
 
@@ -60,9 +63,11 @@ Chromium checks passed:
 | Scenario | Observed result |
 | --- | --- |
 | Readable summary and reasoning-text records | Both displayed in separate labeled sections |
-| Opaque-only record | Unavailable message; opaque fixture bytes absent from DOM |
+| Opaque-only and whitespace-only records | Omitted; no empty record boxes or opaque fixture bytes in the DOM |
+| Empty selection, loading and no readable records | Entire panel hidden without occupying space |
+| Polling from readable records to empty and back | Entire panel hides and reappears automatically |
 | Assistant message and HTML-like reasoning text | Assistant text excluded; reasoning text escaped by text rendering |
-| Late response after switching, request failure and recovery | Current session preserved; error visible then cleared |
+| Late response after switching, request failure and empty recovery | Current session preserved; error visible then panel hidden |
 | Page hide/cache restore, disposal and remount | Requests/timers/listeners stopped or restored |
 | Desktop, 390px mobile and refresh | No horizontal overflow; draft preserved |
 

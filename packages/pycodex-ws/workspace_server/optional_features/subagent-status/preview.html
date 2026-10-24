@@ -18,11 +18,11 @@
 </main>
 <script type="module">
   import {mount} from "./source/custom.js";
-  import {sample, check} from "./source/fixture.mjs";
+  import {sample, empty, check} from "./source/fixture.mjs";
   import {verify} from "./source/verify.mjs";
   async function main() {
     if (new URL(location.href).searchParams.has("verify")) {
-      await verify(mount, sample, check);
+      await verify(mount, sample, empty, check);
       document.querySelector("#verification").textContent = "PASS · fixture, switching, retry, page lifecycle and cleanup checks.";
     } else {
       mount({getActiveSessionId: () => "preview", onSessionChanged: () => () => {}, request: async () => sample()});

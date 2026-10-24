@@ -7,11 +7,19 @@ export function sample() {
   ]};
 }
 
+export function empty() {
+  return {next_cursor: null, items: [
+    {index: 30, type: "response_item", payload: {type: "reasoning", encrypted_content: "TEST_OPAQUE_DATA_DO_NOT_RENDER", summary: [], content: null}},
+    {index: 31, type: "response_item", payload: {type: "reasoning", summary: [{type: "summary_text", text: " \n"}], content: [{type: "reasoning_text", text: "\t"}]}},
+    {index: 32, type: "response_item", payload: {type: "message", role: "assistant", content: [{type: "output_text", text: "ASSISTANT_TEXT_DO_NOT_RENDER"}]}},
+  ]};
+}
+
 export function check(root) {
-  if (root.querySelectorAll("section").length !== 3 ||
+  if (root.getClientRects().length === 0 || root.querySelectorAll("section").length !== 2 ||
       !root.textContent.includes("Check the request") ||
       !root.textContent.includes("<b>This is literal recorded text.</b>") ||
-      !root.textContent.includes("No readable reasoning was returned") ||
+      root.textContent.includes("History record 22") ||
       root.textContent.includes("TEST_OPAQUE_DATA_DO_NOT_RENDER") ||
       root.textContent.includes("ASSISTANT_TEXT_DO_NOT_RENDER") ||
       root.querySelector("b")) throw new Error("Readable reasoning filtering failed");

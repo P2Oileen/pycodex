@@ -1,6 +1,7 @@
 // Reference implementation: adapt this source into your own custom.js.
 export function mount(host) {
   const root = document.createElement("section");
+  root.hidden = true;
   root.className = "example-subagent-status";
   root.setAttribute("aria-label", "Subagents");
   const status = document.createElement("p");
@@ -13,9 +14,10 @@ export function mount(host) {
 
   function select() {
     stopSession();
+    root.hidden = true;
     list.replaceChildren();
     const sessionId = host.getActiveSessionId();
-    status.textContent = sessionId ? "Loading subagents…" : "Select a session.";
+    status.textContent = "";
     if (!sessionId) return;
     const request = new AbortController();
     let timer;
@@ -31,9 +33,8 @@ export function mount(host) {
           {signal: request.signal},
         );
         if (request.signal.aborted || host.getActiveSessionId() !== sessionId) return;
-        status.textContent = agents.length
-          ? `${agents.filter(agent => agent.status === "running").length} running · ${agents.length} subagents`
-          : "No subagents.";
+        root.hidden = agents.length === 0;
+        status.textContent = `${agents.filter(agent => agent.status === "running").length} running · ${agents.length} subagents`;
         const serialized = JSON.stringify(agents);
         if (serialized !== lastRows) {
           list.replaceChildren(...agents.map(agent => {
@@ -68,6 +69,7 @@ export function mount(host) {
         list.replaceChildren();
         lastRows = "";
         status.textContent = `Unable to read subagents: ${error.message}`;
+        root.hidden = false;
       } finally {
         if (!request.signal.aborted) timer = setTimeout(refresh, 2000);
       }

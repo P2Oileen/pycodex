@@ -17,6 +17,9 @@ The newest 200 history records are queried every two seconds after the previous
 request completes. Rows show newest calls first. A call without a result in
 that page says so; it is not labeled as currently running. A result whose call
 is outside the page is still displayed as an earlier tool call.
+The whole panel stays hidden during initial loading, without a selected session
+or when the page has no supported calls/results. Polling continues while hidden.
+Request failures display an error until polling recovers.
 
 ## Source
 
@@ -64,7 +67,9 @@ Chromium checks passed:
 | Output with its call outside the page | Output retained as an earlier call |
 | Call without a recorded result | Explicit incomplete-page label |
 | Structured output containing HTML-like text | Shown literally; no markup created |
-| Session switch with a late response; request error and recovery | No cross-session overwrite; error visible then cleared |
+| Empty selection, loading and history without calls/results | Entire panel hidden without occupying space |
+| Polling from populated to empty and back | Entire panel hides and reappears automatically |
+| Session switch with a late response; request error and empty recovery | No cross-session overwrite; error visible then panel hidden |
 | Page hide/cache restore, disposal and remount | Polling and listeners cleaned up/restored |
 | Desktop, 390px mobile and page refresh | No horizontal overflow; draft retained |
 

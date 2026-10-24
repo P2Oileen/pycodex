@@ -700,6 +700,10 @@ Agent prepares the scoped contribution in a separate checkout and submits it
 subject to the user's commit/push constraints. Catalog entries describe source
 actually present in the library; installed catalogs ship with the package and
 do not fetch remote entries automatically.
+The supplied feature panels occupy no space during initial loading, without a
+selected session or when their filtered content is empty; polling continues and
+reveals them when data arrives. Reasoning examples omit records without readable
+text. Request failures remain visible until a successful refresh.
 The Agent is instructed to explain the available changes
 and wait for the user's request before editing. Replies, including the
 introduction, follow explicit user language preferences first, then the user's

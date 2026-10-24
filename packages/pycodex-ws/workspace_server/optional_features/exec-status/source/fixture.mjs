@@ -6,8 +6,12 @@ export function sample() {
   ]};
 }
 
+export function empty() {
+  return {background_work: [{kind: "clock", status: "running"}]};
+}
+
 export function check(root) {
-  if (root.querySelectorAll("li").length !== 2 ||
+  if (root.getClientRects().length === 0 || root.querySelectorAll("li").length !== 2 ||
       !root.textContent.includes("1 running") ||
       !root.textContent.includes("exited (0)") ||
       !root.textContent.includes("PID 1042")) throw new Error("Exec inventory rendering failed");

@@ -1,6 +1,7 @@
 // Reference implementation: adapt this source into your own custom.js.
 export function mount(host) {
   const root = document.createElement("details");
+  root.hidden = true;
   root.className = "example-tool-calls";
   const heading = document.createElement("summary");
   heading.textContent = "Tool calls";
@@ -15,9 +16,10 @@ export function mount(host) {
 
   function select() {
     stopSession();
+    root.hidden = true;
     list.replaceChildren();
     const sessionId = host.getActiveSessionId();
-    status.textContent = sessionId ? "Loading tool history…" : "Select a session.";
+    status.textContent = "";
     if (!sessionId) return;
     const request = new AbortController();
     let timer;
@@ -53,6 +55,7 @@ export function mount(host) {
             calls.set(item.call_id, call);
           }
         }
+        root.hidden = calls.size === 0;
         status.textContent = `${calls.size} calls in the latest ${page.items.length} history records` +
           (page.next_cursor === null ? "." : " · older records are not shown.");
         const rows = Array.from(calls.values());
@@ -86,6 +89,7 @@ export function mount(host) {
         list.replaceChildren();
         lastRows = "";
         status.textContent = `Unable to read tool history: ${error.message}`;
+        root.hidden = false;
       } finally {
         if (!request.signal.aborted) timer = setTimeout(refresh, 2000);
       }

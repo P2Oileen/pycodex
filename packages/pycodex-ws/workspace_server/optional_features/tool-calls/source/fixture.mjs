@@ -9,8 +9,14 @@ export function sample() {
   ]};
 }
 
+export function empty() {
+  return {next_cursor: null, items: [
+    {type: "response_item", payload: {type: "message", role: "assistant", content: []}},
+  ]};
+}
+
 export function check(root) {
-  if (root.querySelectorAll("[data-call-id]").length !== 4 ||
+  if (root.getClientRects().length === 0 || root.querySelectorAll("[data-call-id]").length !== 4 ||
       !root.textContent.includes("Earlier tool call") ||
       !root.textContent.includes("no recorded result in this page") ||
       !root.textContent.includes("Updated sample.py") ||

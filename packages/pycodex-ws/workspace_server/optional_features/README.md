@@ -5,6 +5,10 @@ Agent which features to apply by name or ID. For example: "Show me the available
 features" or "Apply the exec status feature using my current layout."
 The Agent reads the selected source and adapts it into your frontend.
 
+The supplied panels stay hidden until they have matching content, and hide again
+when that content disappears. Unselected sessions and initial loading occupy no
+space. Request failures remain visible; reasoning records need readable text.
+
 | ID | Feature | Summary | Validation |
 | --- | --- | --- | --- |
 | exec-status | [Exec status](exec-status/README.md) | Running and exited command sessions above the composer. | Chromium fixtures, lifecycle, desktop/mobile; live processes not tested |

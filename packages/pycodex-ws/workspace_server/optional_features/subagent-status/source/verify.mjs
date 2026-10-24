@@ -1,5 +1,5 @@
 // Browser-only checks used by preview.html?verify; no backend or model calls.
-export async function verify(mount, sample, check) {
+export async function verify(mount, sample, empty, check) {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const composer = document.querySelector(".composer");
@@ -22,8 +22,9 @@ export async function verify(mount, sample, check) {
   const select = id => { sessionId = id; listeners.forEach(callback => callback(id)); };
   const cleanup = mount(host);
   const root = composer.firstElementChild;
-  assert(root.textContent.includes("Select a session"), "Empty selection");
+  assert(root.getClientRects().length === 0, "Empty selection occupied space");
   select("first/session");
+  assert(root.getClientRects().length === 0, "Initial loading occupied space");
   const first = pending.shift();
   select("second/session");
   const second = pending.shift();
@@ -31,20 +32,30 @@ export async function verify(mount, sample, check) {
   second.resolve(sample());
   await pause(0);
   check(root);
-  const older = sample();
-  for (const key of ["items", "agents", "background_work"]) if (key in older) older[key] = [];
+  const older = empty();
   first.resolve(older); // Deliberately ignore abort to emulate a late transport.
   await pause(0);
   check(root);
-  select("offline");
-  pending.shift().reject(new Error("fixture offline"));
-  await pause(0);
-  assert(root.textContent.includes("fixture offline"), "Failure not visible");
   await pause(2100);
-  assert(pending.length === 1, "Polling did not retry");
+  pending.shift().resolve(empty());
+  await pause(0);
+  assert(root.getClientRects().length === 0, "Cleared inventory occupied space");
+  await pause(2100);
   pending.shift().resolve(sample());
   await pause(0);
   check(root);
+  select("");
+  assert(root.getClientRects().length === 0, "Deselection left visible UI");
+  select("offline");
+  assert(root.getClientRects().length === 0, "Session switch left visible UI");
+  pending.shift().reject(new Error("fixture offline"));
+  await pause(0);
+  assert(root.getClientRects().length > 0 && root.textContent.includes("fixture offline"), "Failure not visible");
+  await pause(2100);
+  assert(pending.length === 1, "Polling did not retry");
+  pending.shift().resolve(empty());
+  await pause(0);
+  assert(root.getClientRects().length === 0, "Empty recovery left visible error UI");
   select("hidden");
   const hidden = pending.shift();
   window.dispatchEvent(new Event("pagehide"));

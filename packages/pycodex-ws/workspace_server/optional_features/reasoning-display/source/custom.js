@@ -1,6 +1,7 @@
 // Reference implementation: displays only readable recorded reasoning.
 export function mount(host) {
   const root = document.createElement("details");
+  root.hidden = true;
   root.className = "example-reasoning-display";
   const heading = document.createElement("summary");
   heading.textContent = "Recorded reasoning";
@@ -15,9 +16,10 @@ export function mount(host) {
 
   function select() {
     stopSession();
+    root.hidden = true;
     list.replaceChildren();
     const sessionId = host.getActiveSessionId();
-    status.textContent = sessionId ? "Loading recorded reasoning…" : "Select a session.";
+    status.textContent = "";
     if (!sessionId) return;
     const request = new AbortController();
     let timer;
@@ -41,10 +43,10 @@ export function mount(host) {
               .filter(part => part.type === "summary_text").map(part => part.text).join("\n"),
             text: (item.payload.content || [])
               .filter(part => part.type === "reasoning_text").map(part => part.text).join("\n"),
-          }));
-        status.textContent = rows.length
-          ? `${rows.length} reasoning records in the latest ${page.items.length} history records.`
-          : "No reasoning records in the latest history page.";
+          }))
+          .filter(row => row.summary.trim() || row.text.trim());
+        root.hidden = rows.length === 0;
+        status.textContent = `${rows.length} readable reasoning records in the latest ${page.items.length} history records.`;
         if (page.next_cursor !== null) status.textContent += " Older records are not shown.";
         const serialized = JSON.stringify(rows);
         if (serialized !== lastRows) {
@@ -53,13 +55,8 @@ export function mount(host) {
             const title = document.createElement("strong");
             title.textContent = `History record ${row.index}`;
             section.append(title);
-            if (!row.summary && !row.text) {
-              const unavailable = document.createElement("p");
-              unavailable.textContent = "No readable reasoning was returned for this record.";
-              section.append(unavailable);
-            }
             for (const [label, value] of [["Summary", row.summary], ["Text", row.text]]) {
-              if (!value) continue;
+              if (!value.trim()) continue;
               const name = document.createElement("p");
               name.textContent = label;
               const text = document.createElement("pre");
@@ -75,6 +72,7 @@ export function mount(host) {
         list.replaceChildren();
         lastRows = "";
         status.textContent = `Unable to read recorded reasoning: ${error.message}`;
+        root.hidden = false;
       } finally {
         if (!request.signal.aborted) timer = setTimeout(refresh, 2000);
       }

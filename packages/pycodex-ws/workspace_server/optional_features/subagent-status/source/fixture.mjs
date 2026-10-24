@@ -8,8 +8,12 @@ export function sample() {
   ]};
 }
 
+export function empty() {
+  return {agents: []};
+}
+
 export function check(root) {
-  if (root.querySelectorAll("li").length !== 5 ||
+  if (root.getClientRects().length === 0 || root.querySelectorAll("li").length !== 5 ||
       !root.textContent.includes("1 running") ||
       !root.textContent.includes("Parent: a1") ||
       !root.textContent.includes("completed") ||

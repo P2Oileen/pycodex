@@ -15,6 +15,9 @@ descendants. The header counts running agents and all retained descendants.
 
 The panel reads a fresh inventory every two seconds after the prior request.
 Switching conversations clears the old inventory immediately.
+The whole panel stays hidden during initial loading, without a selected session
+or when the inventory is empty. Polling continues while hidden, so new agents
+appear automatically. Request failures display an error until polling recovers.
 
 ## Source
 
@@ -60,8 +63,10 @@ Chromium checks passed for the supplied preview:
 | --- | --- |
 | Nested, running, completed, errored, shutdown and pending agents | Parent IDs, count and outcome details displayed |
 | Nickname containing HTML-like text | Rendered literally, without creating markup |
-| Initially empty selection and late response after switching | Correct empty state; old response ignored |
-| Request failure and subsequent successful polling | Error displayed and inventory recovered |
+| Empty selection, loading and empty inventory | Entire panel hidden without occupying space |
+| Polling from populated to empty and back | Entire panel hides and reappears automatically |
+| Late response after switching | Old response ignored |
+| Request failure followed by an empty successful result | Error displayed, then panel hidden |
 | Page hide/cache restore, disposal and remount | Requests aborted, polling resumed and listeners removed |
 | Desktop, 390px mobile and refresh | No horizontal overflow; existing draft retained |
 
