@@ -41,6 +41,12 @@ running sessions and unread replies. `/cd <directory>` changes the current
 session's working directory while idle; `/model`, `/resume`, `/compact` and
 other core session commands are also available.
 
+Consecutive model reconnection diagnostics share one collapsed `Model retries`
+row per sequence. The summary shows the number of recorded retries, the latest
+attempt and its HTTP status when available. Expand it to read the original errors
+in a scrollable log. New retries update the same row and preserve its open state;
+refreshing starts collapsed. Other model diagnostics and final errors stay visible.
+
 Click Markdown links to open files and comparisons, for example
 `[source](app.py:42)` or `[changes](diff:HEAD:app.py)`. In a code or diff view,
 select text and choose **Insert into chat** to add editable context to the draft.

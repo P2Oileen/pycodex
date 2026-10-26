@@ -717,6 +717,25 @@
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
+    .model-retry-group {
+      white-space: normal;
+    }
+    .model-retry-group > summary {
+      cursor: pointer;
+      overflow-wrap: anywhere;
+    }
+    .model-retry-group > summary:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 3px;
+    }
+    .model-retry-log {
+      max-height: 280px;
+      overflow: auto;
+      margin: 8px 0 0;
+      font: inherit;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .entry.compaction::before,
     .entry.compaction::after {
       content: "";
@@ -2623,6 +2642,37 @@
       });
     }
 
+    function renderModelErrors(messages, key, renderEntry) {
+      const retryHeader = /^Reconnecting\.\.\. (\d+\/(?:\d+|∞))(?:\r?\n|$)/;
+      for (let index = 0; index < messages.length;) {
+        const start = index;
+        if (!retryHeader.test(messages[index])) {
+          renderEntry(`${key}:model-error:${index}`, messages[index], "model-error");
+          index++;
+          continue;
+        }
+        while (index < messages.length && retryHeader.test(messages[index])) index++;
+        const retries = messages.slice(start, index);
+        const latest = retries[retries.length - 1];
+        const attempt = latest.match(retryHeader)[1];
+        const status = latest.match(/responses request failed with status (\d{3})\b/);
+        const label = `Model retries · ${retries.length} recorded · latest ${attempt}` +
+          (status ? ` · HTTP ${status[1]}` : "");
+        const body = renderEntry(`${key}:model-retries:${start}`, "", "model-error");
+        let group = body.querySelector(".model-retry-group");
+        if (!group) {
+          group = element("details", "model-retry-group");
+          group.append(element("summary"), element("pre", "model-retry-log"));
+          body.replaceChildren(group);
+        }
+        const summary = group.firstElementChild;
+        if (summary.textContent !== label) summary.textContent = label;
+        const text = retries.join("\n\n");
+        const output = group.lastElementChild;
+        if (output.textContent !== text) output.textContent = text;
+      }
+    }
+
     function renderTurn(turn, renderEntry) {
       const key = `turn:${turn.submission_id || turn.turn_id}`;
       if (turn.kind === "compaction") {
@@ -2662,9 +2712,7 @@
       }
       if (turn.thinking) renderEntry(`${key}:thinking`, turn.thinking, "thinking");
       if (Array.isArray(turn.model_errors)) {
-        turn.model_errors.forEach((message, index) => {
-          renderEntry(`${key}:model-error:${index}`, message, "model-error");
-        });
+        renderModelErrors(turn.model_errors, key, renderEntry);
       }
       if (turn.error) {
         const error = renderEntry(`${key}:error`, turn.error, "error");
