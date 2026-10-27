@@ -45,7 +45,7 @@ def test_optional_frontend_files_and_builtin_recovery(workspace_setup):
         assert 'data-enable-board="false"' in original.text
         assert 'src="frontend/custom.js"' not in original.text
         assert 'href="frontend/custom.css"' not in original.text
-        assert 'aria-label="Customize interface"' in original.text
+        assert 'aria-label="Settings"' in original.text
 
         directory.mkdir(parents=True)
         (directory / "custom.css").write_text("body { color: red; }", encoding="utf-8")

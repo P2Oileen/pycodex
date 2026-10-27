@@ -10,6 +10,31 @@ Paths below are workspace-relative: use `api/...` from its page, or prefix with
 available. Resource responses include `api_version: 1` and use
 `Cache-Control: no-store`.
 
+## Workspace sharing
+
+`GET api/share`, `PUT api/share` and `DELETE api/share` require the server's
+administrator identity. PUT takes `{"password": "..."}`; the password must be
+nonempty and differ from the configured workspace server administrator password.
+Sharing is unavailable when that administrator password is unset.
+
+The response is `{enabled, available, url}`. `url` is the workspace's existing
+page path including any mount prefix. GET never returns a password or token.
+DELETE disables sharing; PUT rotates its password and visitor grant.
+These endpoints require a JSON object for PUT and return `Cache-Control: no-store`.
+
+`POST /login?next=<workspace-path>` reuses the normal login form. The administrator
+password grants administrator access; a matching share password grants access
+only to that workspace. The server checks the cookie's grant on every HTTP and
+WebSocket request. Visitor login redirects are restricted to the granted
+workspace. Passwords and tokens have no persistence, and password changes,
+revocation or process restart invalidate old grants. Revocation closes existing
+visitor WebSockets without cancelling accepted Agent work.
+
+The rendered page has `data-access-role="admin"` or `"visitor"` on its body.
+Custom frontends can use `__ACCESS_ROLE__` to hide management controls; authorization
+is enforced on the server regardless of UI visibility. Sharing does not reduce
+Agent execution permissions, and does not replace Router authentication.
+
 ## State and resources
 
 | Method and path | Response fields |

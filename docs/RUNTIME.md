@@ -662,6 +662,7 @@ Custom templates retain closing `head`/`body` tags and the placeholders
 `__BOARD_URL__`. The page also receives `__FRONTEND_DIRECTORY__`,
 `__PACKAGE_DIRECTORY__` and `__PACKAGE_VERSION__` as escaped body data attributes
 for frontend code to use. API and packaged asset URLs stay relative to the workspace.
+`__ACCESS_ROLE__` supplies `admin` or `visitor` for hiding management controls.
 The `frontend/<path>` route serves supporting files from the customization
 directory with normal CSS URL/module import resolution. Paths and symlinks
 cannot escape that directory; directories are not listed. Existing
@@ -676,9 +677,11 @@ loading. The recovery page shows that customizations are disabled and links
 back to the customized interface. Authentication applies to recovery pages
 and custom resources just as it does to the rest of the workspace.
 
-The gear button in `workspace.html` assembles the `Customize interface` title
-and introductory prompt, then passes both to the ordinary session creation
-API. The prompt and its development guidance belong to the editable frontend;
+The gear button in `workspace.html` opens Frontend customization and Share.
+Frontend customization assembles the `Customize interface` title and introductory
+prompt, then passes both to the ordinary session creation API. Both settings
+entries and the management navigation are hidden for workspace visitors.
+The prompt and its development guidance belong to the editable frontend;
 the Python customization module only loads templates and serves their resources.
 The button uses the page's path metadata and `navigator.languages`
 in preference order. Its context includes the installed `WORKSPACE_API.md`
@@ -754,6 +757,20 @@ Login pages identify the service being unlocked (`pycodex router` or
 `pycodex workspace`) and show its hostname and access address, including any
 router or device path prefix. A device's password remains a separate login
 after the router password when both services require authentication.
+
+Workspace sharing reuses the workspace login form and existing page URLs.
+The `next` workspace selects which share password to check; the administrator
+password still grants full access. A process-local `WorkspaceSharing` instance
+holds salted password verification values, opaque grants and revocation events.
+Nothing is added to workspace definitions, saved state or rollouts.
+Sharing requires an existing workspace server administrator password. JSON
+`api/share` settings are administrator-only, and never disclose credentials.
+HTTP and WebSocket entry points enforce the grant's workspace scope, including
+Canvas, static assets and file views. Visitor redirects stay inside that scope.
+Password replacement, disable and workspace deletion revoke the old grant and
+close its WebSockets; already accepted Runtime work is not cancelled. Process
+restart clears shares. Agent tools keep their full configured permissions.
+Router login and forwarding are unchanged.
 
 A separate red dot marks an unread final reply or failed turn, including results
 produced while background work remains active. A focused, visible page marks the

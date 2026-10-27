@@ -94,6 +94,28 @@
       overflow: hidden;
     }
     .workspace-back { text-decoration: none; }
+    body[data-access-role="visitor"] .workspace-back,
+    body[data-access-role="visitor"] .customize-frontend { display: none !important; }
+    .workspace-settings {
+      width: min(420px, calc(100vw - 40px));
+      box-sizing: border-box;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      color: var(--ink);
+    }
+    .workspace-settings::backdrop { background: #0006; }
+    .workspace-settings header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .workspace-settings h2 { margin: 0; font-size: 18px; }
+    .workspace-settings p { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .workspace-settings label { display: block; margin: 14px 0 6px; font-size: 13px; }
+    .workspace-settings input { width: 100%; box-sizing: border-box; padding: 8px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; }
+    .workspace-settings button { padding: 8px 12px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+    .workspace-settings button:disabled { opacity: .5; cursor: default; }
+    .workspace-settings .settings-option { display: block; width: 100%; margin-top: 12px; text-align: left; }
+    .workspace-settings .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .workspace-settings [role="alert"] { color: var(--danger); }
     .board {
       border: 0;
       min-width: 0;
@@ -1218,7 +1240,7 @@
     }
   </style>
 </head>
-<body data-enable-board="__ENABLE_BOARD__"
+<body data-enable-board="__ENABLE_BOARD__" data-access-role="__ACCESS_ROLE__"
       data-frontend-directory="__FRONTEND_DIRECTORY__"
       data-package-directory="__PACKAGE_DIRECTORY__"
       data-package-version="__PACKAGE_VERSION__">
@@ -1236,7 +1258,7 @@
              data-board-title="Workspace: __WORKSPACE_TITLE__&#10;Current dir: __CWD_LABEL__&#10;Canvas file: __BOARD_LABEL__"></div>
         <span id="viewStatus" class="content-status" role="status" hidden></span>
         <button class="sessions-toggle customize-frontend" type="button"
-                title="Customize interface" aria-label="Customize interface">
+                title="Settings" aria-label="Settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 3-1 3-3 1-2 4 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-4-3-1-1-3Z"/>
@@ -1268,7 +1290,7 @@
           <span id="activeSessionStatus" class="tab-status" role="img" aria-label="Running" title="Running" hidden></span>
           <span id="activeSessionTitle" class="active-session-title"></span>
           <button class="sessions-toggle customize-frontend" type="button"
-                  title="Customize interface" aria-label="Customize interface">
+                  title="Settings" aria-label="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 3-1 3-3 1-2 4 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-4-3-1-1-3Z"/>
@@ -1392,6 +1414,30 @@
       </div>
     </aside>
   </div>
+  <dialog id="workspaceSettings" class="workspace-settings" aria-labelledby="workspaceSettingsTitle">
+    <header><h2 id="workspaceSettingsTitle">Settings</h2><button type="button" data-close-dialog>Close</button></header>
+    <button id="frontendCustomization" type="button" class="settings-option">Frontend customization</button>
+    <button id="shareWorkspace" type="button" class="settings-option">Share</button>
+  </dialog>
+  <dialog id="workspaceShare" class="workspace-settings" aria-labelledby="workspaceShareTitle">
+    <header><h2 id="workspaceShareTitle">Share workspace</h2><button type="button" data-close-dialog>Close</button></header>
+    <p>Anyone with the link and password can use every session in this workspace. Sharing ends when this server restarts.</p>
+    <p id="shareStatus" role="status"></p>
+    <form id="shareForm">
+      <label for="sharePassword">New share password</label>
+      <input id="sharePassword" type="password" autocomplete="new-password" required>
+      <div class="settings-actions">
+        <button id="shareSave" type="submit">Set password</button>
+        <button id="shareDisable" type="button">Stop sharing</button>
+      </div>
+    </form>
+    <div id="shareLinkSection" hidden>
+      <label for="shareLink">Share link</label>
+      <input id="shareLink" readonly>
+      <div class="settings-actions"><button id="shareCopy" type="button">Copy link</button></div>
+    </div>
+    <p id="shareError" role="alert"></p>
+  </dialog>
   <template id="emptyChat">
     <div class="empty-chat">
       <div class="entry-label">pycodex</div>
@@ -2887,7 +2933,7 @@
           "template placeholders, body metadata attributes and relative API/asset " +
           "URLs. api/sessions manages conversations; api/session and " +
           "api/session/message read and submit to the runtime; api/views manages " +
-          "file views. Keep the Customize interface button available; it assembles " +
+          "file views. Keep Settings and its Frontend customization entry available; it assembles " +
           "the title and prompt for the ordinary session creation API. The Canvas " +
           "HTML is a separate workspace document, not the interface template.",
         "",
@@ -3027,18 +3073,88 @@
     spinner.addEventListener("click", toggleSpinnerNotification);
     newTabButton.addEventListener("click", () => createSession());
     const customizeButtons = document.querySelectorAll(".customize-frontend");
+    const settingsDialog = document.getElementById("workspaceSettings");
+    const shareDialog = document.getElementById("workspaceShare");
+    const sharePassword = document.getElementById("sharePassword");
+    const shareStatus = document.getElementById("shareStatus");
+    const shareError = document.getElementById("shareError");
+    const shareSave = document.getElementById("shareSave");
+    const shareDisable = document.getElementById("shareDisable");
+    const shareLink = document.getElementById("shareLink");
+    const isAdministrator = document.body.dataset.accessRole === "admin";
+    for (const dialog of [settingsDialog, shareDialog]) {
+      dialog.querySelector("[data-close-dialog]").addEventListener("click", () => dialog.close());
+      dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
+    }
+    shareDialog.addEventListener("close", () => { sharePassword.value = ""; });
     customizeButtons.forEach(button => {
-      button.addEventListener("click", async () => {
-        customizeButtons.forEach(control => { control.disabled = true; });
-        try {
-          workspace.dataset.mobilePane = "chat";
-          await createSession("Customize interface", frontendCustomizationPrompt());
-        } catch (error) {
-          showToast("Unable to start customization: " + error.message);
-        } finally {
-          customizeButtons.forEach(control => { control.disabled = false; });
-        }
+      button.addEventListener("click", () => {
+        if (isAdministrator) settingsDialog.showModal();
       });
+    });
+    document.getElementById("frontendCustomization").addEventListener("click", async () => {
+      if (!isAdministrator) return;
+      settingsDialog.close();
+      customizeButtons.forEach(control => { control.disabled = true; });
+      try {
+        workspace.dataset.mobilePane = "chat";
+        await createSession("Customize interface", frontendCustomizationPrompt());
+      } catch (error) {
+        showToast("Unable to start customization: " + error.message);
+      } finally {
+        customizeButtons.forEach(control => { control.disabled = false; });
+      }
+    });
+    async function updateSharing(method = "GET") {
+      if (!isAdministrator) return;
+      shareError.textContent = "";
+      shareSave.disabled = shareDisable.disabled = true;
+      try {
+        const options = {method};
+        if (method === "PUT") {
+          options.headers = {"Content-Type": "application/json"};
+          options.body = JSON.stringify({password: sharePassword.value});
+        }
+        const response = await fetch(relativeUrl("api/share"), options);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || payload.detail || `HTTP ${response.status}`);
+        shareStatus.textContent = !payload.available
+          ? "Set a workspace server administrator password to enable sharing."
+          : payload.enabled ? "Sharing is on. Changing the password signs out existing visitors." : "Sharing is off.";
+        shareSave.disabled = !payload.available;
+        shareDisable.disabled = !payload.enabled;
+        shareSave.textContent = payload.enabled ? "Change password" : "Set password";
+        document.getElementById("shareLinkSection").hidden = !payload.enabled;
+        shareLink.value = payload.enabled ? new URL(payload.url, window.location.origin).href : "";
+        if (method === "PUT") sharePassword.value = "";
+      } catch (error) {
+        shareError.textContent = error.message;
+        shareSave.disabled = false;
+        shareDisable.disabled = false;
+      }
+    }
+    document.getElementById("shareWorkspace").addEventListener("click", () => {
+      if (!isAdministrator) return;
+      settingsDialog.close();
+      shareStatus.textContent = "Loading…";
+      document.getElementById("shareLinkSection").hidden = true;
+      shareDialog.showModal();
+      updateSharing();
+    });
+    document.getElementById("shareForm").addEventListener("submit", event => {
+      event.preventDefault();
+      updateSharing("PUT");
+    });
+    shareDisable.addEventListener("click", () => updateSharing("DELETE"));
+    document.getElementById("shareCopy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(shareLink.value);
+        showToast("Share link copied");
+      } catch (error) {
+        shareLink.focus();
+        shareLink.select();
+        shareError.textContent = "Select and copy the share link.";
+      }
     });
     for (const container of [tabsEl, mobileSessionDots]) {
       container.addEventListener("click", event => {

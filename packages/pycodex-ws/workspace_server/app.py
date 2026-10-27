@@ -77,7 +77,7 @@ from pycodex.utils.event_helpers import (
 )
 from pycodex.utils.session_persist import load_display_history
 from pycodex_ws import build_runtime
-from pycodex_router.protocol import trusted_agent_request
+from pycodex_router.protocol import route_path, trusted_agent_request
 
 from .customization import (
     frontend_asset_response,
@@ -86,6 +86,7 @@ from .customization import (
 )
 from .runtime_info import runtime_info_prompt
 from .session_api import history_page, session_api_routes
+from .sharing import WorkspaceSharing
 from .workspace_views import WorkspaceViewOpener
 from .workspaces import (
     WorkspaceDefinition,
@@ -1107,9 +1108,10 @@ def create_app(
     )
     board_path = workspace_file_path(state_path, ".html") if enable_board else None
     app = _create_lifespan_app(manager.start, manager.close)
-    auth_token = _install_auth(app, password)
+    sharing = WorkspaceSharing(password, multi=False)
+    _install_auth(app, password, sharing=sharing)
     _install_workspace_routes(app, manager, board_path, Path(work_dir or Path.cwd()).resolve())
-    app.state.workspace_auth_token = auth_token
+    _install_sharing_routes(app, sharing)
     return app
 
 
@@ -1118,7 +1120,8 @@ def create_multi_workspace_app(
     password: "typing.Union[str, None]" = None,
 ) -> Starlette:
     app = _create_lifespan_app(registry.start, registry.close)
-    auth_token = _install_auth(app, password)
+    sharing = WorkspaceSharing(password, multi=True)
+    _install_auth(app, password, sharing=sharing)
     view_asset_cache = {}
 
     async def index(request: Request) -> Response:
@@ -1153,6 +1156,7 @@ def create_multi_workspace_app(
 
     async def delete_workspace(request: Request) -> JSONResponse:
         try:
+            sharing.revoke(request.path_params["workspace_id"])
             await registry.delete_workspace(request.path_params["workspace_id"])
         except KeyError:
             raise HTTPException(status_code=404, detail="workspace not found")
@@ -1174,6 +1178,7 @@ def create_multi_workspace_app(
                 title=entry.definition.workspace_id,
                 work_dir=entry.definition.work_dir,
                 builtin=request.query_params.get("builtin") == "1",
+                access_role=request.scope["pycodex.access_role"],
             )
         )
 
@@ -1249,17 +1254,14 @@ def create_multi_workspace_app(
         return await _message_response(entry.manager, payload)
 
     async def workspace_websocket_session(websocket: WebSocket) -> None:
-        if not _auth_cookie_matches(
-            auth_token, websocket.cookies.get(AUTH_COOKIE_NAME)
-        ):
-            await websocket.close(code=1008)
-            return
         try:
             entry = registry.get(websocket.path_params["workspace_id"])
         except (KeyError, ValueError):
             await websocket.close(code=1008)
             return
-        await _websocket_session_handler(entry.manager, websocket)
+        await sharing.serve_websocket(
+            websocket, lambda connection: _websocket_session_handler(entry.manager, connection),
+        )
 
     async def workspace_board_asset(request: Request) -> Response:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
@@ -1341,6 +1343,7 @@ def create_multi_workspace_app(
             workspace_board_asset, methods=["GET", "HEAD"],
         ),
     ])
+    _install_sharing_routes(app, sharing, registry)
     return app
 
 
@@ -1349,11 +1352,15 @@ def _install_auth(
     cookie_name: str = AUTH_COOKIE_NAME,
     login_title: str = "pycodex workspace",
     blocked_ips: "typing.Union[typing.Set[str], None]" = None,
+    sharing=None,
 ) -> str:
     password_text = str(password or "")
-    if not password_text:
+    if not password_text and sharing is None:
         return ""
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_urlsafe(32) if password_text else ""
+    if sharing is not None:
+        sharing.admin_token = token
+        app.state.workspace_sharing = sharing
     login_failures = {}
 
     def ip_blocked_response() -> JSONResponse:
@@ -1371,10 +1378,27 @@ def _install_auth(
     async def auth_middleware(request: Request, call_next):
         if blocked_ips is not None and request.client.host in blocked_ips:
             return ip_blocked_response()
-        path = request.scope["path"]
+        path = route_path(request.scope)
         root = request.scope.get("root_path", "")
-        if root and path.startswith(root + "/"):
-            path = path[len(root):]
+        if sharing is not None:
+            target = sharing.workspace(path)
+            cookie = request.cookies.get(cookie_name)
+            if path in {"/favicon.ico", "/login"}:
+                return await call_next(request)
+            if trusted_agent_request(request.scope) or sharing.is_admin(cookie):
+                request.scope["pycodex.access_role"] = "admin"
+                return await call_next(request)
+            grant = None if target is None else sharing.grant(target[0], cookie)
+            if grant is not None:
+                if target[1].rstrip("/") == "/api/share":
+                    return JSONResponse({"error": "administrator access required"}, 403)
+                request.scope["pycodex.access_role"] = "visitor"
+                return await call_next(request)
+            if "/api/" in path or request.method not in {"GET", "HEAD"}:
+                return JSONResponse({"error": "authentication required"}, 401)
+            login_url = root + "/login"
+            destination = root + path + ("?" + request.url.query if request.url.query else "")
+            return RedirectResponse(login_url + "?" + urlencode({"next": destination}), 303)
         if path in {"/favicon.ico", "/login"} or trusted_agent_request(request.scope) or _auth_cookie_matches(
             token,
             request.cookies.get(cookie_name),
@@ -1404,9 +1428,22 @@ def _install_auth(
         # Another login can block this IP while the request body is arriving.
         if blocked_ips is not None and client_ip in blocked_ips:
             return ip_blocked_response()
-        if not secrets.compare_digest(
-            str(payload.get("password") or ""), password_text
-        ):
+        supplied = str(payload.get("password") or "")
+        accepted_token = token if password_text and secrets.compare_digest(
+            supplied.encode("utf-8"), password_text.encode("utf-8"),
+        ) else None
+        root = request.scope.get("root_path", "")
+        destination = request.query_params.get("next", root + "/")
+        target = None
+        if sharing is not None:
+            relative = destination[len(root):] if destination.startswith(root + "/") else ""
+            target = sharing.workspace(relative)
+            if accepted_token is None and target is not None:
+                grant = await run_in_threadpool(sharing.authenticate, target[0], supplied)
+                if grant is not None:
+                    accepted_token = grant.token
+                    destination = root + ("/w/{0}/".format(target[0]) if sharing.multi else "/")
+        if accepted_token is None:
             if blocked_ips is not None:
                 login_failures[client_ip] = login_failures.get(client_ip, 0) + 1
                 if login_failures[client_ip] >= 3:
@@ -1418,8 +1455,7 @@ def _install_auth(
                 status_code=401,
             )
         login_failures.pop(client_ip, None)
-        root = request.scope.get("root_path", "")
-        target = request.query_params.get("next", root + "/")
+        target = destination
         if (
             not target.startswith("/")
             or target.startswith("//")
@@ -1430,7 +1466,7 @@ def _install_auth(
         response = JSONResponse({"ok": True, "redirect": target})
         response.set_cookie(
             cookie_name,
-            token,
+            accepted_token,
             path=root + "/",
             secure=request.url.scheme == "https",
             httponly=True,
@@ -1444,6 +1480,42 @@ def _install_auth(
         Route("/login", login, methods=["POST"]),
     ])
     return token
+
+
+def _install_sharing_routes(app, sharing, registry=None):
+    prefix = "/w/{workspace_id}" if sharing.multi else ""
+
+    async def share_settings(request):
+        workspace_id = request.path_params["workspace_id"] if sharing.multi else "workspace"
+        if registry is not None:
+            _workspace_entry_or_404(registry, workspace_id)
+        if request.scope["pycodex.access_role"] != "admin":
+            return JSONResponse({"error": "administrator access required"}, 403)
+        if request.method == "PUT":
+            payload = await _json_object_body(request, max_bytes=4096)
+            password = payload.get("password")
+            if not sharing.password:
+                return JSONResponse({
+                    "error": "Set a workspace server administrator password before enabling sharing.",
+                }, 400)
+            if not isinstance(password, str) or not password:
+                return JSONResponse({"error": "share password must be a nonempty string"}, 422)
+            if secrets.compare_digest(password.encode("utf-8"), sharing.password.encode("utf-8")):
+                return JSONResponse({"error": "share password must differ from administrator password"}, 422)
+            await sharing.set_password(workspace_id, password)
+        elif request.method == "DELETE":
+            sharing.revoke(workspace_id)
+        return JSONResponse({
+            "enabled": workspace_id in sharing.grants,
+            "available": bool(sharing.password),
+            "url": request.scope.get("root_path", "") + (
+                "/w/{0}/".format(workspace_id) if sharing.multi else "/"
+            ),
+        }, headers={"Cache-Control": "no-store"})
+
+    app.routes.insert(0, Route(
+        prefix + "/api/share", share_settings, methods=["GET", "PUT", "DELETE"],
+    ))
 
 
 async def _json_object_body(
@@ -1611,6 +1683,7 @@ def _install_workspace_routes(
         return _html_response(_render_workspace_shell(
             board_path, work_dir=work_dir,
             builtin=request.query_params.get("builtin") == "1",
+            access_role=request.scope["pycodex.access_role"],
         ))
 
     async def favicon(request: Request) -> Response:
@@ -1667,13 +1740,9 @@ def _install_workspace_routes(
         return await _message_response(manager, payload)
 
     async def websocket_session(websocket: WebSocket) -> None:
-        auth_token = typing.cast(str, app.state.workspace_auth_token)
-        if not _auth_cookie_matches(
-            auth_token, websocket.cookies.get(AUTH_COOKIE_NAME)
-        ):
-            await websocket.close(code=1008)
-            return
-        await _websocket_session_handler(manager, websocket)
+        await app.state.workspace_sharing.serve_websocket(
+            websocket, lambda connection: _websocket_session_handler(manager, connection),
+        )
 
     async def board_asset(request: Request) -> Response:
         return _board_asset_response(board_path, request.path_params["asset_path"])
@@ -2308,6 +2377,7 @@ def _render_workspace_shell(
     title: "typing.Union[str, None]" = None,
     work_dir: "typing.Union[Path, None]" = None,
     builtin: bool = False,
+    access_role: str = "admin",
 ) -> str:
     board_label = str(board_path) if board_path is not None else "No board"
     cwd_label = str(work_dir or Path.cwd())
@@ -2315,6 +2385,7 @@ def _render_workspace_shell(
     template = load_workspace_template(builtin)
     return (
         template.replace("__WORKSPACE_TITLE__", html.escape(page_title))
+        .replace("__ACCESS_ROLE__", access_role)
         .replace("__BOARD_LABEL__", html.escape(board_label))
         .replace("__CWD_LABEL__", html.escape(cwd_label))
         .replace("__ENABLE_BOARD__", "true" if board_path is not None else "false")

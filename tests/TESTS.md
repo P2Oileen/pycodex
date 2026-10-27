@@ -96,6 +96,9 @@ env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests/test_feishu_car
 
 ### HTTP 框架依赖
 
+- `packages/pycodex-ws/tests/test_workspace_sharing.py` 覆盖管理员/访问者登录、
+  单/多 workspace 的 HTTP/WS 访问范围、管理接口拒绝、密码更换/撤销后旧连接
+  关闭，以及重启失效和配置不持久化。使用合成模型，不访问真实模型服务。
 - `test_session_api.py` 覆盖单/多 workspace、普通/独立线程会话的资源查询、
   命令回执、结果、鉴权、分页和事件恢复；core 的 `test_history_page.py`
   验证压缩前历史与工具结果分页。扩展 host 的独立 Node 测试手动运行：

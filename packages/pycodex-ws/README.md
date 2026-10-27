@@ -56,7 +56,8 @@ distributed separately as a VSIX.
 
 ## Customize the interface
 
-Click the gear button to start a customization conversation with the Agent.
+Click the gear button and choose **Frontend customization** to start a
+customization conversation with the Agent.
 Custom files live in the server user's `~/.pycodex/frontend/`:
 
 - `custom.css` and `custom.js`: optional styles and an ES module, loaded automatically.
@@ -77,6 +78,28 @@ in the view area, then choose features by name or ID in chat. The Agent adapts
 their source into your frontend. To share a local change, ask it to publish a
 feature PR on GitHub; the [contribution guide](workspace_server/optional_features/CONTRIBUTING.md)
 specifies the source, documentation, validation and PR format.
+
+## Share a workspace
+
+Start the workspace server with an administrator password (`--password`), then
+choose **Settings → Share** in a workspace. Set a different share password and
+send the displayed workspace link and password to the recipient.
+
+The existing login page accepts either the administrator password or the share
+password for the workspace being opened. Visitors can use all its conversations,
+Canvas, files, APIs and WebSocket connections, but cannot access workspace
+management, another workspace or sharing settings. The settings button and
+management navigation are hidden for visitors.
+
+Passwords, verification values and visitor tokens are kept only in process
+memory. Changing the password or stopping sharing invalidates existing visitor
+logins and disconnects their WebSockets. Restarting the process clears all
+shares. Already accepted Agent work continues.
+
+This restricts web access; Agent tools retain their existing file and execution
+permissions. An unprotected server must configure its administrator password
+before enabling sharing. Router authentication is unchanged: a link through a
+router still requires its normal login.
 
 ## Storage
 

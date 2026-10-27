@@ -113,8 +113,9 @@ Open `http://127.0.0.1:6007`. The workspace combines conversations with a live
 HTML Canvas and read-only file/diff viewers. Click file links in replies to open
 them, and use **Insert into chat** to add selected code to an editable draft.
 Keep the server's stdin open: EOF initiates shutdown.
-The gear button starts an Agent conversation for customizing the interface
-through files in `~/.pycodex/frontend/`. Its setup context includes an API quick
+The gear button opens **Frontend customization** and **Share**.
+Frontend customization starts an Agent conversation for editing files in
+`~/.pycodex/frontend/`. Its setup context includes an API quick
 reference and the path to the full API documentation shipped with the package.
 Browse the [feature catalog](packages/pycodex-ws/workspace_server/optional_features/README.md)
 in the view area and tell the Agent which features to adapt. You can also ask it
@@ -124,6 +125,10 @@ The [custom frontend API](docs/WORKSPACE_API.md) provides structured state,
 command results, history pagination, event replay and Agent/background-task
 inventories. Optional `custom.js` extensions can export `mount(host)` to use
 the built-in page's session, draft and viewer controls.
+With a workspace server administrator password configured, **Share** sets a
+separate password for this workspace using the existing login page. Sharing
+passwords and visitor logins live only in memory; changing the password, stopping
+sharing or restarting the process invalidates them. Router login is unchanged.
 
 See the [workspace guide](packages/pycodex-ws/README.md) for session controls,
 storage and Feishu setup. The separately distributed
