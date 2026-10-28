@@ -1,0 +1,46 @@
+.session-tips {
+  position: absolute; z-index: 12; top: 52px; right: 20px;
+  width: min(280px, calc(100% - 40px)); min-width: 0; margin: 0;
+  border: 1px solid #eadbb6; border-left: 3px solid #d6aa53; border-radius: 12px;
+  background: #fffaf0; color: #645338; box-shadow: 0 8px 24px rgba(110,84,36,.13);
+  font: 13px/1.5 system-ui, sans-serif;
+}
+.session-tips[hidden], .session-tips:not([open]), .session-tips-toggle[hidden] { display: none; }
+.session-tips-toggle {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 6px; border: 0; border-radius: 6px;
+  color: #ad8032; background: #fffaf0; cursor: pointer; flex-shrink: 0;
+}
+.session-tips-toggle svg { width: 18px; height: 18px; }
+.session-tips-toggle[aria-expanded="true"] { background: #f6e8c9; color: #8e6626; }
+.session-tips-toggle[data-has-note="true"]::after {
+  content: ""; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px;
+  border-radius: 50%; background: #c39743;
+}
+.session-tips > summary {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer;
+  list-style: none; font-size: 12px; user-select: none;
+}
+.session-tips > summary::-webkit-details-marker { display: none; }
+.session-tips-toggle:focus-visible, .session-tips > summary:focus-visible {
+  outline: 2px solid #b68b3d; outline-offset: 2px; border-radius: 6px;
+}
+.session-tips-label { font-weight: 650; }
+.session-tips-close { margin-left: auto; }
+.session-tips-body { padding: 0 12px 9px; }
+.session-tips-editor {
+  display: block; box-sizing: border-box; width: 100%; height: min(84px, 22dvh);
+  padding: 4px 0; border: 0; outline: 0; resize: none; background: transparent;
+  color: #51432e; font: inherit; line-height: 1.8; scrollbar-width: thin;
+}
+.session-tips-editor::placeholder { color: #a39173; }
+.session-tips-editor:focus-visible { box-shadow: 0 1px #d6aa53; }
+.session-tips-footer {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px;
+  margin-top: 5px; color: #958362; font-size: 10px;
+}
+.session-tips-status[data-unsaved="true"] { color: #a24d2b; }
+@media (max-width: 760px) {
+  .session-tips { right: 16px; width: min(280px, calc(100% - 32px)); }
+  .session-tips-editor { font-size: 16px; }
+}
