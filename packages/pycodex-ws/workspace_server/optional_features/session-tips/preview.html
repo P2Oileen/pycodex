@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session tips</title>
+<link rel="stylesheet" href="source/custom.css">
+<style>
+body { margin: 0; padding: 24px; font: 15px/1.6 system-ui, sans-serif; color: #27313a; background: #f4f6f8; }
+main { max-width: 800px; margin: auto; } h1 { font-size: 24px; margin: 0; }
+.intro { color: #68717a; } .chat { position: relative; background: white; border-radius: 12px; overflow: hidden; }
+.tabbar { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid #e8edf1; }
+.tabbar strong { margin-right: auto; } .log { min-height: 280px; padding: 24px; }
+.user { background: #edf2f6; padding: 12px; border-radius: 6px; }
+.composer { padding: 16px; border-top: 1px solid #e8edf1; }
+.composer textarea { box-sizing: border-box; width: 100%; min-height: 64px; padding: 10px; }
+button { cursor: pointer; } .sessions { display: flex; gap: 8px; margin: 12px 0; }
+.sessions button { padding: 6px 12px; } #verification { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) {body {padding: 16px;} .log {padding: 16px;}}
+</style>
+<main>
+<h1>Session tips</h1>
+<p class="intro">Synthetic conversations with browser-local notes. Use the note button in the header.</p>
+<div class="sessions"><button data-session="a">Conversation A</button><button data-session="b">Conversation B</button></div>
+<section class="chat">
+  <div class="tabbar"><strong id="title">Conversation A</strong></div>
+  <div class="log"><p class="user">Review the project and remember the useful details.</p>
+    <p>The note stays beside the chat while you work.</p></div>
+  <div class="composer"><textarea id="draft" aria-label="Example chat draft" placeholder="Chat draft (not submitted in this preview)"></textarea></div>
+</section>
+<pre id="verification"></pre>
+</main>
+<script type="module">
+import {mount} from "./source/custom.js";
+import {createHost} from "./source/fixture.mjs";
+const host = createHost();
+let stop = mount(host);
+document.querySelectorAll("[data-session]").forEach(button => {
+  button.onclick = () => {
+    document.getElementById("title").textContent = button.textContent;
+    host.selectSession(button.dataset.session);
+  };
+});
+window.preview = {host, dispose: () => stop(), remount: () => {stop(); stop = mount(host);}};
+if (new URL(location.href).searchParams.has("verify")) {
+  const output = document.getElementById("verification");
+  try {
+    const {verify} = await import("./source/verify.mjs");
+    await verify();
+    output.textContent = "PASS: session isolation, persistence, migration, storage failures and cleanup";
+    document.documentElement.dataset.verified = "passed";
+  } catch (error) {
+    output.textContent = "FAIL: " + error.stack;
+    document.documentElement.dataset.verified = "failed";
+  }
+}
+</script>
+</html>
