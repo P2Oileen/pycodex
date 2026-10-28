@@ -806,6 +806,9 @@ Canvas, static assets and file views. Visitor redirects stay inside that scope.
 Password replacement, disable and workspace deletion revoke the old grant and
 close its WebSockets; already accepted Runtime work is not cancelled. Process
 restart clears shares. Agent tools keep their full configured permissions.
+The visitor WebSocket handler runs in its ASGI cancellation scope, with a scoped
+revocation watcher. Disconnects cancel the watcher, while revocation finishes
+the handler's cleanup before closing the socket.
 Router login and forwarding are unchanged.
 
 A separate red dot marks an unread final reply or failed turn, including results

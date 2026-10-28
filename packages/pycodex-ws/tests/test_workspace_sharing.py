@@ -94,10 +94,12 @@ def test_share_login_is_scoped_and_keeps_workspace_operations(sharing_setup):
             with pytest.raises(WebSocketDisconnect):
                 with browser.websocket_connect("/w/other/ws/session"):
                     pass
-        with browser.websocket_connect(prefix + "/ws/session") as connection:
-            assert connection.receive_json()["type"] == "hello"
-            connection.send_json({"type": "ping"})
-            assert connection.receive_json() == {"type": "pong"}
+        # Exercise disconnects racing with the connection's revocation waiter.
+        for _ in range(100):
+            with browser.websocket_connect(prefix + "/ws/session") as connection:
+                assert connection.receive_json()["type"] == "hello"
+                connection.send_json({"type": "ping"})
+                assert connection.receive_json() == {"type": "pong"}
         assert browser.post(
             "/login?next=" + prefix + "/", json={"password": "admin-password"},
         ).status_code == 200

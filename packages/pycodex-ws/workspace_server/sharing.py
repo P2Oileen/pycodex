@@ -5,6 +5,7 @@ import hashlib
 import re
 import secrets
 
+import anyio
 from starlette.concurrency import run_in_threadpool
 
 from pycodex_router.protocol import route_path
@@ -78,17 +79,15 @@ class WorkspaceSharing:
         if grant is None:
             await websocket.close(code=1008)
             return
-        serving = asyncio.create_task(handler(websocket))
-        revoked = asyncio.create_task(grant.revoked.wait())
-        try:
-            await asyncio.wait([serving, revoked], return_when=asyncio.FIRST_COMPLETED)
-            if serving.done():
-                await serving
-            else:
-                serving.cancel()
-                await asyncio.gather(serving, return_exceptions=True)
-                await websocket.close(code=1008)
-        finally:
-            serving.cancel()
-            revoked.cancel()
-            await asyncio.gather(serving, revoked, return_exceptions=True)
+        async with anyio.create_task_group() as tasks:
+            async def watch_revocation():
+                await grant.revoked.wait()
+                tasks.cancel_scope.cancel()
+
+            tasks.start_soon(watch_revocation)
+            try:
+                await handler(websocket)
+            finally:
+                tasks.cancel_scope.cancel()
+        if grant.revoked.is_set():
+            await websocket.close(code=1008)

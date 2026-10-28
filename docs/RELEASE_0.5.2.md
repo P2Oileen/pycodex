@@ -10,6 +10,8 @@ for custom frontends, along with interface improvements and optional features.
   workspace. Visitors can use its sessions and views, while management controls
   remain administrator-only. Changing the password or stopping sharing revokes
   existing access. Sharing is held in memory and ends on server restart.
+- Shared WebSocket connections clean up their revocation watchers on disconnect
+  without leaking cancellation errors into the connection owner.
 - **New session** creates a session using the launch profile. Its **+** button
   lets you select another named profile from the server's Codex configuration.
   The selected profile configures both the model and Agent instructions.
