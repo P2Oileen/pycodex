@@ -35,6 +35,29 @@ Custom frontends can use `__ACCESS_ROLE__` to hide management controls; authoriz
 is enforced on the server regardless of UI visibility. Sharing does not reduce
 Agent execution permissions, and does not replace Router authentication.
 
+## Creating sessions
+
+`GET api/sessions` returns `{sessions, profiles, default_profile}`. `profiles`
+contains only names from the server's Codex config; no provider configuration
+or credentials are returned. The catalog is loaded when the workspace is built.
+`default_profile` is the launch `--profile`, or `null` for the base configuration.
+Each session list entry includes its effective `profile` name or `null`.
+
+`POST api/sessions` accepts `{title?, prompt?, profile?}`. Title and prompt are
+strings and default to empty. Profile is a string name; omission or `null` uses
+the server default. An unknown name returns HTTP 400; an invalid field type
+returns HTTP 422. An empty body still creates a default session.
+The selected profile configures both the model and Agent instructions; CLI
+overrides still apply. A nonempty prompt is submitted through Runtime.
+The response contains `ok`, `session_id`, `sessions`, and `snapshot`, plus the
+submission receipt when a prompt was supplied.
+
+The saved tab stores the selected name, including an explicit `null` for the
+base configuration. Restart resolves that name against the current config,
+even when the launch default changed. Older tabs without a profile use the
+launch default. A missing saved profile fails restoration. Existing sessions
+keep their configuration; this API does not switch profiles in a running tab.
+
 ## PDF previews
 
 `POST api/views/open` with `{"href": "report.pdf"}` opens a local PDF using the

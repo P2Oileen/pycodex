@@ -110,7 +110,7 @@
     .workspace-settings h2 { margin: 0; font-size: 18px; }
     .workspace-settings p { color: var(--muted); font-size: 13px; line-height: 1.5; }
     .workspace-settings label { display: block; margin: 14px 0 6px; font-size: 13px; }
-    .workspace-settings input { width: 100%; box-sizing: border-box; padding: 8px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; }
+    .workspace-settings input, .workspace-settings select { width: 100%; box-sizing: border-box; padding: 8px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; }
     .workspace-settings button { padding: 8px 12px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
     .workspace-settings button:disabled { opacity: .5; cursor: default; }
     .workspace-settings .settings-option { display: block; width: 100%; margin-top: 12px; text-align: left; }
@@ -207,6 +207,7 @@
     .sessions-toggle:focus-visible,
     .pane-toggle:focus-visible,
     .tab-new:focus-visible,
+    .tab-profile:focus-visible,
     .fullscreen-toggle:focus-visible,
     .workspace-back:focus-visible,
     .spinner:focus-visible {
@@ -290,27 +291,51 @@
     }
     .session-sidebar .sessions-toggle { color: #84919a; }
     .session-sidebar .sessions-toggle:hover { background: #e9edf0; color: var(--ink); }
+    .session-new-actions {
+      display: flex;
+      flex: 0 0 auto;
+      margin: 10px 6px;
+    }
     .session-sidebar .tab-new {
       display: flex;
       align-items: center;
       justify-content: flex-start;
       gap: 10px;
       width: auto;
+      min-width: 0;
+      flex: 1;
       height: 42px;
-      margin: 10px 6px 10px;
+      margin: 0;
       padding: 0 12px;
       font-size: 13px;
       font-weight: 500;
       color: var(--ink);
       background: #edf0f3;
       border: 0;
-      border-radius: 8px;
+      border-radius: 8px 0 0 8px;
       overflow: hidden;
       transition: background 160ms ease;
     }
     .session-sidebar .tab-new svg { flex: 0 0 18px; }
     .session-sidebar .tab-new span { white-space: nowrap; }
     .session-sidebar .tab-new:hover { background: #e4e9ed; }
+    .tab-profile {
+      display: grid;
+      place-items: center;
+      flex: 0 0 42px;
+      padding: 0;
+      border: 0;
+      border-left: 1px solid #d5dce2;
+      border-radius: 0 8px 8px 0;
+      color: var(--muted);
+      background: #edf0f3;
+      cursor: pointer;
+    }
+    .tab-profile svg { display: block; width: 18px; height: 18px; }
+    .tab-profile:hover { background: #e4e9ed; color: var(--ink); }
+    .session-new-actions button:disabled { opacity: .5; cursor: wait; }
+    .sessions-collapsed .tab-profile { display: none; }
+    .sessions-collapsed .session-sidebar .tab-new { border-radius: 8px; }
     .session-sidebar .tabs {
       flex: 1;
       min-height: 0;
@@ -1422,17 +1447,37 @@
             </svg>
           </button>
         </div>
-        <button id="newTab" class="tab-new" type="button" title="New session" aria-label="New session">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M15 5l4 4M10 14l1-5 6-6a2.8 2.8 0 0 1 4 4l-6 6-5 1Z"/>
-          </svg>
-          <span>New session</span>
-        </button>
+        <div class="session-new-actions" role="group" aria-label="Create session">
+          <button id="newTab" class="tab-new" type="button" title="New session" aria-label="New session">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M15 5l4 4M10 14l1-5 6-6a2.8 2.8 0 0 1 4 4l-6 6-5 1Z"/>
+            </svg>
+            <span>New session</span>
+          </button>
+          <button id="customProfile" class="tab-profile" type="button"
+                  title="Custom profile" aria-label="Custom profile"
+                  aria-haspopup="dialog" aria-controls="newSessionDialog">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+        </div>
         <div id="tabs" class="tabs" role="tablist" aria-label="Sessions" aria-orientation="vertical"></div>
       </div>
     </aside>
   </div>
+  <dialog id="newSessionDialog" class="workspace-settings" aria-labelledby="newSessionTitle">
+    <header><h2 id="newSessionTitle">New session</h2><button type="button" data-close-dialog>Cancel</button></header>
+    <form id="newSessionForm">
+      <label for="sessionProfile">Profile</label>
+      <select id="sessionProfile"></select>
+      <p>The profile sets the model and instructions for this session.</p>
+      <div class="settings-actions"><button id="createSessionButton" type="submit">Create session</button></div>
+    </form>
+    <p id="newSessionError" role="alert"></p>
+  </dialog>
   <dialog id="workspaceSettings" class="workspace-settings" aria-labelledby="workspaceSettingsTitle">
     <header><h2 id="workspaceSettingsTitle">Settings</h2><button type="button" data-close-dialog>Close</button></header>
     <button id="frontendCustomization" type="button" class="settings-option">Frontend customization</button>
@@ -3005,17 +3050,16 @@
       ].join("\n");
     }
 
-    async function createSession(title = "", initialPrompt = "") {
+    async function createSession(title = "", initialPrompt = "", profile = null) {
       saveActiveSessionUiState();
       const response = await fetch(relativeUrl("api/sessions"), {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title, prompt: initialPrompt}),
+        body: JSON.stringify({title, prompt: initialPrompt, profile}),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
-        addEntry("error", payload.error || `HTTP ${response.status}`);
-        return;
+        throw new Error(payload.error || `HTTP ${response.status}`);
       }
       activeSessionId = payload.session_id || "";
       const state = stateForSession(activeSessionId);
@@ -3119,7 +3163,58 @@
     splitter.addEventListener("pointercancel", endResize);
     splitter.addEventListener("dblclick", centerSplit);
     spinner.addEventListener("click", toggleSpinnerNotification);
-    newTabButton.addEventListener("click", () => createSession());
+    const newSessionDialog = document.getElementById("newSessionDialog");
+    const sessionProfile = document.getElementById("sessionProfile");
+    const newSessionError = document.getElementById("newSessionError");
+    const createSessionButton = document.getElementById("createSessionButton");
+    newTabButton.addEventListener("click", async () => {
+      newTabButton.disabled = true;
+      try {
+        await createSession();
+      } catch (error) {
+        showToast("Unable to create session: " + error.message);
+      } finally {
+        newTabButton.disabled = false;
+      }
+    });
+    const customProfileButton = document.getElementById("customProfile");
+    customProfileButton.addEventListener("click", async () => {
+      customProfileButton.disabled = true;
+      try {
+        const response = await fetch(relativeUrl("api/sessions"));
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        if (!payload.profiles.length) {
+          showToast("No named profiles are configured.");
+          return;
+        }
+        const defaultLabel = payload.default_profile === null
+          ? "Default" : `Default (${payload.default_profile})`;
+        sessionProfile.replaceChildren(new Option(defaultLabel, "null"));
+        for (const profile of payload.profiles) {
+          sessionProfile.add(new Option(profile, JSON.stringify(profile)));
+        }
+        newSessionError.textContent = "";
+        newSessionDialog.showModal();
+      } catch (error) {
+        showToast("Unable to create session: " + error.message);
+      } finally {
+        customProfileButton.disabled = false;
+      }
+    });
+    document.getElementById("newSessionForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      createSessionButton.disabled = true;
+      newSessionError.textContent = "";
+      try {
+        await createSession("", "", JSON.parse(sessionProfile.value));
+        newSessionDialog.close();
+      } catch (error) {
+        newSessionError.textContent = error.message;
+      } finally {
+        createSessionButton.disabled = false;
+      }
+    });
     const customizeButtons = document.querySelectorAll(".customize-frontend");
     const settingsDialog = document.getElementById("workspaceSettings");
     const shareDialog = document.getElementById("workspaceShare");
@@ -3130,7 +3225,7 @@
     const shareDisable = document.getElementById("shareDisable");
     const shareLink = document.getElementById("shareLink");
     const isAdministrator = document.body.dataset.accessRole === "admin";
-    for (const dialog of [settingsDialog, shareDialog]) {
+    for (const dialog of [settingsDialog, shareDialog, newSessionDialog]) {
       dialog.querySelector("[data-close-dialog]").addEventListener("click", () => dialog.close());
       dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
     }

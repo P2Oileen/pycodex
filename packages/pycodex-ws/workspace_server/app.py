@@ -13,6 +13,12 @@ import sys
 import threading
 from collections import deque
 from dataclasses import asdict, fields, is_dataclass
+from functools import partial
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 and earlier
+    import tomli as tomllib
 
 try:
     from contextlib import asynccontextmanager
@@ -1965,7 +1971,11 @@ def _websocket_backend_hint_response() -> JSONResponse:
 
 
 def _sessions_response(manager: "WorkspaceSessionManager") -> JSONResponse:
-    return JSONResponse({"sessions": manager.list_sessions()})
+    return JSONResponse({
+        "sessions": manager.list_sessions(),
+        "profiles": list(manager.profile_factories),
+        "default_profile": manager.default_profile,
+    })
 
 
 def _read_session_response(
@@ -1986,9 +1996,14 @@ async def _new_session_response(
     payload = await _json_object_body(request) if await request.body() else {}
     title = payload.get("title", "")
     prompt = payload.get("prompt", "")
+    profile = payload.get("profile")
     if not isinstance(title, str) or not isinstance(prompt, str):
         raise HTTPException(status_code=422, detail="title and prompt must be strings")
-    session_id = await manager.create_session(title=title)
+    if profile is not None and not isinstance(profile, str):
+        raise HTTPException(status_code=422, detail="profile must be a string or null")
+    if profile is not None and profile not in manager.profile_factories:
+        raise HTTPException(status_code=400, detail="unknown Codex profile: " + profile)
+    session_id = await manager.create_session(title=title, profile=profile)
     result = (
         await manager.get(session_id).submit(prompt, sender="web")
         if prompt else {"ok": True}
@@ -2361,10 +2376,12 @@ def _build_workspace_entry(
     args: "argparse.Namespace",
     persist_callback: "typing.Union[typing.Callable[[], None], None]" = None,
 ) -> "WorkspaceEntry":
-    def build_session() -> "WorkspaceInteractiveSession":
+    config = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+
+    def build_session(profile) -> "WorkspaceInteractiveSession":
         model = build_model(
             config_path=args.config,
-            profile=args.profile,
+            profile=profile,
             timeout_seconds=args.timeout_seconds,
             vllm_endpoint=args.vllm_endpoint,
             use_chat_completion=args.use_chat_completion or None,
@@ -2373,7 +2390,7 @@ def _build_workspace_entry(
         agent = build_agent(
             model,
             config_path=args.config,
-            profile=args.profile,
+            profile=profile,
             system_prompt=args.system_prompt,
             extra_contextual_user_messages=(
                 [_workspace_context_text(definition.board_path)]
@@ -2388,17 +2405,22 @@ def _build_workspace_entry(
             config_path=args.config,
         )
 
-    def session_factory() -> "ThreadedWorkspaceInteractiveSession":
+    def session_factory(profile) -> "ThreadedWorkspaceInteractiveSession":
         return ThreadedWorkspaceInteractiveSession(
-            build_session, asyncio.get_running_loop()
+            partial(build_session, profile), asyncio.get_running_loop()
         )
 
     return WorkspaceEntry(
         definition=definition,
         manager=WorkspaceSessionManager(
-            session_factory,
+            partial(session_factory, None),
             definition.state_path,
             persist_callback=persist_callback,
+            profile_factories={
+                name: partial(session_factory, name)
+                for name in config.get("profiles", {})
+            },
+            default_profile=args.profile,
         ),
     )
 

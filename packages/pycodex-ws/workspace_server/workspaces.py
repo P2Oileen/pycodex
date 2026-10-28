@@ -227,8 +227,14 @@ class WorkspaceSessionManager:
         state_path: "typing.Union[Path, None]" = None,
         persist_callback: "typing.Union[typing.Callable[[], None], None]" = None,
         views=None,
+        profile_factories: "typing.Optional[typing.Dict[str, SessionFactory]]" = None,
+        default_profile: "typing.Optional[str]" = None,
     ) -> None:
         self._session_factory = session_factory
+        self.profile_factories = dict(profile_factories or {})
+        self.default_profile = default_profile
+        if default_profile is not None and default_profile not in self.profile_factories:
+            raise ValueError("unknown Codex profile: {0}".format(default_profile))
         self._sessions: "typing.Dict[str, object]" = {}
         self._session_order: "typing.List[str]" = []
         self._state_watchers: "typing.Dict[str, asyncio.Task]" = {}
@@ -265,6 +271,7 @@ class WorkspaceSessionManager:
                 rollout_path=tab["rollout_path"],
                 fork=tab.get("fork") is True,
                 cwd=tab.get("cwd"),
+                profile=tab.get("profile", self.default_profile),
             )
         for session_id in self._session_order:
             self._subscribe_session_state(session_id)
@@ -294,8 +301,12 @@ class WorkspaceSessionManager:
         title: str = "",
         rollout_path: str = "",
         fork: bool = False,
+        profile: "typing.Optional[str]" = None,
     ) -> str:
-        session_id = await self._create_session(title, rollout_path, fork)
+        session_id = await self._create_session(
+            title, rollout_path, fork,
+            profile=self.default_profile if profile is None else profile,
+        )
         self._subscribe_session_state(session_id)
         self.persist_workspace_state()
         return session_id
@@ -306,10 +317,18 @@ class WorkspaceSessionManager:
         rollout_path: str = "",
         fork: bool = False,
         cwd: "typing.Optional[str]" = None,
+        profile: "typing.Optional[str]" = None,
     ) -> str:
+        if profile is not None and (
+            not isinstance(profile, str) or profile not in self.profile_factories
+        ):
+            raise ValueError("unknown Codex profile: {0}".format(profile))
+        factory = (
+            self._session_factory if profile is None else self.profile_factories[profile]
+        )
         async with self._get_lock():
             session_id = uuid7_string()
-            session = self._session_factory()
+            session = factory()
             await session.start()
 
             try:
@@ -328,6 +347,7 @@ class WorkspaceSessionManager:
                 "title": str(summary.get("title") or ""),
                 "cwd": summary["cwd"],
                 "rollout_path": rollout_path,
+                "profile": profile,
                 **({"fork": True} if fork else {}),
             }
             return session_id
@@ -424,6 +444,7 @@ class WorkspaceSessionManager:
                     "id": session_id,
                     "title": summary.get("title") or "pycodex",
                     "cwd": summary["cwd"],
+                    "profile": self._tab_states[session_id]["profile"],
                     "running": bool(summary.get("running")),
                     "last_final_id": final_id,
                     "unread": bool(

@@ -115,6 +115,11 @@ them, and use **Insert into chat** to add selected code to an editable draft.
 Local PDF links open in the browser's built-in reader, with **Open in new tab**
 and **Download** links. PDF files are streamed separately from text snapshots.
 Keep the server's stdin open: EOF initiates shutdown.
+**New session** directly creates a session using the launch `--profile`, or the
+base config when unset. The **+** button on its right (**Custom profile**) lets
+you choose a named profile from the server's Codex config; **Default** uses the
+launch setting. Each session saves its profile name and uses it again on restart; existing sessions
+keep their configuration. Restart the server after adding or removing profiles.
 The gear button opens **Frontend customization** and **Share**.
 Frontend customization starts an Agent conversation for editing files in
 `~/.pycodex/frontend/`. Its setup context includes an API quick

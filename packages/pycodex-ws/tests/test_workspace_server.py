@@ -1151,7 +1151,7 @@ def test_boardless_workspace_preserves_context_and_tools(
     assert load_workspace_definitions(config)[0].board_path is None
     store = WorkspaceStateStore(Path(saved_prefix + ".pycodex-ws.json"))
     assert store.load_tabs() == [
-        {"title": "fix", "rollout_path": state["rollout_path"], "cwd": str(tmp_path / "repo")}
+        {"title": "fix", "rollout_path": state["rollout_path"], "cwd": str(tmp_path / "repo"), "profile": None}
     ]
     restored_registry = WorkspaceRegistry(
         [
@@ -1196,7 +1196,7 @@ def test_sessions_persist_titles_and_restore_history(
             lambda item: item["turns"] and item["turns"][-1]["response"] == "done",
         )
         assert store.load_tabs() == [
-            {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
+            {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd()), "profile": None}
         ]
         if explicit_title:
             response = browser.post(
@@ -1211,7 +1211,7 @@ def test_sessions_persist_titles_and_restore_history(
     assert board.read_text(encoding="utf-8") == "unchanged board"
     title = "saved" if explicit_title else "saved prompt"
     assert store.load_tabs() == [
-        {"title": title, "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
+        {"title": title, "rollout_path": state["rollout_path"], "cwd": str(Path.cwd()), "profile": None}
     ]
     with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         restored = browser.get("/api/session").json()["snapshot"]
@@ -1284,12 +1284,12 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
     if continue_after_fork:
         expected.append(("after fork", "done"))
         assert store.load_tabs() == [
-            {"title": "forked", "rollout_path": str(fork_path), "cwd": str(Path.cwd())}
+            {"title": "forked", "rollout_path": str(fork_path), "cwd": str(Path.cwd()), "profile": None}
         ]
     else:
         assert not fork_path.exists()
         assert store.load_tabs() == [
-            {"title": "forked", "rollout_path": str(original_path), "fork": True, "cwd": str(Path.cwd())}
+            {"title": "forked", "rollout_path": str(original_path), "fork": True, "cwd": str(Path.cwd()), "profile": None}
         ]
 
     with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
@@ -1309,7 +1309,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
 
     assert original_path.read_bytes() == original_bytes
     assert store.load_tabs() == [
-        {"title": "forked", "rollout_path": str(restored_path), "cwd": str(Path.cwd())}
+        {"title": "forked", "rollout_path": str(restored_path), "cwd": str(Path.cwd()), "profile": None}
     ]
 
 
@@ -1317,7 +1317,7 @@ def test_workspace_fork_survives_restart(tmp_path, threaded, continue_after_fork
 def test_empty_workspace_tabs_survive_restart(tmp_path, threaded):
     board = tmp_path / "board.html"
     store = WorkspaceStateStore(board.with_suffix(".pycodex-ws.json"))
-    empty_tab = {"title": "", "rollout_path": "", "cwd": str(Path.cwd())}
+    empty_tab = {"title": "", "rollout_path": "", "cwd": str(Path.cwd()), "profile": None}
 
     def session_factory():
         if threaded:
@@ -1360,7 +1360,7 @@ def test_titled_empty_workspace_tab_survives_restart(tmp_path):
         assert response.status_code == 200
         path = Path(response.json()["snapshot"]["rollout_path"])
         assert not path.exists()
-    assert store.load_tabs() == [{"title": "empty", "rollout_path": "", "cwd": str(Path.cwd())}]
+    assert store.load_tabs() == [{"title": "empty", "rollout_path": "", "cwd": str(Path.cwd()), "profile": None}]
 
     with TestClient(create_app(make_session, board.with_suffix(""))) as browser:
         state = browser.get("/api/session").json()["snapshot"]
@@ -1372,7 +1372,7 @@ def test_titled_empty_workspace_tab_survives_restart(tmp_path):
             lambda item: item["turns"] and item["turns"][-1]["response"] == "done",
         )
     assert store.load_tabs() == [
-        {"title": "empty", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
+        {"title": "empty", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd()), "profile": None}
     ]
 
 
@@ -1451,12 +1451,12 @@ def test_workspace_explicit_save_keeps_unchanged_state(tmp_path, command):
             browser, lambda s: s["turns"] and s["turns"][-1]["response"] == "done"
         )
         assert store.load_tabs() == [
-            {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
+            {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd()), "profile": None}
         ]
         response = browser.post("/api/session/message", json={"prompt": command})
         assert response.status_code == 200
     assert store.load_tabs() == [
-        {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
+        {"title": "saved prompt", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd()), "profile": None}
     ]
 
 
@@ -1487,7 +1487,7 @@ def test_workspace_fork_saves_new_target_after_compact_or_failure(tmp_path, next
         if next_input == "failed turn":
             wait_snapshot(browser, lambda s: s["turns"][-1]["status"] == "error")
     assert fork_path.is_file()
-    assert store.load_tabs() == [{"title": "saved", "rollout_path": str(fork_path), "cwd": str(Path.cwd())}]
+    assert store.load_tabs() == [{"title": "saved", "rollout_path": str(fork_path), "cwd": str(Path.cwd()), "profile": None}]
     assert original_path.read_bytes() == original_bytes
     with TestClient(create_app(session_factory, board.with_suffix(""))) as browser:
         assert browser.get("/api/session").json()["snapshot"]["rollout_path"] == str(
@@ -1526,7 +1526,7 @@ async def test_workspace_close_persists_fork_after_draining_turn(tmp_path):
         await closing
     await second.future
     assert WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).load_tabs() == [
-        {"title": "saved", "rollout_path": str(fork_path), "cwd": str(Path.cwd())}
+        {"title": "saved", "rollout_path": str(fork_path), "cwd": str(Path.cwd()), "profile": None}
     ]
 
 
@@ -1621,7 +1621,7 @@ def test_workspace_does_not_save_a_fork_destination_owned_by_another_writer(tmp_
         assert "File exists" in state["turns"][-1]["error"]
     assert fork_path.read_text(encoding="utf-8") == "another writer"
     assert WorkspaceStateStore(board.with_suffix(".pycodex-ws.json")).load_tabs() == [
-        {"title": "saved", "rollout_path": original_path, "fork": True, "cwd": str(Path.cwd())}
+        {"title": "saved", "rollout_path": original_path, "fork": True, "cwd": str(Path.cwd()), "profile": None}
     ]
 
 
@@ -1821,7 +1821,7 @@ def test_unread_survives_compact_but_clears_on_restart(tmp_path, threaded, read)
         assert state["last_final_id"] == final_id
         assert browser.get("/api/sessions").json()["sessions"][0]["unread"] is (not read)
         assert store.load_tabs() == [
-            {"title": "question", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd())}
+            {"title": "question", "rollout_path": state["rollout_path"], "cwd": str(Path.cwd()), "profile": None}
         ]
     with TestClient(create_app(factory, state_path)) as browser:
         payload = browser.get("/api/session").json()

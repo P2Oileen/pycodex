@@ -108,6 +108,10 @@ pycodex-ws --listen 127.0.0.1:6007 --workspace-config workspaces.json
 文件/diff 查看器。点击回复中的文件链接打开视图，通过 **Insert into chat**
 把选中的代码插入可编辑草稿。本地 PDF 链接使用浏览器内置阅读器预览，
 并提供新标签页打开和下载入口。运行期间保持服务器 stdin 打开，EOF 会触发关闭。
+点击 **New session** 直接按启动时的 `--profile` 创建会话，未指定时使用基础配置。
+右侧 **+** 按钮（Custom profile）可从服务器的 Codex 配置中选择 profile；
+选择框中的 **Default** 沿用启动配置。会话保存 profile 名称，
+重启后按同一名称恢复；已有会话的配置保持不变。增删 profile 后需重启服务器。
 点击齿轮按钮可开启界面定制会话，让 Agent 修改 `~/.pycodex/frontend/` 中的文件。
 
 会话操作、存储和飞书配置见[工作区说明](packages/pycodex-ws/README.md)。

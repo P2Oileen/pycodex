@@ -409,6 +409,12 @@ are not prerequisites for keeping a tab across a server restart. Changes to
 automatic or explicit titles and recorded paths update the same saved tab.
 Startup restores the full tab list before saving it; closing a tab removes its
 entry.
+Each tab also stores its effective `profile` name, or `null` for the base
+configuration. Restore uses that selection even if the launch default changed.
+Legacy tabs without this field use the current launch default. Profile names
+resolve against the current config; the state file does not copy configuration
+or credentials. A removed profile fails restoration instead of silently changing
+the session's provider. Fork and resume retain the tab's profile.
 Once a fork's first turn or successful compact creates its rollout, the saved tab
 points to that file, including when the model subsequently fails. Before the
 file exists, the tab stores the recorded ancestor's path with an explicit
@@ -611,12 +617,27 @@ credential isolation belongs in the [workspace tests](../tests/TESTS.md#按包�
 
 ## Workspace session API
 
+`GET api/sessions` returns the session list (including each tab's `profile`),
+the available profile names in `profiles`, and `default_profile`. The CLI
+loads the profile catalog from its Codex config when building each workspace.
 `POST api/sessions` creates a session with optional string fields `title` and
-`prompt`. Both default to an empty string; requests with no body still create
-an empty session. A nonempty prompt is submitted unchanged through the Runtime.
+`prompt`, plus an optional `profile` name. Title and prompt default to an empty
+string; requests with no body still create an empty session. An omitted or null
+profile uses the launch `--profile`, or the base config when unset. Unknown
+names fail before creating a session. The selected profile is passed to both
+model and Agent construction on the session's worker thread. CLI overrides
+continue to apply. A nonempty prompt is submitted unchanged through the Runtime.
 The response includes the new session ID, session list and snapshot. These
 fields are general frontend inputs: the API does not select prompts, infer
 reply languages or interpret feature-specific flags.
+
+`WorkspaceSessionManager` accepts a base zero-argument session factory plus an
+optional `profile_factories` mapping of names to zero-argument factories and a
+`default_profile`. Each factory constructs a fresh session. The browser's
+**New session** button directly creates a default session. Its right-hand
+**+** button (`Custom profile`) opens the profile chooser; when no named profiles
+exist, it shows a message without creating a session. Frontend customization
+keeps using the default creation path.
 
 The [workspace resource API](WORKSPACE_API.md) adds lightweight Runtime state,
 model catalogs, asynchronous commands/results, paginated history, descendant
