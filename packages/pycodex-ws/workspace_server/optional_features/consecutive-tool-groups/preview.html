@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consecutive tool groups</title>
+<link rel="stylesheet" href="source/tool-groups.css">
+<style>
+body { background: #f4f6f8; color: #27313a; font: 15px/1.6 system-ui, sans-serif; margin: 0; padding: 20px; }
+main { max-width: 760px; margin: auto; padding: 24px; background: white; border-radius: 12px; }
+h1 { font-size: 22px; margin-top: 0; } .note { color: #65727c; font-size: 13px; }
+.user { padding: 12px; background: #edf2f6; border-radius: 6px; }
+button { padding: 7px 12px; } #verification { white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+<main>
+<h1>Consecutive tool groups</h1>
+<p class="note">Synthetic example. Open one group to inspect its calls.</p>
+<p class="user">Check the changes and run the tests.</p>
+<div id="tools"></div>
+<p>I found a patch mismatch and am checking the test results.</p>
+<button id="complete">Complete test call</button>
+<pre id="verification"></pre>
+</main>
+<script type="module">
+import {createToolGroup} from "./source/tool-groups.js";
+import {sample} from "./source/fixture.mjs";
+const controller = createToolGroup(document.getElementById("tools"), {
+  sessionId: "preview-session", groupId: "preview-turn",
+});
+controller.update(sample());
+document.getElementById("complete").onclick = () => {
+  const calls = sample();
+  calls[2] = {...calls[2], status: "completed", output: "12 tests passed"};
+  controller.update(calls);
+};
+if (new URL(location.href).searchParams.has("verify")) {
+  const output = document.getElementById("verification");
+  try {
+    const {verify} = await import("./source/verify.mjs");
+    await verify();
+    output.textContent = "PASS: grouping, updates, remount, isolation, cleanup and text escaping";
+    document.documentElement.dataset.verified = "passed";
+  } catch (error) {
+    output.textContent = "FAIL: " + error.stack;
+    document.documentElement.dataset.verified = "failed";
+  }
+}
+</script>
+</html>

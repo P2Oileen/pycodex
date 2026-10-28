@@ -1,0 +1,11 @@
+.tool-group { color: var(--muted, #596673); font: 13px/1.5 system-ui, sans-serif; min-width: 0; }
+.tool-group[hidden] { display: none; }
+.tool-group > summary, .tool-group-call > summary { cursor: pointer; padding: 7px 0; overflow-wrap: anywhere; }
+.tool-group summary:focus-visible { outline: 2px solid var(--accent, #3169a8); outline-offset: 2px; }
+.tool-group-running, .tool-group-errors { margin-left: 10px; }
+.tool-group-errors { color: var(--danger, #ae3440); }
+.tool-group-list { display: grid; gap: 6px; padding: 3px 0 6px 12px; }
+.tool-group-call { min-width: 0; border: 1px solid var(--line, #d8dee4); border-radius: 6px; padding: 0 10px 6px; }
+.tool-group-call > summary.tool-group-errors { margin-left: 0; }
+.tool-group-id { overflow-wrap: anywhere; margin: 3px 0 8px; }
+.tool-group-call pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; margin: 4px 0 10px; }
