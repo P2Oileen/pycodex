@@ -11,6 +11,7 @@ space. Request failures remain visible; reasoning records need readable text.
 
 | ID | Feature | Summary | Validation |
 | --- | --- | --- | --- |
+| consecutive-tool-groups | [Consecutive tool groups](consecutive-tool-groups/README.md) | One expandable conversation row for a run of tool calls, with running/failure counts. | Chromium fixtures, live updates, refresh, keyboard/mobile and cleanup; adapter supplied by the frontend |
 | exec-status | [Exec status](exec-status/README.md) | Running and exited command sessions above the composer. | Chromium fixtures, lifecycle, desktop/mobile; live processes not tested |
 | reasoning-display | [Recorded reasoning](reasoning-display/README.md) | Readable recorded reasoning summaries and text. | Chromium fixtures, opaque filtering, desktop/mobile; live model not tested |
 | subagent-status | [Subagent status](subagent-status/README.md) | Descendant agents, parents and completion/error details. | Chromium fixtures, lifecycle, desktop/mobile; live agents not tested |
