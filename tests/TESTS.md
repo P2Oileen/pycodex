@@ -94,6 +94,19 @@ env -u VIRTUAL_ENV uv run --dev pytest packages/pycodex-ws/tests/test_feishu_car
 
 ## 自动化测试
 
+Workspace 重连诊断折叠的浏览器回归手动运行，不加入 CI。
+使用 Node 18+，在独立目录安装 Playwright 及 Chromium 后运行：
+
+```bash
+npm install --prefix /tmp/pycodex-browser-check playwright
+/tmp/pycodex-browser-check/node_modules/.bin/playwright install chromium
+NODE_PATH=/tmp/pycodex-browser-check/node_modules node packages/pycodex-ws/tests/workspace_retry_groups.cjs
+```
+
+覆盖有限/无限重试、1000 条记录的折叠和滚动、增量更新保持展开状态、
+其他诊断及最终错误可见、会话隔离、重新渲染、键盘、手机触摸和 HTML 转义。
+该脚本使用合成诊断与真实页面渲染函数，不请求模型。
+
 ### HTTP 框架依赖
 
 - `packages/pycodex-ws/tests/test_workspace_sharing.py` 覆盖管理员/访问者登录、
