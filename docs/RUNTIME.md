@@ -872,6 +872,7 @@ Use Git-style expressions for comparisons:
 | `[source](src/app.py)` | Working file |
 | `[line](src/app.py:42)` or `[line](/data/project/app.py#L42)` | File, line 42 |
 | `[document](README.md)` or `[page](report.html)` | Markdown or HTML preview |
+| `[report](report.pdf)` | Local PDF in the browser's built-in reader |
 | `[source](README.md:1)` or `[source](report.html#L1)` | Markdown or HTML source, line 1 |
 | `[version](git:HEAD:src/app.py#L42)` | Git file at a fixed revision, line 42 |
 | `[changes](diff:HEAD:src/app.py)` | HEAD versus the working file |
@@ -970,6 +971,17 @@ the current presentation and do not replay line requests. Presentation choices
 belong to that browser page; another page's opens do not change them.
 Markdown/HTML comparisons always use the code diff editor.
 
+Local `.pdf` files open in a native browser PDF iframe with new-tab and download
+links. The view stores only the source path and file metadata; the authenticated
+`GET/HEAD api/views/{id}/pdf` endpoint streams the file as `application/pdf`
+with inline disposition. `?download=true` selects attachment disposition.
+It only serves an existing PDF view in that workspace. PDF headers and regular
+file status are checked before serving; unavailable or invalid files show an error.
+Metadata changes update the view revision and iframe URL. An unchanged active
+PDF keeps its iframe; switching away releases it. Page and zoom state belong to
+the native reader and may reset when its iframe is recreated. Mobile browsers
+without embedded PDF support can use the open/download links.
+
 The code editor's **Insert into chat** context-menu action captures the displayed
 file and cursor location; a nonempty selection includes only its selected text,
 with end-exclusive columns. A selection also reveals the same action in the
@@ -1025,11 +1037,12 @@ or a tab switch invalidates an older pending request. Ordinary content refreshes
 and manual tab switches do not replay an earlier line request; another click
 can explicitly reveal even the same line again.
 
-Files are limited to 2 MiB each, text to 20,000 lines and raster images to
+Text and image snapshots are limited to 2 MiB each, text to 20,000 lines and raster images to
 20 megapixels. View storage is limited to 64 MiB per workspace; exceeding a
 limit when opening a view is reported in the browser and does not create or replace a tab.
-If a live file becomes unreadable or invalid, its last readable content remains
-visible with an error. A deleted file view also keeps its last content; a
+Local PDFs stream directly and are not subject to the text/image size limit.
+If a live text/image file becomes unreadable or invalid, its last readable content remains
+visible with an error. A deleted text/image view also keeps its last content; a
 deleted side of a diff becomes empty and is marked missing. Recreating or fixing
 the file resumes updates. A storage write or total-budget failure is reported
 to the browser and leaves the previous persisted views intact.
@@ -1089,7 +1102,7 @@ through concrete routes before the Board image fallback. `content_views.mjs`
 and `content_views.css` contain only the lightweight tabs and preview controller.
 The first code or diff view loads the separate same-origin `editor.mjs` and
 `editor.css` in parallel, and waits for both before creating an editor. Canvas,
-Markdown, HTML and image previews do not request either editor asset. Each
+Markdown, HTML, PDF and image previews do not request either editor asset. Each
 display retains its loading promise and stylesheet for later code views;
 switching away during loading still invalidates the pending editor creation.
 

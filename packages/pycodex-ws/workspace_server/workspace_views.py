@@ -205,7 +205,7 @@ class WorkspaceViewStore:
         self._file_states = file_states
 
     def read_document(
-        self, path, label, allow_image=False, working_tree=False, allow_missing=False
+        self, path, label, allow_preview=False, working_tree=False, allow_missing=False
     ):
         path = Path(path)
         source = {
@@ -216,17 +216,30 @@ class WorkspaceViewStore:
             if working_tree and path.is_symlink():
                 data = os.readlink(str(path)).encode("utf-8")
             else:
-                if not stat.S_ISREG(path.stat().st_mode):
+                info = path.stat()
+                if not stat.S_ISREG(info.st_mode):
                     raise ValueError(
                         "only regular files can be displayed: {0}".format(label)
                     )
                 with path.open("rb") as handle:
+                    if allow_preview and path.suffix.lower() == ".pdf":
+                        if handle.read(5) != b"%PDF-":
+                            raise ValueError("invalid PDF header: {0}".format(label))
+                        return {
+                            "label": label,
+                            "media_type": "application/pdf",
+                            "source": source,
+                            "file_state": [
+                                info.st_dev, info.st_ino, info.st_size,
+                                info.st_mtime_ns, info.st_ctime_ns,
+                            ],
+                        }
                     data = handle.read(self.max_file_bytes + 1)
         except FileNotFoundError:
             if not allow_missing:
                 raise
             return {"label": label, "text": "", "missing": True, "source": source}
-        document = self.decode_document(data, label, allow_image)
+        document = self.decode_document(data, label, allow_preview)
         document["source"] = source
         return document
 
@@ -465,11 +478,11 @@ class WorkspaceViewOpener:
             )
         return result.stdout
 
-    def _read_reference(self, reference, allow_image, allow_missing):
+    def _read_reference(self, reference, allow_preview, allow_missing):
         if "source" in reference:
             source = reference["source"]
             return self._views.read_document(
-                source["path"], reference["label"], allow_image,
+                source["path"], reference["label"], allow_preview,
                 source["working_tree"], allow_missing,
             )
         source = reference["git_source"]
@@ -489,7 +502,7 @@ class WorkspaceViewOpener:
         if size > self._views.max_file_bytes:
             raise ValueError("file exceeds 2 MiB: " + reference["label"])
         document = self._views.decode_document(
-            self._git(["cat-file", "blob", object_id]), reference["label"], allow_image
+            self._git(["cat-file", "blob", object_id]), reference["label"], allow_preview
         )
         document["git_source"] = source
         return document

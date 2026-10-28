@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - Python 3.6 compatibility
     asynccontextmanager = None
 import typing
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -1205,6 +1205,10 @@ def create_multi_workspace_app(
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _view_response(entry.manager, request.path_params["view_id"])
 
+    def workspace_view_pdf(request: Request) -> Response:
+        entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
+        return _view_pdf_response(entry.manager, request)
+
     def workspace_close_view(request: Request) -> JSONResponse:
         entry = _workspace_entry_or_404(registry, request.path_params["workspace_id"])
         return _close_view_response(entry.manager, request.path_params["view_id"])
@@ -1290,6 +1294,10 @@ def create_multi_workspace_app(
         Route("/w/{workspace_id}/api/views", workspace_views, methods=["GET"]),
         Route("/w/{workspace_id}/api/views/open", workspace_open_view, methods=["POST"]),
         Route("/w/{workspace_id}/api/views/{view_id}", workspace_view, methods=["GET"]),
+        Route(
+            "/w/{workspace_id}/api/views/{view_id}/pdf",
+            workspace_view_pdf, methods=["GET", "HEAD"],
+        ),
         Route(
             "/w/{workspace_id}/api/views/{view_id}",
             workspace_close_view, methods=["DELETE"],
@@ -1705,6 +1713,9 @@ def _install_workspace_routes(
     def view(request: Request) -> JSONResponse:
         return _view_response(manager, request.path_params["view_id"])
 
+    def view_pdf(request: Request) -> Response:
+        return _view_pdf_response(manager, request)
+
     def close_view(request: Request) -> JSONResponse:
         return _close_view_response(manager, request.path_params["view_id"])
 
@@ -1756,6 +1767,7 @@ def _install_workspace_routes(
         Route("/api/views", views, methods=["GET"]),
         Route("/api/views/open", open_view, methods=["POST"]),
         Route("/api/views/{view_id}", view, methods=["GET"]),
+        Route("/api/views/{view_id}/pdf", view_pdf, methods=["GET", "HEAD"]),
         Route("/api/views/{view_id}", close_view, methods=["DELETE"]),
         Route("/assets/content_views.mjs", view_asset, methods=["GET", "HEAD"]),
         Route("/assets/content_views.css", view_asset, methods=["GET", "HEAD"]),
@@ -1813,6 +1825,38 @@ def _view_response(manager: WorkspaceSessionManager, view_id: str) -> JSONRespon
     except (OSError, ValueError) as error:
         raise HTTPException(status_code=400, detail=str(error))
     return JSONResponse(view, headers={"Cache-Control": "no-store"})
+
+
+def _view_pdf_response(manager: WorkspaceSessionManager, request: Request) -> Response:
+    try:
+        view = manager.views.get(request.path_params["view_id"])
+    except KeyError:
+        raise HTTPException(status_code=404, detail="view not found")
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    document = view["documents"][0]
+    if view["kind"] != "file" or document.get("media_type") != "application/pdf":
+        raise HTTPException(status_code=400, detail="view is not a local PDF")
+    if document.get("error"):
+        raise HTTPException(
+            status_code=404 if document.get("missing") else 400,
+            detail=document["error"],
+        )
+    disposition = "attachment" if request.query_params.get("download") == "true" else "inline"
+    filename = quote(Path(document["label"]).name, safe="")
+    response = FileResponse(
+        document["source"]["path"],
+        media_type="application/pdf",
+        stat_result=Path(document["source"]["path"]).stat(),
+        headers={
+            "Content-Disposition": "{0}; filename*=utf-8''{1}".format(disposition, filename),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+    if request.method == "HEAD":
+        return Response(headers=response.headers)
+    return response
 
 
 def _close_view_response(

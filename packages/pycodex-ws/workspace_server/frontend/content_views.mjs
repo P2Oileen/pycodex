@@ -319,6 +319,7 @@ export class SnapshotDisplay {
     this.activeId = null;
     this.editor = null;
     this.htmlPreview = null;
+    this.pdfFrame = null;
     this.generation = 0;
     this.remaining = new Set();
     this.editorStates = new Map();
@@ -380,8 +381,10 @@ export class SnapshotDisplay {
       this.scrollPositions.set(this.activeId, [this.content.scrollLeft, this.content.scrollTop]);
     }
     this.activeId = null;
+    this.pdfFrame = null;
     this.content.classList.remove("code-view");
     this.content.classList.remove("html-view");
+    this.content.classList.remove("pdf-view");
     this.content.textContent = "";
     if (message) {
       this.content.appendChild(element(this.document, "div", "content-placeholder", message));
@@ -408,10 +411,22 @@ export class SnapshotDisplay {
     const markup = snapshot.kind === "file" && !this.sourceViews.has(id);
     const markdown = markup && /\.(md|markdown)$/i.test(source.label) && this.renderMarkdown;
     const html = markup && /\.html?$/i.test(source.label);
+    const pdf = snapshot.kind === "file" && source.media_type === "application/pdf";
+    const pdfUrl = pdf ? new URL(
+      `../api/views/${encodeURIComponent(id)}/pdf?revision=${snapshot.revision}`, import.meta.url,
+    ).href : null;
+    if (pdf && source.error) {
+      this.clear(source.error);
+      return;
+    }
+    if (this.activeId === id && this.pdfFrame && pdf) {
+      if (this.pdfFrame.src !== pdfUrl) this.pdfFrame.src = pdfUrl;
+      return;
+    }
     if (this.activeId === id && this.htmlPreview && html) {
       return this.htmlPreview.update(source.text);
     }
-    if (this.activeId === id && this.editor && !markdown && !html) {
+    if (this.activeId === id && this.editor && !markdown && !html && !pdf) {
       const generation = this.generation;
       try {
         await this.editor.update(snapshot);
@@ -424,6 +439,25 @@ export class SnapshotDisplay {
     this.clear();
     this.activeId = id;
     const generation = this.generation;
+    if (pdf) {
+      this.content.classList.add("pdf-view");
+      const heading = element(this.document, "div", "snapshot-heading");
+      heading.appendChild(element(this.document, "span", "snapshot-label", source.label));
+      const actions = element(this.document, "div", "pdf-actions");
+      const open = element(this.document, "a", "content-mode-toggle", "Open in new tab");
+      open.href = pdfUrl;
+      open.target = "_blank";
+      open.rel = "noopener";
+      const download = element(this.document, "a", "content-mode-toggle", "Download");
+      download.href = pdfUrl + "&download=true";
+      actions.append(open, download);
+      heading.appendChild(actions);
+      this.pdfFrame = element(this.document, "iframe", "snapshot-pdf");
+      this.pdfFrame.title = "PDF preview: " + source.label;
+      this.pdfFrame.src = pdfUrl;
+      this.content.append(heading, this.pdfFrame);
+      return;
+    }
     if (snapshot.kind === "diff" || (!source.image_url && !markdown && !html)) {
       this.content.classList.add("code-view");
       this.content.appendChild(element(this.document, "div", "content-placeholder", "Loading code viewer…"));

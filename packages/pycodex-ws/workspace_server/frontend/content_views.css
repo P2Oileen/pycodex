@@ -65,6 +65,11 @@
 }
 .content-view.code-view,
 .content-view.html-view { overflow: hidden; }
+.content-view.pdf-view { display: flex; flex-direction: column; overflow: hidden; }
+.pdf-view .snapshot-heading { flex: 0 0 auto; }
+.pdf-actions { display: flex; flex: 0 0 auto; margin-left: auto; gap: 4px; }
+.pdf-actions a { text-decoration: none; }
+.snapshot-pdf { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
 .snapshot-html { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 .snapshot { min-height: 100%; }
 .snapshot-heading {
@@ -100,7 +105,8 @@
 @media (max-width: 760px) {
   .snapshot-heading { flex-wrap: wrap; gap: 4px; }
   .snapshot-stamp { margin-left: 0; }
-  .markdown-heading { padding-right: 48px; }
+  .markdown-heading,
+  .pdf-view .snapshot-heading { padding-right: 48px; }
   .markdown-heading .snapshot-label { flex: 1 0 100%; }
   .markdown-heading .snapshot-stamp { margin-left: auto; }
   .snapshot-markdown { padding: 20px; }

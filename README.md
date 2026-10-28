@@ -112,6 +112,8 @@ pycodex-ws --listen 127.0.0.1:6007 --workspace-config workspaces.json
 Open `http://127.0.0.1:6007`. The workspace combines conversations with a live
 HTML Canvas and read-only file/diff viewers. Click file links in replies to open
 them, and use **Insert into chat** to add selected code to an editable draft.
+Local PDF links open in the browser's built-in reader, with **Open in new tab**
+and **Download** links. PDF files are streamed separately from text snapshots.
 Keep the server's stdin open: EOF initiates shutdown.
 The gear button opens **Frontend customization** and **Share**.
 Frontend customization starts an Agent conversation for editing files in

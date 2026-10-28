@@ -262,6 +262,9 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   不一致导致整个聊天脚本无法启动，并限制首屏控制层 JS/CSS 大小，避免重新打入 Monaco。
   静态资源测试覆盖 gzip/identity 协商、拒绝的编码、HEAD、按表示区分的 ETag/304、
   文件更新后的缓存失效、每个应用实例的缓存隔离及 API 不进入压缩路径。
+  `test_workspace_pdf.py` 覆盖本地 PDF 原文件响应、GET/HEAD 和下载、
+  管理员/访问者鉴权与 workspace 隔离、超过 2 MiB 的文件、轻量持久化、
+  文件更新/删除/恢复、无效文件头和行号拒绝。
   生命周期测试直接读取前端源码，无需安装 npm 依赖；发布前用真实浏览器检查
   聊天/Markdown/Canvas 链接、普通外链与锚点、危险协议过滤、中文和特殊字符路径，
   HTML 预览的样式/脚本、与 Canvas 一致的 iframe 同源行为、滚动恢复及普通链接返回预览，
@@ -274,7 +277,7 @@ env -u VIRTUAL_ENV uv run --dev python -m tests.compare_context_requests \
   标签栏鼠标滚轮/触控板滚动、文件名优先与同名目录区分、Git 次要说明、
   标签长标题省略及完整悬停信息、查看器完整路径标题的无滚动条横向滚动与固定操作按钮、
   编辑器/model/observer 释放和 worker 运行，并检查构建后的同源资源和 wheel 内容。
-  按需加载需在真实浏览器中确认 Canvas/Markdown/HTML 预览不请求编辑器 JS/CSS，
+  按需加载需在真实浏览器中确认 Canvas/Markdown/HTML/PDF 预览不请求编辑器 JS/CSS，
   源码和 diff 首次打开才加载、等待样式完成后创建，后续切换复用资源；
   样式加载失败可见并可重试，裁剪后的 JSON/常用语言高亮、查找、折叠与字符级
   diff 保持可用，缩窄 diff 后返回 Canvas 不产生已销毁菜单的延迟回调错误。

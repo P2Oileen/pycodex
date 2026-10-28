@@ -35,6 +35,18 @@ Custom frontends can use `__ACCESS_ROLE__` to hide management controls; authoriz
 is enforced on the server regardless of UI visibility. Sharing does not reduce
 Agent execution permissions, and does not replace Router authentication.
 
+## PDF previews
+
+`POST api/views/open` with `{"href": "report.pdf"}` opens a local PDF using the
+normal file-view path resolution. Its document has `media_type: "application/pdf"`
+and source metadata, without text or embedded file bytes.
+`GET/HEAD api/views/{id}/pdf` streams that view's current file with
+`Content-Type: application/pdf` and inline disposition; `?download=true`
+selects attachment disposition. These routes require workspace authentication.
+Closing the view removes access through that ID. They accept no file-path input.
+PDF files do not use the text/image snapshot size limit; invalid headers are
+rejected. `revision` in the iframe URL changes when file metadata changes.
+
 ## State and resources
 
 | Method and path | Response fields |
