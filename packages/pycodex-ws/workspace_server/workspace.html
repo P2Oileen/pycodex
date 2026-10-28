@@ -97,25 +97,46 @@
     body[data-access-role="visitor"] .workspace-back,
     body[data-access-role="visitor"] .customize-frontend { display: none !important; }
     .workspace-settings {
-      width: min(420px, calc(100vw - 40px));
-      box-sizing: border-box;
-      padding: 20px;
+      width: min(440px, calc(100vw - 32px));
+      max-height: calc(100dvh - 32px);
+      padding: 24px;
       border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--panel);
+      border-radius: 16px;
+      background: var(--panel-raised);
       color: var(--ink);
+      box-shadow: 0 24px 80px rgba(23, 38, 48, .18);
     }
-    .workspace-settings::backdrop { background: #0006; }
-    .workspace-settings header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .workspace-settings h2 { margin: 0; font-size: 18px; }
-    .workspace-settings p { color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .workspace-settings label { display: block; margin: 14px 0 6px; font-size: 13px; }
-    .workspace-settings input, .workspace-settings select { width: 100%; box-sizing: border-box; padding: 8px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; }
-    .workspace-settings button { padding: 8px 12px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+    .workspace-settings::backdrop { background: rgba(23, 38, 48, .28); backdrop-filter: blur(3px); }
+    .workspace-settings header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .workspace-settings h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
+    .workspace-settings p { margin: 12px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .workspace-settings label { display: block; margin: 20px 0 8px; font-size: 12px; font-weight: 500; }
+    .workspace-settings input, .workspace-settings select { width: 100%; min-width: 0; padding: 10px 12px; font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .workspace-settings button { padding: 9px 14px; font-size: 13px; color: var(--ink); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+    .workspace-settings button:hover:not(:disabled) { background: var(--panel-deep); }
+    .workspace-settings :is(button, input, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .workspace-settings button:disabled { opacity: .5; cursor: default; }
-    .workspace-settings .settings-option { display: block; width: 100%; margin-top: 12px; text-align: left; }
-    .workspace-settings .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .workspace-settings .settings-close { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; color: var(--muted); }
+    .settings-close svg { width: 18px; height: 18px; }
+    .settings-options { display: grid; gap: 4px; margin: 0 -8px -8px; }
+    .workspace-settings .settings-option { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px 12px; border: 0; border-radius: 10px; text-align: left; }
+    .settings-option-icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 10px; background: var(--panel-deep); color: var(--accent); }
+    .settings-option-icon svg { width: 21px; height: 21px; }
+    .settings-option-copy { flex: 1; min-width: 0; }
+    .settings-option-title { display: block; font-size: 14px; font-weight: 550; }
+    .settings-option-description { display: block; margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .settings-option-arrow { flex: 0 0 16px; width: 16px; height: 16px; color: var(--muted); }
+    .workspace-settings .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .workspace-settings .settings-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .workspace-settings .settings-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.94); }
+    .workspace-settings .settings-danger { border-color: transparent; color: var(--danger); }
+    .workspace-settings .settings-danger:hover:not(:disabled) { background: var(--danger-soft); }
+    .workspace-settings .settings-note { margin: 20px 0 0; font-size: 12px; }
+    .sharing-status { padding: 10px 12px; border-radius: 8px; background: var(--panel-deep); }
+    .settings-link-row { display: flex; align-items: center; gap: 8px; }
+    .settings-link-row button { flex: 0 0 auto; }
     .workspace-settings [role="alert"] { color: var(--danger); }
+    .workspace-settings [role="alert"]:empty { display: none; }
     .board {
       border: 0;
       min-width: 0;
@@ -1324,7 +1345,7 @@
                 title="Settings" aria-label="Settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m9 3-1 3-3 1-2 4 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-4-3-1-1-3Z"/>
+            <path d="M10.61 2.1h2.78l.6 2.46 1.86.77 2.17-1.32 1.97 1.97-1.32 2.17.77 1.86 2.46.6v2.78l-2.46.6-.77 1.86 1.32 2.17-1.97 1.97-2.17-1.32-1.86.77-.6 2.46h-2.78l-.6-2.46-1.86-.77-2.17 1.32-1.97-1.97 1.32-2.17-.77-1.86-2.46-.6v-2.78l2.46-.6.77-1.86-1.32-2.17 1.97-1.97 2.17 1.32 1.86-.77Z"/>
             <circle cx="12" cy="12" r="3"/>
           </svg>
         </button>
@@ -1356,7 +1377,7 @@
                   title="Settings" aria-label="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 3-1 3-3 1-2 4 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-4-3-1-1-3Z"/>
+              <path d="M10.61 2.1h2.78l.6 2.46 1.86.77 2.17-1.32 1.97 1.97-1.32 2.17.77 1.86 2.46.6v2.78l-2.46.6-.77 1.86 1.32 2.17-1.97 1.97-2.17-1.32-1.86.77-.6 2.46h-2.78l-.6-2.46-1.86-.77-2.17 1.32-1.97-1.97 1.32-2.17-.77-1.86-2.46-.6v-2.78l2.46-.6.77-1.86-1.32-2.17 1.97-1.97 2.17 1.32 1.86-.77Z"/>
               <circle cx="12" cy="12" r="3"/>
             </svg>
           </button>
@@ -1496,32 +1517,65 @@
       <label for="sessionProfile">Profile</label>
       <select id="sessionProfile"></select>
       <p>The profile sets the model and instructions for this session.</p>
-      <div class="settings-actions"><button id="createSessionButton" type="submit">Create session</button></div>
+      <div class="settings-actions"><button id="createSessionButton" class="settings-primary" type="submit">Create session</button></div>
     </form>
     <p id="newSessionError" role="alert"></p>
   </dialog>
   <dialog id="workspaceSettings" class="workspace-settings" aria-labelledby="workspaceSettingsTitle">
-    <header><h2 id="workspaceSettingsTitle">Settings</h2><button type="button" data-close-dialog>Close</button></header>
-    <button id="frontendCustomization" type="button" class="settings-option">Frontend customization</button>
-    <button id="shareWorkspace" type="button" class="settings-option">Share</button>
+    <header>
+      <h2 id="workspaceSettingsTitle">Settings</h2>
+      <button type="button" class="settings-close" data-close-dialog aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div class="settings-options">
+      <button id="frontendCustomization" type="button" class="settings-option" aria-labelledby="customizeAgentLabel" aria-describedby="customizeAgentHint">
+        <span class="settings-option-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 4 5 5M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15l-1 6M4 4v4M2 6h4"/></svg>
+        </span>
+        <span class="settings-option-copy">
+          <span id="customizeAgentLabel" class="settings-option-title">Customize Agent</span>
+          <span id="customizeAgentHint" class="settings-option-description">Ask an Agent to customize your workspace.</span>
+        </span>
+        <svg class="settings-option-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+      </button>
+      <button id="shareWorkspace" type="button" class="settings-option" aria-labelledby="shareWorkspaceLabel" aria-describedby="shareWorkspaceHint" aria-haspopup="dialog" aria-controls="workspaceShare">
+        <span class="settings-option-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"/></svg>
+        </span>
+        <span class="settings-option-copy">
+          <span id="shareWorkspaceLabel" class="settings-option-title">Share</span>
+          <span id="shareWorkspaceHint" class="settings-option-description">Invite others with a link and password.</span>
+        </span>
+        <svg class="settings-option-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+      </button>
+    </div>
   </dialog>
   <dialog id="workspaceShare" class="workspace-settings" aria-labelledby="workspaceShareTitle">
-    <header><h2 id="workspaceShareTitle">Share workspace</h2><button type="button" data-close-dialog>Close</button></header>
-    <p>Anyone with the link and password can use every session in this workspace. Sharing ends when this server restarts.</p>
-    <p id="shareStatus" role="status"></p>
+    <header>
+      <h2 id="workspaceShareTitle">Share workspace</h2>
+      <button type="button" class="settings-close" data-close-dialog aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <p>Anyone with the link and password can use every session in this workspace.</p>
+    <p id="shareStatus" class="sharing-status" role="status"></p>
     <form id="shareForm">
       <label for="sharePassword">New share password</label>
       <input id="sharePassword" type="password" autocomplete="new-password" required>
       <div class="settings-actions">
-        <button id="shareSave" type="submit">Set password</button>
-        <button id="shareDisable" type="button">Stop sharing</button>
+        <button id="shareSave" class="settings-primary" type="submit">Set password</button>
+        <button id="shareDisable" class="settings-danger" type="button">Stop sharing</button>
       </div>
     </form>
     <div id="shareLinkSection" hidden>
       <label for="shareLink">Share link</label>
-      <input id="shareLink" readonly>
-      <div class="settings-actions"><button id="shareCopy" type="button">Copy link</button></div>
+      <div class="settings-link-row">
+        <input id="shareLink" readonly>
+        <button id="shareCopy" type="button">Copy link</button>
+      </div>
     </div>
+    <p class="settings-note">Sharing ends when this server restarts.</p>
     <p id="shareError" role="alert"></p>
   </dialog>
   <template id="emptyChat">
@@ -2433,6 +2487,7 @@
         "空闲时，用 /model 列举或切换模型。",
         "空闲时，用 /effort 调整思考强度。",
         "在设置中开启定制会话，描述想要的界面。",
+        "在设置的 Share 中，用密码共享工作区。",
         "用 /queue 排队，当前任务结束后执行。",
         "双击上下文圆环，将信息发给其他 Agent 协作。",
         "在设置中添加：工具调用详情。",
@@ -3090,7 +3145,7 @@
           "template placeholders, body metadata attributes and relative API/asset " +
           "URLs. api/sessions manages conversations; api/session and " +
           "api/session/message read and submit to the runtime; api/views manages " +
-          "file views. Keep Settings and its Frontend customization entry available; it assembles " +
+          "file views. Keep Settings and its Customize Agent entry available; it assembles " +
           "the title and prompt for the ordinary session creation API. The Canvas " +
           "HTML is a separate workspace document, not the interface template.",
         "",

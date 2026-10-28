@@ -113,9 +113,10 @@ pycodex-ws --listen 127.0.0.1:6007 --workspace-config workspaces.json
 选择框中的 **Default** 沿用启动配置。会话保存 profile 名称，
 重启后按同一名称恢复；已有会话的配置保持不变。增删 profile 后需重启服务器。
 当前 Agent 工作时，空输入框从随机位置开始，每约 6 秒顺序轮换一条简短提示，
-涵盖命令、界面定制、会话间协作和可选功能。可在 `workspace.html` 的 `updatePromptPlaceholder`
+涵盖命令、界面定制、工作区分享、会话间协作和可选功能。可在 `workspace.html` 的 `updatePromptPlaceholder`
 中编辑 `hints` 字符串列表。已有草稿不受影响。
-点击齿轮按钮可开启界面定制会话，让 Agent 修改 `~/.pycodex/frontend/` 中的文件。
+点击齿轮按钮，在 **Customize Agent** 中开启界面定制会话，让 Agent 修改
+`~/.pycodex/frontend/` 中的文件；**Share** 可通过链接和密码共享当前工作区。
 
 会话操作、存储和飞书配置见[工作区说明](packages/pycodex-ws/README.md)。
 独立分发的 [VS Code 扩展](packages/pycodex-ws/extensions/vscode/README.md)

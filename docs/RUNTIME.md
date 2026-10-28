@@ -306,7 +306,7 @@ so the caret starts at the beginning of the input and tips never become draft
 contents or submissions. They wrap inside the composer, stay hidden behind text
 or context-token drafts, and leave the input's accessible model label unchanged.
 Keep each hint short and self-contained; do not split an instruction across
-successive hints. The list covers commands, frontend customization,
+successive hints. The list covers commands, frontend customization, workspace sharing,
 inter-session collaboration and optional features present in the packaged
 catalog; optional feature hints use “在设置中添加：…” to indicate how to add them.
 
@@ -713,8 +713,8 @@ loading. The recovery page shows that customizations are disabled and links
 back to the customized interface. Authentication applies to recovery pages
 and custom resources just as it does to the rest of the workspace.
 
-The gear button in `workspace.html` opens Frontend customization and Share.
-Frontend customization assembles the `Customize interface` title and introductory
+The gear button in `workspace.html` opens Settings, with icon rows and short descriptions
+for Customize Agent and Share. Customize Agent assembles the `Customize interface` title and introductory
 prompt, then passes both to the ordinary session creation API. Both settings
 entries and the management navigation are hidden for workspace visitors.
 The prompt and its development guidance belong to the editable frontend;
