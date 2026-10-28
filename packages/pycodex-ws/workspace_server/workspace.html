@@ -970,7 +970,25 @@
     }
     .queue-preview,
     .session-cwd-name { min-width: 0; }
+    .prompt-field {
+      display: grid;
+      min-width: 0;
+      width: 100%;
+    }
+    .prompt-hint {
+      grid-area: 1 / 1;
+      align-self: start;
+      min-width: 0;
+      padding: 3px 0;
+      line-height: 22px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: var(--muted);
+      pointer-events: none;
+      user-select: none;
+    }
     .prompt-input {
+      grid-area: 1 / 1;
       min-width: 0;
       max-height: 35vh;
       width: 100%;
@@ -993,6 +1011,7 @@
       color: var(--muted);
       pointer-events: none;
     }
+    .prompt-input.empty.show-hint::before { content: none; }
     .prompt-input::-webkit-scrollbar { display: none; }
     .prompt-input:focus { outline: 0; }
     .context-token {
@@ -1404,9 +1423,12 @@
                 </div>
               </div>
             </div>
-            <div id="prompt" class="prompt-input empty" contenteditable="true" role="textbox"
-                 aria-multiline="true" aria-label="Message" spellcheck="false"
-                 title="Enter to send · Shift + Enter for a new line · ↑ / ↓ for input history" data-placeholder="Message…"></div>
+            <div class="prompt-field">
+              <div id="promptHint" class="prompt-hint" aria-hidden="true" hidden></div>
+              <div id="prompt" class="prompt-input empty" contenteditable="true" role="textbox"
+                   aria-multiline="true" aria-label="Message" spellcheck="false"
+                   title="Enter to send · Shift + Enter for a new line · ↑ / ↓ for input history" data-placeholder="Message…"></div>
+            </div>
           </div>
           <div id="contextBlockDetail" class="context-block-detail" hidden>
             <div class="context-block-heading">
@@ -1542,6 +1564,7 @@
     const enqueueHint = document.getElementById("enqueueHint");
     const toast = document.getElementById("toast");
     const prompt = document.getElementById("prompt");
+    const promptHint = document.getElementById("promptHint");
     const form = document.getElementById("composer");
     const contextBlockDetail = document.getElementById("contextBlockDetail");
     const contextBlockLabel = document.getElementById("contextBlockLabel");
@@ -1586,7 +1609,10 @@
     let restoreScrollTop = null;
     let suppressScrollSave = false;
     const composer = new Composer(prompt, () => {
-      stateForSession(activeSessionId).draft = composer.read();
+      const draft = composer.read();
+      stateForSession(activeSessionId).draft = draft;
+      prompt.classList.toggle("empty", !draft.parts.length);
+      promptHint.hidden = !prompt.classList.contains("show-hint") || draft.parts.length > 0;
       resizePrompt();
     }, () => form.requestSubmit(), editContextBlock, showToast,
     (back, current) => stateForSession(activeSessionId).promptHistory.recall(back, current));
@@ -2241,6 +2267,8 @@
           notifyWhenDone: false,
           wasRunning: false,
           inputRequest: null,
+          hintStartedAt: null,
+          hintStartIndex: 0,
           readingFinalId: "",
         });
       }
@@ -2401,9 +2429,45 @@
     }
 
     function updatePromptPlaceholder(snapshot = null) {
+      const hints = [
+        "空闲时，用 /model 列举或切换模型。",
+        "空闲时，用 /effort 调整思考强度。",
+        "在设置中开启定制会话，描述想要的界面。",
+        "用 /queue 排队，当前任务结束后执行。",
+        "双击上下文圆环，将信息发给其他 Agent 协作。",
+        "在设置中添加：工具调用详情。",
+        "在设置中添加：子 Agent 进展。",
+        "Enter 发送，Shift + Enter 换行。",
+        "在设置中添加：连续工具调用折叠。",
+        "点击文件链接，可在旁边预览。",
+        "在设置中添加：后台命令状态。",
+        "用 /compact 压缩上下文。",
+        "在设置中添加：会话私有便笺。",
+        "按 ↑ / ↓ 找回之前的输入。",
+        "在设置中添加：已记录的推理摘要。",
+        "点击运行状态，开启完成通知。",
+      ];
       const session = snapshot || sessionById(activeSessionId);
+      const state = stateForSession(activeSessionId);
       const label = session && session.model ? `Message to ${session.model}` : "Message";
-      prompt.dataset.placeholder = `${label}…`;
+      const waitingForInput = snapshot ? snapshot.input_request : state.inputRequest;
+      const showHint = Boolean(session?.running && !waitingForInput && hints.length);
+      if (!showHint) state.hintStartedAt = null;
+      else if (state.hintStartedAt === null) {
+        state.hintStartedAt = Date.now();
+        state.hintStartIndex = Math.floor(Math.random() * hints.length);
+      }
+      const placeholder = showHint
+        ? hints[(state.hintStartIndex + Math.floor((Date.now() - state.hintStartedAt) / 6000)) % hints.length]
+        : `${label}…`;
+      prompt.classList.toggle("show-hint", showHint);
+      const hintHidden = !showHint || !prompt.classList.contains("empty");
+      if (prompt.dataset.placeholder !== placeholder || promptHint.hidden !== hintHidden) {
+        prompt.dataset.placeholder = placeholder;
+        promptHint.textContent = showHint ? placeholder : "";
+        promptHint.hidden = hintHidden;
+        resizePrompt();
+      }
       prompt.setAttribute("aria-label", label);
     }
 

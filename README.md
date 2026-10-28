@@ -120,6 +120,10 @@ base config when unset. The **+** button on its right (**Custom profile**) lets
 you choose a named profile from the server's Codex config; **Default** uses the
 launch setting. Each session saves its profile name and uses it again on restart; existing sessions
 keep their configuration. Restart the server after adding or removing profiles.
+While the selected Agent is working, the empty composer cycles through usage
+hints about commands, frontend customization, session collaboration and optional
+features about every six seconds, starting at a random hint. Edit the short
+strings in the `hints` list in `workspace.html`'s `updatePromptPlaceholder` to change the tips.
 The gear button opens **Frontend customization** and **Share**.
 Frontend customization starts an Agent conversation for editing files in
 `~/.pycodex/frontend/`. Its setup context includes an API quick

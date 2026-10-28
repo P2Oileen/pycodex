@@ -295,6 +295,21 @@ beside the sidebar; replies covered by the phone drawer are marked read after
 it closes.
 Hover timers are cleared by explicit actions, mode changes and page hiding.
 
+The empty Web composer shows rotating usage tips while the selected session is
+running and is not waiting for user input. `updatePromptPlaceholder` keeps the
+editable `hints` string list in `workspace.html`; the existing snapshot refresh
+advances the list about every six seconds without a separate timer. Each session
+randomly selects its starting hint when work begins, then proceeds in list order.
+It tracks its own start time; idle or waiting states reset it and restore the model
+placeholder. Tips occupy a separate, non-editable layer over the empty composer,
+so the caret starts at the beginning of the input and tips never become draft
+contents or submissions. They wrap inside the composer, stay hidden behind text
+or context-token drafts, and leave the input's accessible model label unchanged.
+Keep each hint short and self-contained; do not split an instruction across
+successive hints. The list covers commands, frontend customization,
+inter-session collaboration and optional features present in the packaged
+catalog; optional feature hints use “在设置中添加：…” to indicate how to add them.
+
 Status dots, activity spinners and thinking borders use the same 1.2-second
 breathing cycle and easing. The workspace, workspace list and router set these
 CSS animations to the document timeline origin when they start, so indicators
