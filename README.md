@@ -120,6 +120,9 @@ base config when unset. The **+** button on its right (**Custom profile**) lets
 you choose a named profile from the server's Codex config; **Default** uses the
 launch setting. Each session saves its profile name and uses it again on restart; existing sessions
 keep their configuration. Restart the server after adding or removing profiles.
+The page loads the last selected session directly on reopening. Switching back
+to a visited session immediately restores its rendered messages and scroll
+position, then refreshes its content from the server.
 While the selected Agent is working, the empty composer cycles through usage
 hints about commands, frontend customization, workspace sharing, session collaboration and optional
 features about every six seconds, starting at a random hint. Edit the short

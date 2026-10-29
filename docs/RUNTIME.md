@@ -755,7 +755,14 @@ refresh instructions and a recovery link remain visible outside the block.
 Creating this session does not create customization files. Normal session
 persistence, tools, drafts and history apply. Each browser tab remembers its
 active session per workspace in `sessionStorage`, including across refresh
-and recovery navigation; a missing saved session selects the default.
+and recovery navigation. Initial polling requests that session directly; a 404
+for the saved session during startup selects the default, while other failures
+remain visible. Visited conversations retain their rendered entry nodes, scroll
+position, draft and disclosure state in page memory. Switching restores those
+nodes immediately and polls for updates; unchanged messages reuse the nodes.
+Closed sessions release their cached state when the session list is refreshed.
+Pending Mermaid rendering can complete in detached entries without scrolling
+the active conversation. Refreshing the page discards the rendered caches.
 
 The prompt directs the Agent to read existing customizations, use event
 delegation and idempotent setup for asynchronously rendered content, and

@@ -1654,7 +1654,7 @@
     let resizeStart = null;
     let spinnerText = "";
     let toastTimer = null;
-    let activeSessionId = "";
+    let activeSessionId = window.sessionStorage.getItem(activeSessionKey) || "";
     const frontendEvents = new EventTarget();
     let lastFrontendSessionId = "";
     let sessions = [];
@@ -1698,7 +1698,7 @@
     const renderMermaidSvg = (() => {
       let rendererPromise = null;
       let diagramId = 0;
-      return async (source, figure) => {
+      return async (source) => {
         if (!rendererPromise) {
           rendererPromise = import(
             "https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs"
@@ -1716,7 +1716,6 @@
           });
         }
         const renderer = await rendererPromise;
-        if (!figure.isConnected) return null;
         const measure = document.createElement("div");
         measure.style.cssText =
           "position:fixed;left:0;top:0;visibility:hidden;pointer-events:none";
@@ -1785,7 +1784,7 @@
 
     async function renderMermaidInto(root) {
       for (const code of root.querySelectorAll("pre > code.language-mermaid")) {
-        if (!code.isConnected) return;
+        if (!root.contains(code)) return;
         const source = code.textContent;
         const pre = code.parentElement;
         const figure = element("figure", "mermaid-figure");
@@ -1799,9 +1798,10 @@
         controls.appendChild(details);
         figure.append(diagram, controls);
         try {
-          const result = await renderMermaidSvg(source, figure);
-          if (!result || !figure.isConnected) return;
-          const stickToBottom = isNearBottom();
+          const result = await renderMermaidSvg(source);
+          // Cached conversations may finish rendering while detached.
+          if (!root.contains(figure)) return;
+          const stickToBottom = root.isConnected && isNearBottom();
           diagram.innerHTML = window.DOMPurify.sanitize(result.svg, {
             USE_PROFILES: {svg: true, svgFilters: true},
           });
@@ -1814,7 +1814,7 @@
           details.open = false;
           if (stickToBottom) scrollToBottom();
         } catch (error) {
-          if (!figure.isConnected) return;
+          if (!root.contains(figure)) return;
           diagram.textContent = "Diagram could not be rendered. Source is shown below.";
           details.open = true;
           console.warn("Mermaid diagram rendering failed", error);
@@ -2315,12 +2315,14 @@
       if (!sessionState.has(key)) {
         sessionState.set(key, {
           lastRenderedSignature: "",
+          entries: [],
           scrollTop: null,
           draft: {parts: []},
           promptHistory: new PromptHistory(),
           notifyWhenDone: false,
           wasRunning: false,
           inputRequest: null,
+          queuedInputs: [],
           hintStartedAt: null,
           hintStartIndex: 0,
           readingFinalId: "",
@@ -2336,6 +2338,7 @@
         state.scrollTop = log.scrollTop;
       }
       state.draft = composer.read();
+      state.entries = Array.from(log.children);
     }
 
     function updateSessions(nextSessions) {
@@ -2354,6 +2357,10 @@
         state.wasRunning = isRunning;
       });
       sessions = incomingSessions;
+      const sessionIds = new Set(sessions.map(session => session.id));
+      for (const id of sessionState.keys()) {
+        if (id !== activeSessionId && !sessionIds.has(id)) sessionState.delete(id);
+      }
       document.title = (sessions.some(session => session.running) ? "● " : "") + workspaceTitle;
       if (!activeSessionId && sessions.length) {
         activeSessionId = sessions[0].id || "";
@@ -2634,18 +2641,15 @@
         const path = requestedSessionId
           ? `api/session?session_id=${encodeURIComponent(requestedSessionId)}`
           : "api/session";
-        const response = await fetch(relativeUrl(path), {signal: request.controller.signal});
+        let response = await fetch(relativeUrl(path), {signal: request.controller.signal});
+        if (sessionPoll !== request || requestedSessionId !== activeSessionId) return;
+        // A saved session may have been closed since this page was last open.
+        if (response.status === 404 && requestedSessionId && !sessions.length) {
+          response = await fetch(relativeUrl("api/session"), {signal: request.controller.signal});
+        }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         if (sessionPoll !== request || requestedSessionId !== activeSessionId) {
-          return;
-        }
-        const savedId = !requestedSessionId && window.sessionStorage.getItem(activeSessionKey);
-        if (savedId && savedId !== payload.session_id &&
-            payload.sessions.some(session => session.id === savedId)) {
-          activeSessionId = savedId;
-          updateSessions(payload.sessions);
-          await pollSession();
           return;
         }
         if (payload.session_id && payload.session_id !== activeSessionId) {
@@ -2717,6 +2721,7 @@
       updateSessionDirectory(snapshot);
       const state = stateForSession(activeSessionId);
       state.inputRequest = snapshot.input_request || null;
+      state.queuedInputs = snapshot.queued_inputs;
       state.promptHistory.update(snapshot.turns);
       renderQueueHint(snapshot.queued_inputs);
       requestAnimationFrame(markVisibleFinalRead);
@@ -2981,16 +2986,16 @@
       updateSessionDirectory();
       updateContextMeter();
       const state = stateForSession(sessionId);
-      state.lastRenderedSignature = "";
       closeContextBlock();
       composer.set(state.draft);
       resizePrompt();
       suppressScrollSave = true;
-      log.textContent = "";
-      renderQueueHint([]);
+      log.replaceChildren(...state.entries);
+      renderQueueHint(state.queuedInputs);
       suppressScrollSave = false;
-      setSpinner("", {suppressDoneNotification: true});
+      setSpinner(sessionById(sessionId)?.spinner || "", {suppressDoneNotification: true});
       restoreScrollTop = state.scrollTop;
+      restoreSessionScroll();
       await pollSession();
       renderTabs();
     }
@@ -3170,7 +3175,6 @@
     }
 
     async function createSession(title = "", initialPrompt = "", profile = null) {
-      saveActiveSessionUiState();
       const response = await fetch(relativeUrl("api/sessions"), {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -3180,6 +3184,7 @@
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
+      saveActiveSessionUiState();
       activeSessionId = payload.session_id || "";
       const state = stateForSession(activeSessionId);
       state.draft = {parts: []};

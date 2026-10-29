@@ -319,7 +319,14 @@ class AbortController {
 let logVisible = process.argv[3] === "chat";
 let scrollTop = 0;
 const log = {
-  textContent: "",
+  get textContent() { return this.children.map(node => node.textContent).join(""); },
+  set textContent(value) {
+    this.children = value ? [{
+      textContent: value, parentElement: this,
+      getBoundingClientRect: () => ({top: 0, bottom: 1000}),
+    }] : [];
+  },
+  replaceChildren(...nodes) { this.children = nodes; },
   get scrollTop() { return logVisible ? scrollTop : 0; },
   set scrollTop(value) {
     if (logVisible) scrollTop = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight));

@@ -107,6 +107,16 @@ NODE_PATH=/tmp/pycodex-browser-check/node_modules node packages/pycodex-ws/tests
 其他诊断及最终错误可见、会话隔离、重新渲染、键盘、手机触摸和 HTML 转义。
 该脚本使用合成诊断与真实页面渲染函数，不请求模型。
 
+会话缓存的完整页面浏览器回归使用同一 Playwright 环境，手动运行：
+
+```bash
+NODE_PATH=/tmp/pycodex-browser-check/node_modules node packages/pycodex-ws/tests/workspace_session_cache.cjs
+```
+
+覆盖首次直接加载、已删除的保存会话、服务错误、切换即时复用节点、
+内容更新、展开状态、草稿、手机滚动、新建/关闭会话及切走后的 Mermaid
+异步完成。所有请求使用离线 fixture，不访问真实会话或 CDN。
+
 ### HTTP 框架依赖
 
 - `packages/pycodex-ws/tests/test_workspace_sharing.py` 覆盖管理员/访问者登录、
