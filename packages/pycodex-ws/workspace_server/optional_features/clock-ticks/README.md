@@ -25,6 +25,10 @@ This is presentation only; it does not change timers, prompts or saved history.
   a native expandable divider alongside the original prompt element.
 - [source/custom.css](source/custom.css): divider, focus and mobile styles using
   the page's existing theme variables.
+- [source/fixture.mjs](source/fixture.mjs): synthetic conversation and controls
+  for incoming ticks, reply updates, session changes and history reloads.
+- [source/verify.mjs](source/verify.mjs): repeatable browser lifecycle checks.
+- [preview.html](preview.html): interactive example using the supplied source.
 
 ## Integration
 
@@ -57,18 +61,40 @@ remove entries through the host's normal renderer.
 Remove the two imports and refresh to undo. `?builtin=1` also bypasses all user
 customizations.
 
+To run the standalone example, from the repository root:
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1 --directory packages/pycodex-ws/workspace_server/optional_features/clock-ticks
+```
+
+Open `http://127.0.0.1:8765/preview.html` to try the controls. Add `?verify` to
+run the browser checks and display their PASS/FAIL result. Stop the server with
+Ctrl-C. The example contains only synthetic data and makes no API requests.
+
 ## Validation
 
-Browser checks cover history loaded before/after initialization, newly arriving
-ticks, stable details while responses stream, ordinary/malformed/quoted prompts,
-source updates, session replacement, cleanup, keyboard interaction, and narrow
-screens. Validation evidence is maintained alongside the local integration.
+The preview's `?verify` mode covers existing history, newly arriving ticks,
+source-node preservation, stable open details during reply updates, repeated
+mounting, ordinary/malformed/quoted prompts, payload escaping, source replacement,
+character-data updates, session/history replacement, cleanup and remounting.
+
+Additional Chromium checks cover keyboard activation, actual refresh, desktop
+and 390px layouts, and the current built-in conversation renderer. The source
+has also been checked against 64 historical notifications in a running local
+workspace, including refresh, session switching and built-in recovery. Those
+conversation records are not part of this example.
+
+Validation does not start a real clock or model run. The display consumes
+existing prompt DOM, so new arrivals and reply streaming are exercised with
+synthetic updates.
 
 ## Preview
 
-```text
-────────── ◷ 定时唤醒 · 14:40 ──────────
-```
+[Interactive preview](preview.html).
+
+![Clock tick divider in a synthetic conversation](preview.png)
+
+[Mobile screenshot](preview-mobile.png).
 
 The closed divider occupies one quiet row. Opening it reveals two detail rows.
 
